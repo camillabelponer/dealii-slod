@@ -4,6 +4,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q.h>
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_q_iso_q1.h>
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
@@ -13,6 +14,8 @@
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_matrix.h>
+
+#include <deal.II/grid/grid_tools.h>
 
 using namespace dealii;
 
@@ -72,12 +75,13 @@ test_normal()
 void
 test_two_level()
 {
+  const unsigned int oversampling         = 1;
   const unsigned int dim                  = 2;
   const unsigned int n_subdivisions       = 5;
   const unsigned int n_global_refinements = 2;
   using Number                            = double;
 
-  FE_Q<dim>        fe_coarse(1);
+  FE_DGQ<dim>      fe_coarse(0);
   FE_Q_iso_Q1<dim> fe_fine(n_subdivisions);
   QIterated<dim>   quad_fine(QGauss<1>(2), n_subdivisions);
 
@@ -89,11 +93,18 @@ test_two_level()
   dof_handler.distribute_dofs(fe_coarse);
 
   // variables for coarse cells/patches
-  std::vector<std::vector<types::global_dof_index>> cell_dof_indices;
-  std::vector<std::vector<unsigned int>>            patch_cell_indices;
+  // cell_dof_indices[j] contains dofs of cell with id j
+  // TODO: should this really be a vector of vectors?
+  // Maybe a vector of index sets
+  std::map<unsigned int, std::vector<types::global_dof_index>> cell_dof_indices;
+  // patch_cell_indices[i] conatins cell ids that belong to patch centered at cell i
+  // Should have (2 * oversampling + 1)^d elements max
+  // TODO:
+  // Maybe a map of sets
+  std::map<unsigned int, IndexSet>                  patch_cell_indices;
   std::vector<std::vector<FullMatrix<Number>>>      patch_cell_constraints;
 
-  // TODO: we fill the data structuers cell_dof_indices,
+  // TODO: we fill the data structures cell_dof_indices,
   // patch_cell_indices, and patch_cell_constraints for a simple
   // two-level context; for LOD these have to be adjusted
   for (const auto &cell : dof_handler.active_cell_iterators())
@@ -101,12 +112,19 @@ test_two_level()
       std::vector<types::global_dof_index> dof_indices(
         fe_coarse.n_dofs_per_cell());
       cell->get_dof_indices(dof_indices);
-      cell_dof_indices.push_back(dof_indices);
+      cell_dof_indices[cell->active_cell_index()] = dof_indices;
 
-      std::vector<unsigned int> cell_indices;
-      cell_indices.push_back(cell->active_cell_index());
-      patch_cell_indices.push_back(cell_indices);
+      // TODO: Handle special cases at the boundaries
+      IndexSet cell_indices;
+      for (unsigned int l = 1; l <= oversampling; l++) {
+        auto neighbours = GridTools::get_patch_around_cell<DoFHandler<dim, dim>>(cell);
+        for (const auto &neighbour : neighbours) {
+          cell_indices.add_index(neighbour->active_cell_index());
+        }
+      }
+      patch_cell_indices[cell->active_cell_index()] = cell_indices;
 
+      // TODO
       FullMatrix<Number> matrix(fe_fine.n_dofs_per_cell(),
                                 fe_coarse.n_dofs_per_cell());
       FETools::get_projection_matrix(fe_coarse, fe_fine, matrix);
@@ -115,13 +133,38 @@ test_two_level()
       patch_cell_constraints.push_back(constraints);
     }
 
+  // Solve local problems
+  FEValues<dim>      fe_values(fe_fine,
+                          quad_fine,
+                          update_gradients | update_JxW_values);
+  FullMatrix<Number> A_K_fem(fe_fine.n_dofs_per_cell(),
+                             fe_fine.n_dofs_per_cell());
+  for (const auto &cell : tria.active_cell_iterators())
+    {
+      const unsigned int id = cell->active_cell_index();
+
+      // 1) assemble element stiffness matrix
+      fe_values.reinit(cell);
+
+      A_K_fem = 0.0;
+
+      for (const unsigned int q_index : fe_values.quadrature_point_indices())
+        for (const unsigned int i : fe_values.dof_indices())
+          for (const unsigned int j : fe_values.dof_indices())
+            A_K_fem(i, j) +=
+              (fe_values.shape_grad(i, q_index) * // grad phi_i(x_q)
+               fe_values.shape_grad(j, q_index) * // grad phi_j(x_q)
+               fe_values.JxW(q_index));           // dx
+    }
+
+  // TODO: This should be done later, first solve local problems
   // create sparsity pattern
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
 
-  for (unsigned int i = 0; i < patch_cell_indices.size(); ++i)
+  for (auto const& pair : patch_cell_indices)
     {
       std::vector<types::global_dof_index> indices;
-      for (const auto j : patch_cell_indices[i])
+      for (const auto j : pair.second)
         for (const auto k : cell_dof_indices[j])
           indices.push_back(k);
 
