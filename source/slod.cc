@@ -1,6 +1,22 @@
 #include <deal.II/grid/grid_tools.h>
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/quadrature.h>
 #include <deal.II/base/types.h>
+#include <deal.II/numerics/vector_tools.h>
+
+#define FORCE_USE_OF_TRILINOS
+namespace LA
+{
+#if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
+  !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
+  using namespace dealii::LinearAlgebraPETSc;
+#  define USE_PETSC_LA
+#elif defined(DEAL_II_WITH_TRILINOS)
+  using namespace dealii::LinearAlgebraTrilinos;
+#else
+#  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
+#endif
+} // namespace LA
 
 #include <slod.h>
 
@@ -16,6 +32,8 @@ void SLOD<dim>::make_fe()
   fe_coarse = std::make_unique(FE_DGQ<dim>(0));
   fe_fine = std::make_unique(FE_Q_iso_Q1<dim>(n_subdivisions));
   dof_handler.distribute_dofs(fe_coarse);
+  // TODO: 2?
+  quadrature_fine = QIterated<dim>(QGauss<1>(2), n_subdivisions);
 }
 
 template<int dim>
@@ -100,10 +118,15 @@ void SLOD<dim>::compute_coarse_basis()
   DoFHandler<dim> dh_fine(sub_tria);
   IndexSet global_boundary_dofs;
   IndexSet internal_boundary_dofs;
+  IndexSet internal_boundary_dofs_comp;
   std::vector<unsigned int> dofs;
+  FullMatrix<double> patch_stiffness_matrix;
+  FullMatrix<double> patch_stiffness_matrix_a0;
+  FullMatrix<double> patch_stiffness_matrix_a1;
   for (unsigned int i = 0; i < patches.size(); i++) {
     global_boundary_dofs.clear();
     internal_boundary_dofs.clear();
+    internal_boundary_dofs_comp.clear();
     create_mesh_for_patch(i, &sub_tria);
     dh_fine.reinit(sub_tria);
     dh_fine.distribute_dofs(*fe_fine);
@@ -122,6 +145,22 @@ void SLOD<dim>::compute_coarse_basis()
       }
     }
     internal_boundary_dofs.subtract_set(global_boundary_dofs);
+    internal_boundary_dofs_comp.add_range(0, dh_fine.n_dofs());
+    internal_boundary_dofs_comp.subtract_set(internal_boundary_dofs);
+
+    // TODO: Can fe_fine be used for different patches at the same time?
+    assemble_stiffness(dh_fine, patch_stiffness_matrix);
+
+    // TODO: This is f**in inefficient
+    auto index_vector_0 = internal_boundary_dofs_comp.get_index_vector();
+    auto index_vector_1 = internal_boundary_dofs.get_index_vector();
+    patch_stiffness_matrix_a0.extract_submatrix_from(&patch_stiffness_matrix, index_vector_0, index_vector_0);
+    patch_stiffness_matrix_a1.extract_submatrix_from(&patch_stiffness_matrix, index_vector_1, index_vector_0);
+
+    // Invert A0
+    patch_stiffness_matrix_a0.gauss_jordan();
+
+    patch_stiffness_matrix_a1.mmult(patch_stiffness_matrix_a0, patch_stiffness_matrix_a1);
   }
 }
 
@@ -209,4 +248,61 @@ SLOD<dim>::create_mesh_for_patch(unsigned int patch_id, Triangulation<dim> &sub_
         sub_cell++;
       }
   }
+}
+
+template <int dim>
+void
+SLOD<dim>::assemble_stiffness(DoFHandler<dim> &dh, FullMatrix<double> &stiffness_matrix)
+{
+  // TODO: avoid reallocations
+  // TODO
+  // TimerOutput::Scope t(computing_timer, "Assemble Stiffness and Neumann rhs");
+  FEValues<dim> fe_values(*fe_fine,
+                               *quadrature_fine,
+                               update_values | update_gradients |
+                                 update_quadrature_points | update_JxW_values);
+
+  const unsigned int          dofs_per_cell = fe_fine->n_dofs_per_cell();
+  const unsigned int          n_q_points    = quadrature_fine->size();
+  FullMatrix<double>          cell_matrix(dofs_per_cell, dofs_per_cell);
+  std::vector<Tensor<2, dim>>     grad_phi_u(dofs_per_cell);
+  std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+  AffineConstraints<double> constraints;
+
+  // TODO: Parameter adaptable parameters
+  // DoFTools::make_hanging_node_constraints(dh, constraints);
+  VectorTools::interpolate_boundary_values(dh, 0, 0, constraints);
+
+  for (const auto &cell : dh.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        cell_matrix = 0;
+        fe_values.reinit(cell);
+        // par.rhs.vector_value_list(fe_values.get_quadrature_points(),
+        //                           rhs_values);
+        for (unsigned int q = 0; q < n_q_points; ++q)
+          {
+            for (unsigned int k = 0; k < dofs_per_cell; ++k)
+              {
+                grad_phi_u[k] =
+                  fe_values.gradient(k, q);
+              }
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+              {
+                for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                  {
+                    cell_matrix(i, j) +=
+                         scalar_product(grad_phi_u[i], grad_phi_u[j]) *
+                         fe_values.JxW(q);
+                  }
+              }
+          }
+
+
+        cell->get_dof_indices(local_dof_indices);
+        // TODO: Handle inhomogeneous dirichlet bc
+        constraints.distribute_local_to_global(cell_matrix,
+                                               local_dof_indices,
+                                               stiffness_matrix);
+      }
 }

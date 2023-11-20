@@ -2,6 +2,8 @@
 
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_q_iso_q1.h>
+#include <deal.II/lac/full_matrix.h>
+
 
 using namespace dealii;
 
@@ -20,6 +22,7 @@ class SLOD {
     void compute_coarse_basis();
   private:
     void create_mesh_for_patch(unsigned int patch_id, Triangulation<dim> &sub_tria);
+    void assemble_stiffness(DoFHandler<dim> &dh, FullMatrix<double> &stiffness);
 
     unsigned int oversampling           = 1;
     unsigned int n_subdivisions         = 5;
@@ -30,6 +33,7 @@ class SLOD {
 
     std::unique_ptr<FiniteElement<dim>> fe_coarse;
     std::unique_ptr<FiniteElement<dim>> fe_fine;
+    std::unique_ptr<Quadrature<dim>>    quadrature_fine;
 
     // cell_dof_indices[j] contains dofs of cell with id j
     std::vector<std::vector<types::global_dof_index>> cell_dof_indices;
