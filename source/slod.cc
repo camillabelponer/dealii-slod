@@ -1,23 +1,4 @@
-#include <deal.II/grid/grid_tools.h>
-#include <deal.II/base/exceptions.h>
-#include <deal.II/base/quadrature.h>
-#include <deal.II/base/types.h>
-#include <deal.II/numerics/vector_tools.h>
-
-#define FORCE_USE_OF_TRILINOS
-namespace LA
-{
-#if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
-  !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
-  using namespace dealii::LinearAlgebraPETSc;
-#  define USE_PETSC_LA
-#elif defined(DEAL_II_WITH_TRILINOS)
-  using namespace dealii::LinearAlgebraTrilinos;
-#else
-#  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
-#endif
-} // namespace LA
-
+#include <deal.II/lac/generic_linear_algebra.h>
 #include <slod.h>
 
 template<int dim>
@@ -114,16 +95,57 @@ const unsigned int SPECIAL_NUMBER = 69;
 template<int dim>
 void SLOD<dim>::compute_coarse_basis()
 {
+  const unsigned int patch_size = pow(2 * oversampling + 1, dim);
+  
   Triangulation<dim> sub_tria;
   DoFHandler<dim> dh_fine(sub_tria);
   IndexSet global_boundary_dofs;
   IndexSet internal_boundary_dofs;
   IndexSet internal_boundary_dofs_comp;
   std::vector<unsigned int> dofs;
+
   FullMatrix<double> patch_stiffness_matrix;
   FullMatrix<double> patch_stiffness_matrix_a0;
   FullMatrix<double> patch_stiffness_matrix_a1;
+  FullMatrix<double> patch_S;
+  FullMatrix<double> patch_X_sq;
+  PETScWrappers::FullMatrix patch_X_sq_petsc; 
+
+  std::vector<unsigned int> index_vector_0;
+  std::vector<unsigned int> index_vector_1;
+  std::vector<unsigned int> range;
+  for (unsigned int j = 0; j < patch_size * fe_fine.n_dofs_per_cell(); j++) {
+    range[j] = j;
+  }
+
+  FullMatrix<double> projection_fine_to_coarse_cell(fe_coarse.n_dofs_per_cell(), fe_fine.n_dofs_per_cell());
+  FETools::get_projection_matrix(fe_fine, fe_coarse, projection_fine_to_coarse_cell);
+  FullMatrix<double> projection_fine_to_coarse_patch(patch_size * fe_coarse.n_dofs_per_cell(), patch_size * fe_fine.n_dofs_per_cell());
+  for (unsigned int j = 0; j < patch_size; j++) {
+    projection_fine_to_coarse_patch.fill(
+      projection_fine_to_coarse_cell,
+      j * fe_coarse.n_dofs_per_cell(),
+      j * fe_fine.n_dofs_per_cell(),
+      0, 0);
+  }
+
+  std::vector<std::vector<double>> right_hand_sides;
+  std::vector<double> eigenvalues;
+  Vector<double> right_hand_side_fine;
+
+  SolverControl solver_control(100, 1e-9);
+  SLEPcWrappers::SolverLanczos eig_solver(solver_control);
+  eig_solver.set_problem_type(EPS_HEP);
+  eig_solver.set_which_eigenpairs(EPS_LARGEST_MAGNITUDE);
+
+  LA::MPI::SparseMatrix basis_matrix(dof_handler.n_dofs());
+  // TODO: needs to be changed for mpi
+  unsigned int next_index = 0;
+
   for (unsigned int i = 0; i < patches.size(); i++) {
+
+    if (patches[i].num_basis_vectors == 0) continue;
+    
     global_boundary_dofs.clear();
     internal_boundary_dofs.clear();
     internal_boundary_dofs_comp.clear();
@@ -144,6 +166,7 @@ void SLOD<dim>::compute_coarse_basis()
         }
       }
     }
+
     internal_boundary_dofs.subtract_set(global_boundary_dofs);
     internal_boundary_dofs_comp.add_range(0, dh_fine.n_dofs());
     internal_boundary_dofs_comp.subtract_set(internal_boundary_dofs);
@@ -152,15 +175,54 @@ void SLOD<dim>::compute_coarse_basis()
     assemble_stiffness(dh_fine, patch_stiffness_matrix);
 
     // TODO: This is f**in inefficient
-    auto index_vector_0 = internal_boundary_dofs_comp.get_index_vector();
-    auto index_vector_1 = internal_boundary_dofs.get_index_vector();
+    internal_boundary_dofs_comp.fill_index_vector(index_vector_0);
+    internal_boundary_dofs.fill_index_vector(index_vector_1);
+
+    patch_stiffness_matrix_a0.reinit(index_vector_0.size(), index_vector_0.size(), true);
+    patch_stiffness_matrix_a1.reinit(index_vector_0.size(), index_vector_1.size(), true);
+    patch_S.reinit(dh_fine.n_dofs(), index_vector_1.size(), true);
+    patch_X_sq.reinit(index_vector_1.size(), index_vector_1.size(), true);
+    patch_X_sq_petsc.reinit(patch_size * fe_coarse.n_dofs_per_cell(), patch_size * fe_coarse.n_dofs_per_cell());
+
     patch_stiffness_matrix_a0.extract_submatrix_from(&patch_stiffness_matrix, index_vector_0, index_vector_0);
-    patch_stiffness_matrix_a1.extract_submatrix_from(&patch_stiffness_matrix, index_vector_1, index_vector_0);
+    patch_stiffness_matrix_a1.extract_submatrix_from(&patch_stiffness_matrix, index_vector_0, index_vector_1);
 
     // Invert A0
+    // TODO: also inefficient
     patch_stiffness_matrix_a0.gauss_jordan();
 
     patch_stiffness_matrix_a1.mmult(patch_stiffness_matrix_a0, patch_stiffness_matrix_a1);
+    patch_stiffness_matrix_a1 *= -1;
+
+    {
+      auto range_temp = std::vector<unsigned int>(range.begin(), range.begin() + index_vector_1.size());
+      patch_S = 0;
+      patch_stiffness_matrix_a1.scatter_matrix_to(index_vector_0, range_temp, patch_S);
+      for (unsigned int j = 0; j < index_vector_1.size(); j++) {
+        patch_S.set(index_vector_1[j], j, 1);
+      }
+    }
+
+    {
+      auto range_temp = std::vector<unsigned int>(range.begin(), range.begin() + patch_size * fe_coarse.n_dofs_per_cell());
+      patch_S.mmult(patch_S, projection_fine_to_coarse_patch);
+      patch_X_sq.mTmult(patch_S, patch_S);
+      patch_X_sq_petsc.set(range_temp, patch_X_sq);
+    }
+
+    right_hand_sides.clear();
+    right_hand_sides.push_back(std::vector<double>(patch_size * fe_coarse.n_dofs_per_cell(), 0.0));
+    eig_solver.solve(patch_X_sq_petsc, eigenvalues, right_hand_sides, patches[i].num_basis_vectors);
+
+    for (unsigned int j = 0; j < patches[i].num_basis_vectors; j++) {
+      assemble_rhs_fine_from_coarse(dh_fine, right_hand_sides[j], right_hand_side_fine);
+      patch_stiffness_matrix_a0.vmult(right_hand_side_fine, right_hand_side_fine);
+
+      for (auto cell_id : patches[i].cells) {
+        auto cell = tria.create_cell_iterator(cell_id);
+
+      }
+    }
   }
 }
 
@@ -304,5 +366,50 @@ SLOD<dim>::assemble_stiffness(DoFHandler<dim> &dh, FullMatrix<double> &stiffness
         constraints.distribute_local_to_global(cell_matrix,
                                                local_dof_indices,
                                                stiffness_matrix);
+      }
+}
+
+template <int dim>
+void
+SLOD<dim>::assemble_rhs_fine_from_coarse(DoFHandler<dim> &dh, std::vector<double> &coarse_vec, Vector<double> &fine_vec)
+{
+  fine_vec = 0;
+  // TODO: avoid reallocations
+  // TODO
+  // TimerOutput::Scope t(computing_timer, "Assemble Stiffness and Neumann rhs");
+  FEValues<dim> fe_values(*fe_fine,
+                               *quadrature_fine,
+                               update_values |
+                                 update_quadrature_points | update_JxW_values);
+  FEValues<dim> fe_values_coarse(*fe_coarse, *quadrature_fine, update_values | update_quadrature_points);
+
+  const unsigned int          dofs_per_cell = fe_fine->n_dofs_per_cell();
+  const unsigned int          n_q_points    = quadrature_fine->size();
+
+  std::vector<double> local_vec(dofs_per_cell, 0);
+
+  for (const auto &cell : dh.active_cell_iterators())
+    if (cell->is_locally_owned())
+      {
+        local_vec.assign(dofs_per_cell, 0);
+        fe_values.reinit(cell);
+        fe_coarse.reinit(cell);
+        for (unsigned int q = 0; q < n_q_points; ++q)
+          {
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+              {
+                for (unsigned int j = 0; j < fe_coarse.n_dofs_per_cell(); ++j)
+                  {
+                    local_vec[i] +=
+                          coarse_vec[j] *
+                          fe_values.shape_value(i, q) *
+                          fe_coarse.shape_value(j, q) *
+                         fe_values.JxW(q);
+                  }
+              }
+          }
+
+
+        cell->distribute_local_to_global(local_vec, fine_vec);
       }
 }
