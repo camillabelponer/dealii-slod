@@ -44,7 +44,9 @@ using namespace dealii;
 
 struct Patch {
   IndexSet cells;
-  unsigned int num_basis_vectors;
+  Triangulation<dim> sub_tria;
+  DoFHandler<dim> dh_fine;
+  std::vector<std::vector<double>> basis_function_candidates;
 };
 
 template<int dim>
@@ -54,25 +56,29 @@ class SLOD {
 
     void make_fe();
     void create_patches();
-    void compute_coarse_basis();
+    void compute_basis_function_candidates();
+    void stabilize();
+    void assemble_global_matrix();
   private:
-    void create_mesh_for_patch(unsigned int patch_id, Triangulation<dim> &sub_tria);
-    void assemble_stiffness(DoFHandler<dim> &dh, FullMatrix<double> &stiffness);
-    void assemble_rhs_fine_from_coarse(DoFHandler<dim> &dh, std::vector<double> &coarse_vec, Vector<double> &fine_vec);
+    void create_mesh_for_patch(unsigned int patch_id);
+    void assemble_stiffness_for_patch(unsigned int patch_id, FullMatrix<double> &stiffness);
+    void assemble_rhs_fine_from_coarse(unsigned int patch_id, std::vector<double> &coarse_vec, Vector<double> &fine_vec);
 
     unsigned int oversampling           = 1;
     unsigned int n_subdivisions         = 5;
     unsigned int n_global_refinements   = 2;
+    unsigned int num_basis_vectors = 10;
 
     Triangulation<dim> tria;
     DoFHandler<dim> dof_handler;
+
+    LA::MPI::SparseMatrix global_matrix;
+    // TODO: Add rhs
 
     std::unique_ptr<FiniteElement<dim>> fe_coarse;
     std::unique_ptr<FiniteElement<dim>> fe_fine;
     std::unique_ptr<Quadrature<dim>>    quadrature_fine;
 
-    // cell_dof_indices[j] contains dofs of cell with id j
-    std::vector<std::vector<types::global_dof_index>> cell_dof_indices;
     // TODO: This should be an MPI vector
     std::vector<Patch>                  patches;
 };
