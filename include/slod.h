@@ -42,45 +42,62 @@ namespace LA
 
 using namespace dealii;
 
-struct Patch {
-  IndexSet cells;
-  Triangulation<dim> sub_tria;
-  DoFHandler<dim> dh_fine;
+template <int dim>
+class Patch
+{
+public:
+  IndexSet                         cells;
+  Triangulation<dim>               sub_tria;
+  DoFHandler<dim>                  dh_fine;
   std::vector<std::vector<double>> basis_function_candidates;
 };
 
-template<int dim>
-class SLOD {
-  public:
-    SLOD(Triangulation<dim> tria);
+template <int dim>
+class SLOD
+{
+public:
+  SLOD(Triangulation<dim> tria);
 
-    void make_fe();
-    void create_patches();
-    void compute_basis_function_candidates();
-    void stabilize();
-    void assemble_global_matrix();
-  private:
-    void create_mesh_for_patch(unsigned int patch_id);
-    void assemble_stiffness_for_patch(unsigned int patch_id, FullMatrix<double> &stiffness);
-    void assemble_rhs_fine_from_coarse(unsigned int patch_id, std::vector<double> &coarse_vec, Vector<double> &fine_vec);
+  void
+  make_fe();
+  void
+  create_patches();
+  void
+  compute_basis_function_candidates();
+  void
+  stabilize();
+  void
+  assemble_global_matrix();
 
-    unsigned int oversampling           = 1;
-    unsigned int n_subdivisions         = 5;
-    unsigned int n_global_refinements   = 2;
-    unsigned int num_basis_vectors = 10;
+private:
+  MPI_Comm mpi_communicator;
+  void
+  create_mesh_for_patch(Patch<dim> &current_patch);
+  void
+  assemble_stiffness_for_patch(Patch<dim> &        current_patch,
+                               FullMatrix<double> &stiffness);
+  void
+  assemble_rhs_fine_from_coarse(Patch<dim> &         current_patch,
+                                std::vector<double> &coarse_vec,
+                                Vector<double> &     fine_vec);
 
-    Triangulation<dim> tria;
-    DoFHandler<dim> dof_handler;
+  unsigned int oversampling         = 1;
+  unsigned int n_subdivisions       = 5;
+  unsigned int n_global_refinements = 2;
+  unsigned int num_basis_vectors    = 10;
 
-    LA::MPI::SparseMatrix global_matrix;
-    // TODO: Add rhs
+  Triangulation<dim> tria;
+  DoFHandler<dim>    dof_handler;
 
-    std::unique_ptr<FiniteElement<dim>> fe_coarse;
-    std::unique_ptr<FiniteElement<dim>> fe_fine;
-    std::unique_ptr<Quadrature<dim>>    quadrature_fine;
+  LA::MPI::SparseMatrix global_matrix;
+  // TODO: Add rhs
 
-    // TODO: This should be an MPI vector
-    std::vector<Patch>                  patches;
+  std::unique_ptr<FiniteElement<dim>> fe_coarse;
+  std::unique_ptr<FiniteElement<dim>> fe_fine;
+  std::unique_ptr<Quadrature<dim>>    quadrature_fine;
+
+  // TODO: This should be an MPI vector
+  std::vector<Patch<dim>> patches;
 };
 
 #endif

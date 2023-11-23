@@ -3,19 +3,18 @@
 
 #include <deal.II/dofs/dof_tools.h>
 
-#include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_dgq.h>
+#include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/fe_q_iso_q1.h>
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/grid/tria.h>
 
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 #include <deal.II/lac/sparse_matrix.h>
-
-#include <deal.II/grid/grid_tools.h>
 
 using namespace dealii;
 
@@ -97,12 +96,12 @@ test_two_level()
   // TODO: should this really be a vector of vectors?
   // Maybe a vector of index sets
   std::map<unsigned int, std::vector<types::global_dof_index>> cell_dof_indices;
-  // patch_cell_indices[i] conatins cell ids that belong to patch centered at cell i
-  // Should have (2 * oversampling + 1)^d elements max
+  // patch_cell_indices[i] conatins cell ids that belong to patch centered at
+  // cell i Should have (2 * oversampling + 1)^d elements max
   // TODO:
   // Maybe a map of sets
-  std::map<unsigned int, IndexSet>                  patch_cell_indices;
-  std::vector<std::vector<FullMatrix<Number>>>      patch_cell_constraints;
+  std::map<unsigned int, IndexSet>             patch_cell_indices;
+  std::vector<std::vector<FullMatrix<Number>>> patch_cell_constraints;
 
   // TODO: we fill the data structures cell_dof_indices,
   // patch_cell_indices, and patch_cell_constraints for a simple
@@ -116,12 +115,15 @@ test_two_level()
 
       // TODO: Handle special cases at the boundaries
       IndexSet cell_indices;
-      for (unsigned int l = 1; l <= oversampling; l++) {
-        auto neighbours = GridTools::get_patch_around_cell<DoFHandler<dim, dim>>(cell);
-        for (const auto &neighbour : neighbours) {
-          cell_indices.add_index(neighbour->active_cell_index());
+      for (unsigned int l = 1; l <= oversampling; l++)
+        {
+          auto neighbours =
+            GridTools::get_patch_around_cell<DoFHandler<dim, dim>>(cell);
+          for (const auto &neighbour : neighbours)
+            {
+              cell_indices.add_index(neighbour->active_cell_index());
+            }
         }
-      }
       patch_cell_indices[cell->active_cell_index()] = cell_indices;
 
       // TODO
@@ -161,7 +163,7 @@ test_two_level()
   // create sparsity pattern
   DynamicSparsityPattern dsp(dof_handler.n_dofs());
 
-  for (auto const& pair : patch_cell_indices)
+  for (auto const &pair : patch_cell_indices)
     {
       std::vector<types::global_dof_index> indices;
       for (const auto j : pair.second)
