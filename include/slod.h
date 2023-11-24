@@ -18,24 +18,18 @@
 #include <deal.II/lac/linear_operator.h>
 #include <deal.II/lac/linear_operator_tools.h>
 #include <deal.II/lac/petsc_full_matrix.h>
+#include <deal.II/lac/petsc_vector.h>
+#include <deal.II/lac/petsc_matrix_free.h>
 #include <deal.II/lac/slepc_solver.h>
 #include <deal.II/lac/solver_control.h>
 
+#include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 #include <deal.II/numerics/vector_tools.h>
 
 
-#define FORCE_USE_OF_TRILINOS
 namespace LA
 {
-#if defined(DEAL_II_WITH_PETSC) && !defined(DEAL_II_PETSC_WITH_COMPLEX) && \
-  !(defined(DEAL_II_WITH_TRILINOS) && defined(FORCE_USE_OF_TRILINOS))
   using namespace dealii::LinearAlgebraPETSc;
-#  define USE_PETSC_LA
-#elif defined(DEAL_II_WITH_TRILINOS)
-  using namespace dealii::LinearAlgebraTrilinos;
-#else
-#  error DEAL_II_WITH_PETSC or DEAL_II_WITH_TRILINOS required
-#endif
 } // namespace LA
 
 
@@ -75,11 +69,7 @@ private:
   create_mesh_for_patch(Patch<dim> &current_patch);
   void
   assemble_stiffness_for_patch(Patch<dim> &        current_patch,
-                               FullMatrix<double> &stiffness);
-  void
-  assemble_rhs_fine_from_coarse(Patch<dim> &         current_patch,
-                                std::vector<double> &coarse_vec,
-                                Vector<double> &     fine_vec);
+                               FullMatrix<double> &stiffness_matrix);
 
   unsigned int oversampling         = 1;
   unsigned int n_subdivisions       = 5;
@@ -98,6 +88,22 @@ private:
 
   // TODO: This should be an MPI vector
   std::vector<Patch<dim>> patches;
+};
+
+template<int dim>
+class PatchXSq : PETScWrappers::MatrixFree {
+  public:
+    PatchXSq();
+    void reinit(LinearOperator<Vector<double>> linop, DoFHandler<dim> &dh_coarse, DoFHandler<dim> &dh_fine);
+    void vmult_add(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src);
+    void Tvmult_add(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src);
+    void vmult(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src);
+    void Tvmult(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src);
+
+    LinearOperator<Vector<double>> op;
+    MGTwoLevelTransfer<dim, Vector<double>> transfer;
+    Vector<double> intermediate_fine;
+    Vector<double> intermediate_coarse;
 };
 
 #endif
