@@ -1,13 +1,9 @@
-#include <deal.II/dofs/dof_handler.h>
-#include <deal.II/lac/constrained_linear_operator.h>
-#include <deal.II/lac/generic_linear_algebra.h>
-#include <deal.II/multigrid/mg_transfer_global_coarsening.h>
-
 #include <slod.h>
 
 template <int dim>
-SLOD<dim>::SLOD(Triangulation<dim> tria)
-  : tria(tria)
+SLOD<dim>::SLOD(MPI_Comm mpi_communicator)
+  : mpi_communicator(mpi_communicator)
+  , tria(mpi_communicator)
   , dof_handler(tria)
 {}
 
@@ -15,11 +11,11 @@ template <int dim>
 void
 SLOD<dim>::make_fe()
 {
-  fe_coarse = std::make_unique(FE_DGQ<dim>(0));
-  fe_fine   = std::make_unique(FE_Q_iso_Q1<dim>(n_subdivisions));
-  dof_handler.distribute_dofs(fe_coarse);
+  fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
+  fe_fine   = std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(n_subdivisions));
+  dof_handler.distribute_dofs(*fe_coarse);
   // TODO: 2?
-  quadrature_fine = QIterated<dim>(QGauss<1>(2), n_subdivisions);
+  quadrature_fine = std::make_unique<Quadrature<dim>>(QIterated<dim>(QGauss<1>(2), n_subdivisions));
 }
 
 template <int dim>
@@ -31,38 +27,36 @@ SLOD<dim>::create_patches()
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
       std::vector<types::global_dof_index> dof_indices(
-        fe_coarse.n_dofs_per_cell());
+        fe_coarse->n_dofs_per_cell());
       cell->get_dof_indices(dof_indices);
       // cell_dof_indices[cell->active_cell_index()] = dof_indices;
 
-      bool       crosses_border = false;
-      Patch<dim> patch;
+      auto patch = &patches.emplace_back();
+      
       patch_iterators.clear();
       patch_iterators.push_back(cell);
       // The iterators for level l are in the range [l_start, l_end) of
       // patch_iterators
       unsigned int l_start = 0;
       unsigned int l_end   = 1;
-      patch.cells.add_index(cell->active_cell_index());
+      patch->cells.push_back(cell);
+      patch->cell_indices.add_index(cell->active_cell_index());
       for (unsigned int l = 1; l <= oversampling; l++)
         {
           for (unsigned int i = l_start; i <= l_end; i++)
             {
-              if (patch_iterators[i].at_boundary())
-                {
-                  crosses_border = true;
-                }
-              for (auto vertex : patch_iterators[i].vertex_iterator())
+              for (auto vertex : patch_iterators[i]->vertex_indices())
                 {
                   for (const auto &neighbour :
-                       GridTools::find_cells_adjacent_to_vertex(tria, vertex))
+                       GridTools::find_cells_adjacent_to_vertex(dof_handler, vertex))
                     {
-                      if (!patch.cells.is_element(
+                      if (!patch->cell_indices.is_element(
                             neighbour->active_cell_index()))
                         {
                           patch_iterators.push_back(neighbour);
                         }
-                      patch.cells.add_index(neighbour->active_cell_index());
+                      patch->cells.push_back(neighbour);
+                      patch->cell_indices.add_index(neighbour->active_cell_index());
                     }
                 }
             }
@@ -74,7 +68,6 @@ SLOD<dim>::create_patches()
       //     } else {
       //       patch.num_basis_vectors = 1;
       //     }
-      patches[cell->active_cell_index()] = patch;
     }
 
   // For patches at the border, find the neighbouring patch that is not at the
@@ -106,49 +99,6 @@ SLOD<dim>::create_patches()
   //   }
 }
 
-template<int dim>
-PatchXSq<dim>::PatchXSq() {}
-
-template<int dim>
-void PatchXSq<dim>::reinit(LinearOperator<Vector<double>> linop, DoFHandler<dim> &dh_coarse, DoFHandler<dim> &dh_fine) {
-  reinit(dh_fine.n_dofs());
-  op = linop;
-  transfer.reinit_polynomial_transfer(dh_fine, dh_coarse);
-  intermediate_fine.reinit(dh_fine.n_dofs(), true);
-  intermediate_coarse.reinit(dh_coarse.n_dofs(), true);
-}
-
-template<int dim>
-void PatchXSq<dim>::vmult_add(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src) {
-  for (unsigned int i = 0; i < intermediate_fine.size(); i++) {
-    intermediate_fine[i] = src[i];
-  }
-  intermediate_fine = op * intermediate_fine;
-  transfer.restrict_and_add(intermediate_coarse, intermediate_fine);
-  transfer.prolongate_and_add(intermediate_fine, intermediate_coarse);
-  intermediate_fine = transpose_operator(op) * intermediate_fine;
-  for (unsigned int i = 0; i < intermediate_coarse.size(); i++) {
-    dst[i] += intermediate_coarse[i];
-  }
-}
-
-template<int dim>
-void PatchXSq<dim>::Tvmult_add(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src) {
-  vmult_add(dst, src);
-}
-
-template<int dim>
-void PatchXSq<dim>::vmult(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src) {
-  dst = 0;
-  vmult_add(dst, src);
-}
-
-template<int dim>
-void PatchXSq<dim>::Tvmult(PETScWrappers::VectorBase &dst, PETScWrappers::VectorBase &src) {
-  dst = 0;
-  Tvmult_add(dst, src);
-}
-
 const unsigned int SPECIAL_NUMBER = 69;
 
 template <int dim>
@@ -158,34 +108,41 @@ SLOD<dim>::compute_basis_function_candidates()
   DoFHandler<dim>           dh_coarse_patch;
 
   // TODO: reinit in loop
-  FullMatrix<double>        patch_stiffness_matrix;
+  SparseMatrix<double>        patch_stiffness_matrix;
   AffineConstraints<double>        internal_boundary_constraints;
-  PatchXSq<dim> patch_X_sq;
 
-  std::vector<std::vector<double>> right_hand_sides;
-  std::vector<double>              eigenvalues;
+  IndexSet local_dofs_fine;
+  IndexSet local_dofs_coarse;
+
+  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> transfer;
+
+  std::vector<std::complex<double>> eigenvalues;
+
+  std::vector<Vector<double>> right_hand_sides;
+  for (unsigned int j = 0; j < num_basis_vectors; j++) {
+    right_hand_sides.emplace_back();
+  }
 
   SolverControl                solver_control(100, 1e-9);
-  SLEPcWrappers::SolverLanczos eig_solver(solver_control);
-  eig_solver.set_problem_type(EPS_HEP);
-  eig_solver.set_which_eigenpairs(EPS_LARGEST_MAGNITUDE);
+  ArpackSolver eig_solver(solver_control);
 
   const auto locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(mpi_communicator,
                                                            patches.size());
   // for (unsigned int patch_id = 0; patch_id < patches.size(); patch_id++) {
-  for (auto &current_patch : locally_owned_patches)
+  for (auto current_patch_id : locally_owned_patches)
     {
+      auto current_patch = &patches[current_patch_id];
       //   if (patches[i].num_basis_vectors == 0) continue;
 
-      create_mesh_for_patch(&current_patch, &current_patch.sub_tria);
-      current_patch.dh.reinit(current_patch.sub_tria);
-      current_patch.dh.distribute_dofs(*fe_fine);
+      create_mesh_for_patch(*current_patch);
+      current_patch->dh_fine->reinit(current_patch->sub_tria);
+      current_patch->dh_fine->distribute_dofs(*fe_fine);
       dh_coarse_patch.distribute_dofs(*fe_coarse);
 
       // TODO: Can fe_fine be used for different patches at the same time?
-      assemble_stiffness_for_patch(&current_patch, patch_stiffness_matrix);
-      VectorTools::interpolate_boundary_values(current_patch.dh, SPECIAL_NUMBER, 0, internal_boundary_constraints);
+      assemble_stiffness_for_patch(*current_patch, patch_stiffness_matrix);
+      VectorTools::interpolate_boundary_values(*current_patch->dh_fine, SPECIAL_NUMBER, ConstantFunction<dim, double>(0), internal_boundary_constraints);
 
       const auto A = linear_operator(patch_stiffness_matrix);
       const auto A0 = constrained_linear_operator(internal_boundary_constraints, A);
@@ -198,17 +155,29 @@ SLOD<dim>::compute_basis_function_candidates()
       auto A0_inv = A0;
       // TODO: preconditioning
       // TODO: solver contro
-      SolverCG cg(solver_control);
-      A0_inv = inverse_operator(A0, cg);
+      SolverCG<Vector<double>> cg_A(solver_control);
+      A0_inv = inverse_operator(A0, cg_A);
 
-      const auto op = -1 * A0_inv * A1;
+      local_dofs_fine.clear();
+      local_dofs_fine.add_range(0, current_patch->dh_fine->n_dofs());
+      local_dofs_coarse.clear();
+      local_dofs_coarse.add_range(0, dh_coarse_patch.n_dofs());
 
-      patch_X_sq.reinit(op, dh_coarse_patch, current_patch.dh);
+      transfer.reinit_polynomial_transfer(dh_coarse_patch, *current_patch->dh_fine, AffineConstraints(), AffineConstraints());
+      const auto transfer_wrapper = TransferWrapper<dim>(transfer, dh_coarse_patch.n_dofs(), current_patch->dh_fine->n_dofs());
+      const auto P = linear_operator(transfer_wrapper);
 
-      right_hand_sides.clear();
-      right_hand_sides.push_back(
-        std::vector<double>(dh_coarse_patch.n_dofs(), 0.0));
-      eig_solver.solve(patch_X_sq,
+      SolverCG<Vector<double>> cg_X(solver_control);
+      const LinearOperator<Vector<double>> X = P * A0_inv * A1;
+      const auto X_sq = transpose_operator(X) * X;
+      const auto X_sq_inv = inverse_operator(X_sq, cg_X);
+
+      for (unsigned int j = 0; j < num_basis_vectors; j++) {
+        right_hand_sides[j].reinit(dh_coarse_patch.n_dofs());
+      }
+      eig_solver.solve(X_sq,
+                       identity_operator(X_sq),
+                       X_sq_inv,
                        eigenvalues,
                        right_hand_sides,
                        num_basis_vectors);
@@ -216,9 +185,9 @@ SLOD<dim>::compute_basis_function_candidates()
       for (unsigned int j = 0; j < num_basis_vectors; j++)
         {
           Vector<double> right_hand_side_fine;
-          patch_X_sq.transfer.prolongate(right_hand_side_fine, right_hand_sides[j]);
+          transfer_wrapper.Tvmult(right_hand_side_fine, right_hand_sides[j]);
           right_hand_side_fine = A0_inv * right_hand_side_fine;
-          current_patch.basis_function_candidates.push_back(right_hand_side_fine);
+          current_patch->basis_function_candidates.push_back(right_hand_side_fine);
         }
     }
 }
@@ -239,12 +208,10 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
                                                numbers::invalid_unsigned_int);
 
   unsigned int c = 0;
-  for (const auto &index : current_patch.cells)
+  for (const auto &cell : current_patch.cells)
     {
-      auto cell = tria.create_cell_iterator(index);
-      if (cell != tria.end())
-        for (const unsigned int v : cell->vertex_indices())
-          new_vertex_indices[cell->vertex_index(v)] = c++;
+      for (const unsigned int v : cell->vertex_indices())
+        new_vertex_indices[cell->vertex_index(v)] = c++;
     }
 
   // collect points
@@ -256,22 +223,17 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
   // create new cell and subcell data
   std::vector<CellData<dim>> sub_cells;
 
-  for (const auto &index : current_patch.cells)
+  for (const auto &cell : current_patch.cells)
     {
-      auto cell = tria.create_cell_iterator(index);
-      if (cell != tria.end())
-        {
-          // cell
-          CellData<dim> new_cell(cell->n_vertices());
+      CellData<dim> new_cell(cell->n_vertices());
 
-          for (const auto v : cell->vertex_indices())
-            new_cell.vertices[v] = new_vertex_indices[cell->vertex_index(v)];
+      for (const auto v : cell->vertex_indices())
+        new_cell.vertices[v] = new_vertex_indices[cell->vertex_index(v)];
 
-          new_cell.material_id = cell->material_id();
-          new_cell.manifold_id = cell->manifold_id();
+      new_cell.material_id = cell->material_id();
+      new_cell.manifold_id = cell->manifold_id();
 
-          sub_cells.emplace_back(new_cell);
-        }
+      sub_cells.emplace_back(new_cell);
     }
 
   // create mesh
@@ -279,47 +241,49 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
 
   auto sub_cell = current_patch.sub_tria.begin();
 
-  for (const auto &index : current_patch.cells)
+  for (const auto &cell : current_patch.cells)
     {
-      auto cell = tria.create_cell_iterator(index);
-      if (cell != tria.end())
-        {
-          // faces
-          for (const auto f : cell->face_indices())
+        // faces
+        for (const auto f : cell->face_indices())
+          {
+            const auto face = cell->face(f);
+
+            if (face->manifold_id() != numbers::flat_manifold_id)
+              sub_cell->face(f)->set_manifold_id(face->manifold_id());
+
+            if (face->boundary_id() != numbers::internal_face_boundary_id)
+              sub_cell->face(f)->set_boundary_id(face->boundary_id());
+            else if (sub_cell->face(f)->boundary_id() !=
+                     numbers::internal_face_boundary_id)
+              sub_cell->face(f)->set_boundary_id(SPECIAL_NUMBER);
+          }
+
+        // lines
+        if (dim == 3)
+          for (const auto l : cell->line_indices())
             {
-              const auto face = cell->face(f);
+              const auto line = cell->line(l);
 
-              if (face->manifold_id() != numbers::flat_manifold_id)
-                sub_cell->face(f)->set_manifold_id(face->manifold_id());
-
-              if (face->boundary_id() != numbers::internal_face_boundary_id)
-                sub_cell->face(f)->set_boundary_id(face->boundary_id());
-              else if (sub_cell->face(f)->boundary_id() !=
-                       numbers::internal_face_boundary_id)
-                sub_cell->face(f)->set_boundary_id(SPECIAL_NUMBER);
+              if (line->manifold_id() != numbers::flat_manifold_id)
+                sub_cell->line(l)->set_manifold_id(line->manifold_id());
             }
 
-          // lines
-          if (dim == 3)
-            for (const auto l : cell->line_indices())
-              {
-                const auto line = cell->line(l);
-
-                if (line->manifold_id() != numbers::flat_manifold_id)
-                  sub_cell->line(l)->set_manifold_id(line->manifold_id());
-              }
-
-          sub_cell++;
-        }
+        sub_cell++;
     }
 }
 
 template <int dim>
 void
-SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
-                                        FullMatrix<double> &stiffness_matrix)
+SLOD<dim>::assemble_global_matrix()
 {
-  const auto &dh = current_patch.dh_fine;
+}
+
+template <int dim>
+void
+SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
+                                        SparseMatrix<double> &stiffness_matrix)
+{
+  const auto &dh = *current_patch.dh_fine;
   // TODO: stiffness_matrix should be sparse
   // TODO: avoid reallocations
   // TODO
@@ -333,12 +297,12 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
   const unsigned int          dofs_per_cell = fe_fine->n_dofs_per_cell();
   const unsigned int          n_q_points    = quadrature_fine->size();
   FullMatrix<double>          cell_matrix(dofs_per_cell, dofs_per_cell);
-  std::vector<Tensor<2, dim>> grad_phi_u(dofs_per_cell);
+  std::vector<Tensor<1, dim>> grad_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
   AffineConstraints<double>            constraints;
 
   // TODO: Parameter adaptable parameters
-  VectorTools::interpolate_boundary_values(dh, 0, 0, constraints);
+  VectorTools::interpolate_boundary_values(dh, 0, ConstantFunction<dim, double>(0), constraints);
 
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -351,7 +315,7 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
           {
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
               {
-                grad_phi_u[k] = fe_values.gradient(k, q);
+                grad_phi_u[k] = fe_values.shape_grad(k, q);
               }
             for (unsigned int i = 0; i < dofs_per_cell; ++i)
               {
@@ -373,3 +337,57 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
       }
 }
 
+template<int dim>
+TransferWrapper<dim>::TransferWrapper(
+  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer, unsigned int n_coarse, unsigned int n_fine)
+  : transfer(transfer)
+  , n_coarse(n_coarse)
+  , n_fine(n_fine)
+{}
+
+template<int dim>
+void TransferWrapper<dim>::vmult(Vector<double> &out, const Vector<double> &in) const {
+  LinearAlgebra::distributed::Vector<double> in_d(n_fine);
+  LinearAlgebra::distributed::Vector<double> out_d(n_coarse);
+
+  for (unsigned int i = 0; i < n_fine; i++) {
+    in_d[i] = in[i];
+  }
+
+  transfer.restrict_and_add(out_d, in_d);
+
+  for (unsigned int i = 0; i < n_coarse; i++) {
+    out_d[i] = out[i];
+  }
+
+}
+
+template<int dim>
+void TransferWrapper<dim>::Tvmult(Vector<double> &out, const Vector<double> &in) const {
+  LinearAlgebra::distributed::Vector<double> in_d(n_coarse);
+  LinearAlgebra::distributed::Vector<double> out_d(n_fine);
+
+  for (unsigned int i = 0; i < n_coarse; i++) {
+    in_d[i] = in[i];
+  }
+
+  transfer.prolongate(out_d, in_d);
+
+  for (unsigned int i = 0; i < n_fine; i++) {
+    out_d[i] = out[i];
+  }
+
+}
+
+template<int dim>
+unsigned int TransferWrapper<dim>::m() const {
+  return n_coarse;
+}
+
+template<int dim>
+unsigned int TransferWrapper<dim>::n() const {
+  return n_fine;
+}
+
+
+template class SLOD<2>;
