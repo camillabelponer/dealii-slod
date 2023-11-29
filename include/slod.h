@@ -12,6 +12,7 @@
 #include <deal.II/fe/fe_tools.h>
 
 #include <deal.II/grid/grid_tools.h>
+#include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/generic_linear_algebra.h>
@@ -33,7 +34,7 @@
 
 namespace LA
 {
-  using namespace dealii::LinearAlgebraPETSc;
+  using namespace dealii::LinearAlgebraTrilinos;
 } // namespace LA
 
 
@@ -48,7 +49,7 @@ public:
   IndexSet    cell_indices;
   Triangulation<dim>               sub_tria;
   std::unique_ptr<DoFHandler<dim>>                  dh_fine;
-  std::vector<Vector<double>> basis_function_candidates;
+  std::vector<LinearAlgebra::distributed::Vector<double>> basis_function_candidates;
 };
 
 template <int dim>
@@ -59,6 +60,8 @@ public:
 
   void
   make_fe();
+  void
+  make_grid();
   void
   create_patches();
   void
@@ -74,14 +77,14 @@ private:
   create_mesh_for_patch(Patch<dim> &current_patch);
   void
   assemble_stiffness_for_patch(Patch<dim> &        current_patch,
-                               SparseMatrix<double> &stiffness_matrix);
+                               LA::MPI::SparseMatrix &stiffness_matrix);
 
   unsigned int oversampling         = 1;
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
   unsigned int num_basis_vectors    = 10;
 
-  parallel::distributed::Triangulation<dim> tria;
+  Triangulation<dim> tria;
   DoFHandler<dim>    dof_handler;
 
   LA::MPI::SparseMatrix global_matrix;
@@ -95,18 +98,18 @@ private:
   std::vector<Patch<dim>> patches;
 };
 
-template <int dim>
-class TransferWrapper {
-public:
-  TransferWrapper(MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer, unsigned int n_coarse, unsigned int n_fine);
-  void vmult(Vector<double> &out, const Vector<double> &in) const;
-  void Tvmult(Vector<double> &out, const Vector<double> &in) const;
-  unsigned int m() const;
-  unsigned int n() const;
-private:
-  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer;
-  unsigned int n_coarse;
-  unsigned int n_fine;
-};
+// template <int dim>
+// class TransferWrapper {
+// public:
+//   TransferWrapper(MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer, unsigned int n_coarse, unsigned int n_fine);
+//   void vmult(LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) const;
+//   void Tvmult(LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) const;
+//   unsigned int m() const;
+//   unsigned int n() const;
+// private:
+//   MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer;
+//   unsigned int n_coarse;
+//   unsigned int n_fine;
+// };
 
 #endif

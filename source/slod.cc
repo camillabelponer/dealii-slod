@@ -3,7 +3,7 @@
 template <int dim>
 SLOD<dim>::SLOD(MPI_Comm mpi_communicator)
   : mpi_communicator(mpi_communicator)
-  , tria(mpi_communicator)
+  , tria()
   , dof_handler(tria)
 {}
 
@@ -16,6 +16,14 @@ SLOD<dim>::make_fe()
   dof_handler.distribute_dofs(*fe_coarse);
   // TODO: 2?
   quadrature_fine = std::make_unique<Quadrature<dim>>(QIterated<dim>(QGauss<1>(2), n_subdivisions));
+}
+
+template <int dim>
+void
+SLOD<dim>::make_grid()
+{
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(n_global_refinements);
 }
 
 template <int dim>
@@ -40,6 +48,7 @@ SLOD<dim>::create_patches()
       unsigned int l_start = 0;
       unsigned int l_end   = 1;
       patch->cells.push_back(cell);
+      patch->cell_indices.set_size(tria.n_active_cells());
       patch->cell_indices.add_index(cell->active_cell_index());
       for (unsigned int l = 1; l <= oversampling; l++)
         {
@@ -99,6 +108,38 @@ SLOD<dim>::create_patches()
   //   }
 }
 
+template<int dim>
+LinearOperator<LinearAlgebra::distributed::Vector<double>> transfer_operator(
+  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer,
+  unsigned int m,
+  unsigned int n)
+{
+  LinearOperator<LinearAlgebra::distributed::Vector<double>> return_op{internal::LinearOperatorImplementation::EmptyPayload()};
+
+  return_op.vmult = [&transfer](LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) {
+    out = 0;
+    transfer.prolongate_and_add(out, in);
+  };
+  return_op.vmult_add = [&transfer](LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) {
+    transfer.prolongate_and_add(out, in);
+  };
+  return_op.Tvmult = [&transfer](LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) {
+    out = 0;
+    transfer.restrict_and_add(out, in);
+  };
+  return_op.Tvmult_add = [&transfer](LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) {
+    transfer.restrict_and_add(out, in);
+  };
+  return_op.reinit_domain_vector = [&m](LinearAlgebra::distributed::Vector<double> &out, bool omit_zeroing_entries) {
+    out.reinit(m, omit_zeroing_entries);
+  };
+  return_op.reinit_range_vector = [&n](LinearAlgebra::distributed::Vector<double> &out, bool omit_zeroing_entries) {
+    out.reinit(n, omit_zeroing_entries);
+  };
+
+  return return_op;
+}
+
 const unsigned int SPECIAL_NUMBER = 69;
 
 template <int dim>
@@ -108,7 +149,7 @@ SLOD<dim>::compute_basis_function_candidates()
   DoFHandler<dim>           dh_coarse_patch;
 
   // TODO: reinit in loop
-  SparseMatrix<double>        patch_stiffness_matrix;
+  LA::MPI::SparseMatrix        patch_stiffness_matrix;
   AffineConstraints<double>        internal_boundary_constraints;
 
   IndexSet local_dofs_fine;
@@ -118,7 +159,7 @@ SLOD<dim>::compute_basis_function_candidates()
 
   std::vector<std::complex<double>> eigenvalues;
 
-  std::vector<Vector<double>> right_hand_sides;
+  std::vector<LinearAlgebra::distributed::Vector<double>> right_hand_sides;
   for (unsigned int j = 0; j < num_basis_vectors; j++) {
     right_hand_sides.emplace_back();
   }
@@ -142,33 +183,34 @@ SLOD<dim>::compute_basis_function_candidates()
 
       // TODO: Can fe_fine be used for different patches at the same time?
       assemble_stiffness_for_patch(*current_patch, patch_stiffness_matrix);
-      VectorTools::interpolate_boundary_values(*current_patch->dh_fine, SPECIAL_NUMBER, ConstantFunction<dim, double>(0), internal_boundary_constraints);
+      VectorTools::interpolate_boundary_values(*current_patch->dh_fine, SPECIAL_NUMBER, Functions::ConstantFunction<dim, double>(0), internal_boundary_constraints);
 
-      const auto A = linear_operator(patch_stiffness_matrix);
-      const auto A0 = constrained_linear_operator(internal_boundary_constraints, A);
+      const auto A = linear_operator<LinearAlgebra::distributed::Vector<double>>(patch_stiffness_matrix);
+      const auto A0 = constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(internal_boundary_constraints, A);
 
       // Following the method of contrained_linear_operator, construct C^T * A * Id_c
-      const auto C = distribute_constraints_linear_operator(internal_boundary_constraints, A);
-      const auto Id_c = project_to_constrained_linear_operator(internal_boundary_constraints, A);
+      const auto C = distribute_constraints_linear_operator<LinearAlgebra::distributed::Vector<double>>(internal_boundary_constraints, A);
+      const auto Id_c = project_to_constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(internal_boundary_constraints, A);
       const auto A1 = transpose_operator(C) * A * Id_c;
 
       auto A0_inv = A0;
       // TODO: preconditioning
       // TODO: solver contro
-      SolverCG<Vector<double>> cg_A(solver_control);
+      SolverCG<LinearAlgebra::distributed::Vector<double>> cg_A(solver_control);
       A0_inv = inverse_operator(A0, cg_A);
 
       local_dofs_fine.clear();
+      local_dofs_fine.set_size(current_patch->dh_fine->n_dofs());
       local_dofs_fine.add_range(0, current_patch->dh_fine->n_dofs());
       local_dofs_coarse.clear();
+      local_dofs_fine.set_size(dh_coarse_patch.n_dofs());
       local_dofs_coarse.add_range(0, dh_coarse_patch.n_dofs());
 
       transfer.reinit_polynomial_transfer(dh_coarse_patch, *current_patch->dh_fine, AffineConstraints(), AffineConstraints());
-      const auto transfer_wrapper = TransferWrapper<dim>(transfer, dh_coarse_patch.n_dofs(), current_patch->dh_fine->n_dofs());
-      const auto P = linear_operator(transfer_wrapper);
+      const auto P = transfer_operator(transfer, dh_coarse_patch.n_dofs(), current_patch->dh_fine->n_dofs());
 
-      SolverCG<Vector<double>> cg_X(solver_control);
-      const LinearOperator<Vector<double>> X = P * A0_inv * A1;
+      SolverCG<LinearAlgebra::distributed::Vector<double>> cg_X(solver_control);
+      const LinearOperator<LinearAlgebra::distributed::Vector<double>> X = P * A0_inv * A1;
       const auto X_sq = transpose_operator(X) * X;
       const auto X_sq_inv = inverse_operator(X_sq, cg_X);
 
@@ -184,8 +226,8 @@ SLOD<dim>::compute_basis_function_candidates()
 
       for (unsigned int j = 0; j < num_basis_vectors; j++)
         {
-          Vector<double> right_hand_side_fine;
-          transfer_wrapper.Tvmult(right_hand_side_fine, right_hand_sides[j]);
+          LinearAlgebra::distributed::Vector<double> right_hand_side_fine;
+          right_hand_side_fine = transpose_operator(P) * right_hand_sides[j];
           right_hand_side_fine = A0_inv * right_hand_side_fine;
           current_patch->basis_function_candidates.push_back(right_hand_side_fine);
         }
@@ -204,15 +246,17 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
       current_patch.sub_tria.set_manifold(i, tria.get_manifold(i));
 
   // renumerate vertices
-  std::vector<unsigned int> new_vertex_indices(tria.n_vertices(),
-                                               numbers::invalid_unsigned_int);
+  std::vector<unsigned int> new_vertex_indices(tria.n_vertices(), 0);
 
-  unsigned int c = 0;
   for (const auto &cell : current_patch.cells)
-    {
-      for (const unsigned int v : cell->vertex_indices())
-        new_vertex_indices[cell->vertex_index(v)] = c++;
-    }
+    for (const unsigned int v : cell->vertex_indices())
+      new_vertex_indices[cell->vertex_index(v)] = 1;
+
+  for (unsigned int i = 0, c = 0; i < new_vertex_indices.size(); ++i)
+    if (new_vertex_indices[i] == 0)
+      new_vertex_indices[i] = numbers::invalid_unsigned_int;
+    else
+      new_vertex_indices[i] = c++;
 
   // collect points
   std::vector<Point<dim>> sub_points;
@@ -281,7 +325,7 @@ SLOD<dim>::assemble_global_matrix()
 template <int dim>
 void
 SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
-                                        SparseMatrix<double> &stiffness_matrix)
+                                        LA::MPI::SparseMatrix &stiffness_matrix)
 {
   const auto &dh = *current_patch.dh_fine;
   // TODO: stiffness_matrix should be sparse
@@ -302,7 +346,7 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
   AffineConstraints<double>            constraints;
 
   // TODO: Parameter adaptable parameters
-  VectorTools::interpolate_boundary_values(dh, 0, ConstantFunction<dim, double>(0), constraints);
+  VectorTools::interpolate_boundary_values(dh, 0, Functions::ConstantFunction<dim, double>(0), constraints);
 
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -337,57 +381,33 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &        current_patch,
       }
 }
 
-template<int dim>
-TransferWrapper<dim>::TransferWrapper(
-  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer, unsigned int n_coarse, unsigned int n_fine)
-  : transfer(transfer)
-  , n_coarse(n_coarse)
-  , n_fine(n_fine)
-{}
+// template<int dim>
+// TransferWrapper<dim>::TransferWrapper(
+//   MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> &transfer, unsigned int n_coarse, unsigned int n_fine)
+//   : transfer(transfer)
+//   , n_coarse(n_coarse)
+//   , n_fine(n_fine)
+// {}
 
-template<int dim>
-void TransferWrapper<dim>::vmult(Vector<double> &out, const Vector<double> &in) const {
-  LinearAlgebra::distributed::Vector<double> in_d(n_fine);
-  LinearAlgebra::distributed::Vector<double> out_d(n_coarse);
+// template<int dim>
+// void TransferWrapper<dim>::vmult(LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) const {
+//   transfer.restrict_and_add(out, in);
+// }
 
-  for (unsigned int i = 0; i < n_fine; i++) {
-    in_d[i] = in[i];
-  }
+// template<int dim>
+// void TransferWrapper<dim>::Tvmult(LinearAlgebra::distributed::Vector<double> &out, const LinearAlgebra::distributed::Vector<double> &in) const {
+//   transfer.prolongate(out, in);
+// }
 
-  transfer.restrict_and_add(out_d, in_d);
+// template<int dim>
+// unsigned int TransferWrapper<dim>::m() const {
+//   return n_coarse;
+// }
 
-  for (unsigned int i = 0; i < n_coarse; i++) {
-    out_d[i] = out[i];
-  }
-
-}
-
-template<int dim>
-void TransferWrapper<dim>::Tvmult(Vector<double> &out, const Vector<double> &in) const {
-  LinearAlgebra::distributed::Vector<double> in_d(n_coarse);
-  LinearAlgebra::distributed::Vector<double> out_d(n_fine);
-
-  for (unsigned int i = 0; i < n_coarse; i++) {
-    in_d[i] = in[i];
-  }
-
-  transfer.prolongate(out_d, in_d);
-
-  for (unsigned int i = 0; i < n_fine; i++) {
-    out_d[i] = out[i];
-  }
-
-}
-
-template<int dim>
-unsigned int TransferWrapper<dim>::m() const {
-  return n_coarse;
-}
-
-template<int dim>
-unsigned int TransferWrapper<dim>::n() const {
-  return n_fine;
-}
+// template<int dim>
+// unsigned int TransferWrapper<dim>::n() const {
+//   return n_fine;
+// }
 
 
 template class SLOD<2>;
