@@ -15,13 +15,59 @@ SLOD<dim>::SLOD(const SLODParameters<dim, dim> &par)
 
 template <int dim>
 void
+SLOD<dim>::print_parameters() const
+{
+  pcout << "Running SLODProblem" << std::endl;
+  par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
+                             std::to_string(dim) + ".prm",
+                           ParameterHandler::Short);
+}
+
+template <int dim>
+void
 SLOD<dim>::make_fe()
 {
+  TimerOutput::Scope t(computing_timer, "make FE spaces");
+  // fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), dim);
   fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
+  dof_handler.distribute_dofs(*fe_coarse);
+
+  auto locally_owned_dofs = dof_handler.locally_owned_dofs();
+  auto locally_relevant_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler);
+
+  constraints.clear();
+  DoFTools::make_hanging_node_constraints(dof_handler, constraints);
+  // TODO: Parameter adaptable parameters
+  VectorTools::interpolate_boundary_values(
+    // dof_handler, 0, par.bc, constraints);
+    dof_handler,
+    0,
+    Functions::ConstantFunction<dim, double>(0),
+    constraints);
+  constraints.close();
+
+  DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
+  DoFTools::make_sparsity_pattern(dof_handler,
+                                  sparsity_pattern,
+                                  constraints,
+                                  /*keep constrained dofs*/ false);
+  SparsityTools::distribute_sparsity_pattern(sparsity_pattern,
+                                             locally_owned_dofs,
+                                             mpi_communicator,
+                                             locally_relevant_dofs);
+  global_stiffness_matrix.reinit(locally_owned_dofs,
+                                 locally_owned_dofs,
+                                 sparsity_pattern,
+                                 mpi_communicator);
+
+  system_rhs.reinit(locally_owned_dofs, mpi_communicator);
+
   fe_fine =
     std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions));
-  dof_handler.distribute_dofs(*fe_coarse);
-  // TODO: 2?
+  //  std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions),
+  //  dim);
+  // TODO: set order
   quadrature_fine = std::make_unique<Quadrature<dim>>(
     QIterated<dim>(QGauss<1>(2), par.n_subdivisions));
 }
@@ -30,6 +76,7 @@ template <int dim>
 void
 SLOD<dim>::make_grid()
 {
+  TimerOutput::Scope t(computing_timer, "create grid");
   GridGenerator::hyper_cube(tria);
   tria.refine_global(par.n_global_refinements);
 }
@@ -38,55 +85,72 @@ template <int dim>
 void
 SLOD<dim>::create_patches()
 {
+  TimerOutput::Scope t(computing_timer, "create patches");
+
+  locally_owned_patches =
+    Utilities::MPI::create_evenly_distributed_partitioning(
+      mpi_communicator, tria.n_active_cells());
+  // patches = TrilinosWrappers::MPI::Vector(locally_owned_patches,
+  //                                          mpi_communicator);
+  // patches = 0;
   // Queue for patches for which neighbours should be added
   std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
   for (const auto &cell : dof_handler.active_cell_iterators())
     {
-      std::vector<types::global_dof_index> dof_indices(
-        fe_coarse->n_dofs_per_cell());
-      cell->get_dof_indices(dof_indices);
-      // cell_dof_indices[cell->active_cell_index()] = dof_indices;
-
-      auto patch = &patches.emplace_back();
-
-      patch_iterators.clear();
-      patch_iterators.push_back(cell);
-      // The iterators for level l are in the range [l_start, l_end) of
-      // patch_iterators
-      unsigned int l_start = 0;
-      unsigned int l_end   = 1;
-      patch->cells.push_back(cell);
-      patch->cell_indices.set_size(tria.n_active_cells());
-      patch->cell_indices.add_index(cell->active_cell_index());
-      for (unsigned int l = 1; l <= par.oversampling; l++)
+      auto cell_index = cell->active_cell_index();
+      if (locally_owned_patches.is_element(cell_index))
+        //     if (cell->is_locally_owned())
         {
-          for (unsigned int i = l_start; i <= l_end; i++)
+          // for each cell we create its patch and add it to the global vector
+          // of patches
+          auto patch = &patches.emplace_back();
+          // AssertIndexRange(cell_index, patches.size());
+          // auto patch = &patches[cell_index];
+          patch_iterators.clear();
+          patch_iterators.push_back(cell);
+          // The iterators for level l are in the range [l_start, l_end) of
+          // patch_iterators
+          unsigned int l_start = 0;
+          unsigned int l_end   = 1;
+          patch->cells.push_back(cell);
+          patch->cell_indices.set_size(tria.n_active_cells());
+          patch->cell_indices.add_index(cell_index);
+          for (unsigned int l = 1; l <= par.oversampling; l++)
             {
-              for (auto vertex : patch_iterators[i]->vertex_indices())
+              for (unsigned int i = l_start; i <= l_end; i++)
                 {
-                  for (const auto &neighbour :
-                       GridTools::find_cells_adjacent_to_vertex(dof_handler,
-                                                                vertex))
+                  AssertIndexRange(i, patch_iterators.size());
+                  for (auto vertex : patch_iterators[i]->vertex_indices())
                     {
-                      if (!patch->cell_indices.is_element(
-                            neighbour->active_cell_index()))
+                      for (const auto &neighbour :
+                           GridTools::find_cells_adjacent_to_vertex(dof_handler,
+                                                                    vertex))
                         {
-                          patch_iterators.push_back(neighbour);
+                          if (!patch->cell_indices.is_element(
+                                neighbour->active_cell_index()))
+                            {
+                              patch_iterators.push_back(neighbour);
+                              // CHECK: DOES NOT WORK FOR oversapling = 2
+                              patch->cells.push_back(neighbour);
+                            }
+                          patch->cell_indices.add_index(
+                            neighbour->active_cell_index());
                         }
-                      patch->cells.push_back(neighbour);
-                      patch->cell_indices.add_index(
-                        neighbour->active_cell_index());
                     }
                 }
+              l_start = l_end;
+              l_end   = patch_iterators.size();
             }
-          l_start = l_end;
-          l_end   = patch_iterators.size();
         }
-      //     if (crosses_border) {
-      //       patch.num_basis_vectors = 0;
-      //     } else {
-      //       patch.num_basis_vectors = 1;
-      //     }
+    }
+  // patches.compress(VectorOperation::add);
+
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)
+    {
+      pcout << "   Number of coarse cell = " << tria.n_active_cells()
+            << ", number of patches = " << patches.size()
+            << " (locally owned: " << locally_owned_patches.n_elements() << ")"
+            << std::endl;
     }
 
   // For patches at the border, find the neighbouring patch that is not at the
@@ -116,6 +180,79 @@ SLOD<dim>::create_patches()
   //       Assert(success, ExcNotImplemented());
   //     }
   //   }
+}
+
+template <int dim>
+void
+SLOD<dim>::check_nested_patches()
+{
+  TimerOutput::Scope t(computing_timer, "check nested patches");
+
+  for (auto current_patch_id : locally_owned_patches)
+    {
+      AssertIndexRange(current_patch_id, patches.size());
+      auto       current_patch    = &patches[current_patch_id];
+      const auto current_cell_set = current_patch->cell_indices;
+      for (auto cell_to_check : current_cell_set)
+        {
+          if (!(cell_to_check == current_patch_id))
+            {
+              AssertIndexRange(cell_to_check, patches.size());
+              auto set_to_check = patches[cell_to_check].cell_indices;
+              set_to_check.subtract_set(current_cell_set);
+              if (set_to_check.is_empty())
+                current_patch->contained_patches++;
+            }
+        }
+    }
+}
+
+
+template <int dim>
+void
+SLOD<dim>::output_results() const
+{
+  TimerOutput::Scope t(computing_timer, "Output results");
+
+  // std::vector<std::string> solution_names(dim, "coarse_solution");
+  std::string solution_names("coarse_solution");
+  // std::vector<std::string> exact_solution_names(dim, "exact_solution");
+
+  // auto exact_vec(solution);
+  // VectorTools::interpolate(dof_handler, par.exact_solution, exact_vec);
+  // to be added for MPI
+  // auto exact_vec_locally_relevant(locally_relevant_solution.block(0));
+  // exact_vec_locally_relevant = exact_vec;
+
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    data_component_interpretation(
+      //     dim, DataComponentInterpretation::component_is_part_of_vector);
+      dim,
+      DataComponentInterpretation::component_is_scalar);
+
+  DataOut<dim> data_out;
+  data_out.attach_dof_handler(dof_handler);
+
+  // data_out.add_data_vector(solution, solution_names);
+  data_out.add_data_vector(solution,
+                           solution_names,
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+  // data_out.add_data_vector(exact_vec,
+  //                          exact_solution_names,
+  //                          DataOut<dim>::type_dof_data,
+  //                          data_component_interpretation);
+  Vector<float> subdomain(tria.n_active_cells());
+  for (unsigned int i = 0; i < subdomain.size(); ++i)
+    subdomain(i) = tria.locally_owned_subdomain();
+  data_out.add_data_vector(subdomain, "subdomain");
+  data_out.build_patches();
+  const std::string filename = par.output_name + ".vtu";
+  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+                                 mpi_communicator);
+
+  // std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
+  //                                 ".pvd");
 }
 
 template <int dim>
@@ -164,8 +301,9 @@ const unsigned int SPECIAL_NUMBER = 69;
 
 template <int dim>
 void
-SLOD<dim>::compute_basis_function_candidates()
+SLOD<dim>::compute_basis_function_candidates_using_SVD()
 {
+  /*
   DoFHandler<dim> dh_coarse_patch;
 
   // TODO: reinit in loop
@@ -194,21 +332,22 @@ SLOD<dim>::compute_basis_function_candidates()
   // for (unsigned int patch_id = 0; patch_id < patches.size(); patch_id++) {
   for (auto current_patch_id : locally_owned_patches)
     {
+      AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
       //   if (patches[i].num_basis_vectors == 0) continue;
-
-      create_mesh_for_patch(*current_patch);
+      internal_boundary_constraints.clear();
+      create_mesh_for_patch(*current_patch, internal_boundary_constraints);
       current_patch->dh_fine->reinit(current_patch->sub_tria);
       current_patch->dh_fine->distribute_dofs(*fe_fine);
       dh_coarse_patch.distribute_dofs(*fe_coarse);
 
       // TODO: Can fe_fine be used for different patches at the same time?
       assemble_stiffness_for_patch(*current_patch, patch_stiffness_matrix);
-      VectorTools::interpolate_boundary_values(
-        *current_patch->dh_fine,
-        SPECIAL_NUMBER,
-        Functions::ConstantFunction<dim, double>(0),
-        internal_boundary_constraints);
+      // VectorTools::interpolate_boundary_values(
+      //   *current_patch->dh_fine,
+      //   SPECIAL_NUMBER,
+      //   Functions::ConstantFunction<dim, double>(0),
+      //   internal_boundary_constraints);
 
       const auto A =
         linear_operator<LinearAlgebra::distributed::Vector<double>>(
@@ -217,6 +356,7 @@ SLOD<dim>::compute_basis_function_candidates()
         constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(
           internal_boundary_constraints, A);
 
+      internal_boundary_constraints.close();
       // Following the method of contrained_linear_operator, construct C^T * A *
       // Id_c
       const auto C = distribute_constraints_linear_operator<
@@ -274,6 +414,103 @@ SLOD<dim>::compute_basis_function_candidates()
             right_hand_side_fine);
         }
     }
+    */
+}
+
+template <int dim>
+void
+SLOD<dim>::compute_basis_function_candidates()
+{
+  DoFHandler<dim> dh_coarse_patch;
+
+  // TODO: reinit in loop
+  LA::MPI::SparseMatrix     patch_stiffness_matrix;
+  AffineConstraints<double> internal_boundary_constraints;
+
+  IndexSet local_dofs_fine;
+  IndexSet local_dofs_coarse;
+
+  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> transfer;
+
+  for (auto current_patch_id : locally_owned_patches)
+    {
+      AssertIndexRange(current_patch_id, patches.size());
+      auto current_patch = &patches[current_patch_id];
+
+      create_mesh_for_patch(*current_patch);
+      internal_boundary_constraints.clear();
+      VectorTools::interpolate_boundary_values(
+        *(current_patch->dh_fine),
+        SPECIAL_NUMBER,
+        Functions::ConstantFunction<dim, double>(0),
+        internal_boundary_constraints);
+      internal_boundary_constraints.close();
+
+      current_patch->dh_fine->reinit(current_patch->sub_tria);
+      current_patch->dh_fine->distribute_dofs(*fe_fine);
+      dh_coarse_patch.distribute_dofs(*fe_coarse);
+
+      // TODO: Can fe_fine be used for different patches at the same time?
+      assemble_stiffness_for_patch(*current_patch, patch_stiffness_matrix);
+
+      const auto A =
+        linear_operator<LinearAlgebra::distributed::Vector<double>>(
+          patch_stiffness_matrix);
+      const auto A0 = // S
+        constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(
+          internal_boundary_constraints, A);
+
+      auto                                                 A0_inv = A0;
+      SolverCG<LinearAlgebra::distributed::Vector<double>> cg_A(
+        par.fine_solver_control);
+      A0_inv = inverse_operator(A0, cg_A);
+
+      local_dofs_fine.clear();
+      local_dofs_fine.set_size(current_patch->dh_fine->n_dofs());
+      local_dofs_fine.add_range(0, current_patch->dh_fine->n_dofs());
+      local_dofs_coarse.clear();
+      local_dofs_fine.set_size(dh_coarse_patch.n_dofs());
+      local_dofs_coarse.add_range(0, dh_coarse_patch.n_dofs());
+
+      transfer.reinit_polynomial_transfer(dh_coarse_patch,
+                                          *current_patch->dh_fine,
+                                          AffineConstraints(),
+                                          AffineConstraints());
+      const auto P = transfer_operator(transfer,
+                                       dh_coarse_patch.n_dofs(),
+                                       current_patch->dh_fine->n_dofs());
+
+      // compute c_i
+
+      // SolverCG<LinearAlgebra::distributed::Vector<double>>
+      // cg_X(solver_control); const
+      // LinearOperator<LinearAlgebra::distributed::Vector<double>> X =
+      //   P * A0_inv * A1;
+      // const auto X_sq     = transpose_operator(X) * X;
+      // const auto X_sq_inv = inverse_operator(X_sq, cg_X);
+
+      // for (unsigned int j = 0; j < par.num_basis_vectors; j++)
+      //   {
+      //     right_hand_sides[j].reinit(dh_coarse_patch.n_dofs());
+      //   }
+      // eig_solver.solve(X_sq,
+      //                  identity_operator(X_sq),
+      //                  X_sq_inv,
+      //                  eigenvalues,
+      //                  right_hand_sides,
+      //                  par.num_basis_vectors);
+
+      // for (unsigned int j = 0; j < par.num_basis_vectors; j++)
+      //   {
+      //     LinearAlgebra::distributed::Vector<double> right_hand_side_fine;
+      //     right_hand_side_fine = transpose_operator(P) * right_hand_sides[j];
+      //     right_hand_side_fine = A0_inv * right_hand_side_fine;
+      //     current_patch->basis_function_candidates.push_back(
+      //       right_hand_side_fine);
+      //   }
+
+      // stabilization();
+    }
 }
 
 template <int dim>
@@ -306,8 +543,8 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
     if (new_vertex_indices[i] != numbers::invalid_unsigned_int)
       sub_points.emplace_back(tria.get_vertices()[i]);
 
-  // create new cell and subcell data
-  std::vector<CellData<dim>> sub_cells;
+  // create new cell and data
+  std::vector<CellData<dim>> coarse_cells_of_patch;
 
   for (const auto &cell : current_patch.cells)
     {
@@ -319,14 +556,53 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
       new_cell.material_id = cell->material_id();
       new_cell.manifold_id = cell->manifold_id();
 
-      sub_cells.emplace_back(new_cell);
+      coarse_cells_of_patch.emplace_back(new_cell);
     }
 
-  // create mesh
-  current_patch.sub_tria.create_triangulation(sub_points, sub_cells, {});
+  // create coarse mesh on the patch
+  current_patch.sub_tria.create_triangulation(sub_points,
+                                              coarse_cells_of_patch,
+                                              {});
 
-  auto sub_cell = current_patch.sub_tria.begin();
+  /*
 
+    //now we need to save into internal_boundary_constraints the info of who's
+    on the border
+
+    std::vector<unsigned int> local_face_dof_indices (fe_fine->dofs_per_line);
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    auto coarse_cell_of_patch = current_patch.sub_tria.begin(0);
+
+    for (auto coarse_cell : current_patch.cells) // not sure if the indeces are
+    the same
+    {
+      for (const auto f : coarse_cell->face_indices())
+      {
+        auto active_sub_cells =
+    coarse_cell_of_patch->face(f)->n_active_descendants();
+        // if coarse_face is at boundary then also the fine_fce is at the
+    boundary and the global constrain will prevail if
+    (!coarse_cell->face(f)->at_boundary() &&
+    coarse_cell_of_patch->face(f)->at_boundary())
+          {
+            for (unsigned int child_idx = 0; child_idx < active_sub_cells;
+    child_idx ++)
+            {
+              auto sub_cell = coarse_cell_of_patch->face(f)->child(child_idx);
+                sub_cell->get_dof_indices(local_face_dof_indices, 0);
+
+                // for (unsigned int i=0; i<local_face_dof_indices.size(); ++i)
+                  internal_boundary_constraints.add_lines(local_face_dof_indices);
+            }
+          }
+      }
+      coarse_cell_of_patch++;
+    }
+    */
+
+
+  auto sub_cell = current_patch.sub_tria.begin(0);
   for (const auto &cell : current_patch.cells)
     {
       // faces
@@ -334,18 +610,18 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
         {
           const auto face = cell->face(f);
 
-          if (face->manifold_id() != numbers::flat_manifold_id)
-            sub_cell->face(f)->set_manifold_id(face->manifold_id());
-
           if (face->boundary_id() != numbers::internal_face_boundary_id)
             sub_cell->face(f)->set_boundary_id(face->boundary_id());
+          // sub_cell->face(f)->set_user_index(face->boundary_id());
           else if (sub_cell->face(f)->boundary_id() !=
                    numbers::internal_face_boundary_id)
             sub_cell->face(f)->set_boundary_id(SPECIAL_NUMBER);
+          // sub_cell->face(f)->set_user_index(SPECIAL_NUMBER);
         }
 
-      // lines
-      if (dim == 3)
+
+      // lines // useless??
+      if constexpr (dim == 3)
         for (const auto l : cell->line_indices())
           {
             const auto line = cell->line(l);
@@ -356,34 +632,40 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
 
       sub_cell++;
     }
+
+  // refine
+  // current_patch.sub_tria.refine_global(par.n_subdivisions);
 }
 
 template <int dim>
 void
 SLOD<dim>::assemble_global_matrix()
 {
+  TimerOutput::Scope t(computing_timer, "assemble global matrix");
   // todo: do we want to do this matrix free?
-  // do we want to use the same function assemble_stiffness_for_patch() for the global matrix as well?
+  // do we want to use the same function assemble_stiffness_for_patch() for the
+  // global matrix as well?
 
-  std::unique_ptr<Quadrature<dim>>  quadrature_coarse;
+  std::unique_ptr<Quadrature<dim>> quadrature_coarse(
+    std::make_unique<QGauss<dim>>(2));
 
-  FEValues<dim>     fe_values(*fe_coarse,
-                               *quadrature_coarse,
-                               update_values | update_gradients |
-                                 update_quadrature_points | update_JxW_values);
+  FEValues<dim> fe_values(*fe_coarse,
+                          *quadrature_coarse,
+                          update_values | update_gradients |
+                            update_quadrature_points | update_JxW_values);
 
   const unsigned int          dofs_per_cell = fe_coarse->n_dofs_per_cell();
   const unsigned int          n_q_points    = quadrature_coarse->size();
   FullMatrix<double>          cell_matrix(dofs_per_cell, dofs_per_cell);
   std::vector<Tensor<1, dim>> grad_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-  AffineConstraints<double>            constraints;
-    std::vector<Vector<double>> rhs_values(n_q_points, Vector<double>(dim));
+  // AffineConstraints<double>            constraints;
+  std::vector<Vector<double>> rhs_values(n_q_points, Vector<double>(dim));
   Vector<double>              cell_rhs(dofs_per_cell);
 
   // TODO: Parameter adaptable parameters
-  VectorTools::interpolate_boundary_values(
-    dof_handler, 0, Functions::ConstantFunction<dim, double>(0), constraints);
+  //  VectorTools::interpolate_boundary_values(
+  //    dof_handler, 0, par.bc, constraints);
 
   for (const auto &cell : dof_handler.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -406,7 +688,8 @@ SLOD<dim>::assemble_global_matrix()
                       scalar_product(grad_phi_u[i], grad_phi_u[j]) *
                       fe_values.JxW(q);
                   }
-                const auto comp_i = fe_coarse->system_to_component_index(i).first;
+                const auto comp_i =
+                  fe_coarse->system_to_component_index(i).first;
                 cell_rhs(i) += fe_values.shape_value(i, q) *
                                rhs_values[q][comp_i] * fe_values.JxW(q);
               }
@@ -415,13 +698,16 @@ SLOD<dim>::assemble_global_matrix()
 
         cell->get_dof_indices(local_dof_indices);
         // TODO: Handle inhomogeneous dirichlet bc
-        constraints.distribute_local_to_global(cell_matrix, cell_rhs,
+        constraints.distribute_local_to_global(cell_matrix,
+                                               cell_rhs,
                                                local_dof_indices,
-                                               stiffness_matrix, system_rhs);
-
+                                               global_stiffness_matrix,
+                                               system_rhs);
       }
-      stiffness_matrix.compress(VectorOperation::add);
-      system_rhs.compress(VectorOperation::add);
+  global_stiffness_matrix.compress(VectorOperation::add);
+  system_rhs.compress(VectorOperation::add);
+
+  // assemble C^T S C
 }
 
 template <int dim>
@@ -432,9 +718,8 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &           current_patch,
   const auto &dh = *current_patch.dh_fine;
   // TODO: stiffness_matrix should be sparse
   // TODO: avoid reallocations
-  // TODO
-  // TimerOutput::Scope t(computing_timer, "Assemble patch stiffness");
-  FEValues<dim> fe_values(*fe_fine,
+  TimerOutput::Scope t(computing_timer, "Assemble patch stiffness");
+  FEValues<dim>      fe_values(*fe_fine,
                           *quadrature_fine,
                           update_values | update_gradients |
                             update_quadrature_points | update_JxW_values);
@@ -444,11 +729,14 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &           current_patch,
   FullMatrix<double>          cell_matrix(dofs_per_cell, dofs_per_cell);
   std::vector<Tensor<1, dim>> grad_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
-  AffineConstraints<double>            constraints;
+  AffineConstraints<double>            local_stiffnes_constraints;
 
-  // TODO: Parameter adaptable parameters
+  // on the local problem we always impose homogeneous dirichlet bc
   VectorTools::interpolate_boundary_values(
-    dh, 0, Functions::ConstantFunction<dim, double>(0), constraints);
+    dh,
+    0,
+    Functions::ConstantFunction<dim, double>(0),
+    local_stiffnes_constraints);
 
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -476,10 +764,9 @@ SLOD<dim>::assemble_stiffness_for_patch(Patch<dim> &           current_patch,
 
 
         cell->get_dof_indices(local_dof_indices);
-        // TODO: Handle inhomogeneous dirichlet bc
-        constraints.distribute_local_to_global(cell_matrix,
-                                               local_dof_indices,
-                                               stiffness_matrix);
+        local_stiffnes_constraints.distribute_local_to_global(cell_matrix,
+                                                              local_dof_indices,
+                                                              stiffness_matrix);
       }
 }
 
@@ -489,25 +776,27 @@ template <int dim>
 void
 SLOD<dim>::solve()
 {
- //  TimerOutput::Scope       t(computing_timer, "Solve");
+  TimerOutput::Scope       t(computing_timer, "Solve");
   LA::MPI::PreconditionAMG prec_A;
+  prec_A.initialize(global_stiffness_matrix, 1.2);
 
-  const auto A    = linear_operator<LA::MPI::Vector>(stiffness_matrix);
+  const auto A    = linear_operator<LA::MPI::Vector>(global_stiffness_matrix);
   auto       invA = A;
 
   const auto amgA = linear_operator(A, prec_A);
 
-  SolverCG<LA::MPI::Vector> cg_stiffness(par.solver_control);
+  SolverCG<LA::MPI::Vector> cg_stiffness(par.coarse_solver_control);
   invA = inverse_operator(A, cg_stiffness, amgA);
 
   // Some aliases
-  auto &u      = solution;
+  auto &      u = solution;
   const auto &f = system_rhs;
 
   u = invA * f;
+  std::cout << "size of u " << u.size() << std::endl;
 
   constraints.distribute(u);
-  }
+}
 
 template <int dim>
 void
@@ -518,14 +807,21 @@ template <int dim>
 void
 SLOD<dim>::run()
 {
+  print_parameters();
   make_grid();
   make_fe();
-  // setup_dofs ???
   create_patches();
+  check_nested_patches();
   compute_basis_function_candidates();
-  stabilize();
+  // // stabilize();
+  // // now it's different and the stabilization needs the stiffness
   assemble_global_matrix();
   solve();
+  // only vor vector problems
+  // output_results();
+  // par.convergence_table.error_from_exact(dof_handler, solution,
+  // par.exact_solution); if (pcout.is_active())
+  //   par.convergence_table.output_table(pcout.get_stream());
 }
 
 // template<int dim>
