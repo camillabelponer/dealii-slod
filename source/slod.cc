@@ -141,6 +141,7 @@ SLOD<dim>::create_patches()
             l_start = l_end;
             l_end   = patch_iterators.size();
           }
+        }
       }
     }
   // patches.compress(VectorOperation::add);
@@ -617,14 +618,15 @@ SLOD<dim>::compute_basis_function_candidates()
           // std::cout << std::endl;
         }
       triple_product.gauss_jordan();
-      for (unsigned int i = 0; i < dh_coarse_patch.n_dofs(); ++i)
-        {
-          v_i     = 0.0;
-          v_i[i] = 1.0;
-          triple_product.vmult(temp1, v_i);
-          A_inv_P.vmult(u_i, temp1);
-          current_patch->basis_function_candidates.push_back(u_i);
-        }
+      {
+        v_i     = 0.0;
+        // 0 is the index of the central cell
+        // (this is also the central dof because we use P0 elements)
+        v_i[0] = 1.0;
+        triple_product.vmult(temp1, v_i);
+        A_inv_P.vmult(u_i, temp1);
+        current_patch->basis_function_candidates.push_back(u_i);
+      }
 
 
       dh_fine_patch.clear();
@@ -724,6 +726,8 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
   auto sub_cell = current_patch.sub_tria.begin(0);
   for (const auto &cell : current_patch.cells)
     {
+      // TODO: Find better way to get patch id
+      global_to_local_cell_map[cell->active_cell_index()].push_back(std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>(current_patch.cells[0]->active_cell_index(), sub_cell));
       // faces
       for (const auto f : cell->face_indices())
         {
@@ -761,6 +765,49 @@ void
 SLOD<dim>::assemble_global_matrix()
 {
   TimerOutput::Scope t(computing_timer, "assemble global matrix");
+
+  DoFHandler<dim> dh_fine_current_patch;
+  DoFHandler<dim> dh_fine_other_patch;
+
+  // TODO
+  global_stiffness_matrix.reinit(10);
+
+  Vector<double> phi_loc(fe_fine->n_dofs_per_cell());
+  Vector<double> Aphi_loc(fe_fine->n_dofs_per_cell());
+
+  for (auto current_patch_id : locally_owned_patches)
+    {
+      AssertIndexRange(current_patch_id, patches.size());
+      auto current_patch = &patches[current_patch_id];
+      dh_fine_current_patch.reinit(current_patch->sub_tria);
+      dh_fine_current_patch.distribute_dofs(*fe_fine);
+
+      unsigned int i = 0;
+      for (auto current_patch_cell : dh_fine_other_patch.active_cell_iterators()) {
+        auto current_global_cell = current_patch->cells[i];
+
+        current_global_cell->get_dof_values(current_patch->basis_function_candidates[0], phi_loc);
+        for (auto pair : global_to_local_cell_map[current_global_cell->active_cell_index()]) {
+          auto other_patch_id = pair.first;
+          auto other_patch_cell_tria = pair.second;
+          const auto &other_patch = patches[other_patch_id];
+          dh_fine_other_patch.reinit(other_patch.sub_tria);
+          dh_fine_other_patch.distribute_dofs(*fe_fine);
+          const auto other_patch_cell =
+            other_patch_cell_tria->as_dof_handler_iterator(dh_fine_other_patch);
+
+
+          // TODO: We actuall need to store A * basis_function
+          other_patch_cell->get_dof_values(other_patch.basis_function_candidates[0], Aphi_loc);
+          global_stiffness_matrix(current_patch_id, other_patch_id) += dot(phi_loc, Aphi_loc);
+          
+        }
+        i++;
+      }
+    }
+
+  //////////////////////////////
+  
   // todo: do we want to do this matrix free?
   // do we want to use the same function assemble_stiffness_for_patch() for the
   // global matrix as well?

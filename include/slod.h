@@ -189,6 +189,7 @@ private:
   // TODO: This should be an MPI vector
   std::vector<Patch<dim>> patches;
   // TrilinosWrappers::MPI::Vector patches;
+  std::map<unsigned int, std::vector<std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
 
   IndexSet locally_owned_patches;
 
