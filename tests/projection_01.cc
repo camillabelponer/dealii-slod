@@ -5,6 +5,7 @@
 #include <deal.II/fe/fe_tools.h>
 
 #include <deal.II/grid/tria.h>
+#include <deal.II/grid/grid_generator.h>
 
 #include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 
@@ -13,6 +14,7 @@ using namespace dealii;
 void
 test()
 {
+  const unsigned int n_global_ref   = 2;
   const unsigned int dim            = 2;
   const unsigned int n_subdivisions = 5;
   using Number                      = double;
@@ -20,8 +22,8 @@ test()
 
   // Create patch mesh
   Triangulation<dim> tria;
-
-  // TODO: create mesh
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(n_global_ref);
 
   // Create coarse system
   FE_DGQ<dim>       fe_coarse(0);
@@ -34,7 +36,7 @@ test()
   dof_handler_fine.distribute_dofs(fe_fine);
 
   // create projection matrix from fine to coarse cell (DG)
-  FullMatrix<Number> projection_matrix;
+  FullMatrix<Number> projection_matrix(fe_coarse.n_dofs_per_cell(), fe_fine.n_dofs_per_cell());
   FETools::get_projection_matrix(fe_fine, fe_coarse, projection_matrix);
 
   // avereging
@@ -64,7 +66,7 @@ test()
 
         projection_matrix.vmult(vec_local_coarse, vec_local_fine);
 
-        cell_fine->get_dof_values(valence_coarse, weights);
+        cell_coarse->get_dof_values(valence_coarse, weights);
         vec_local_coarse.scale(weights);
 
         cell_coarse->distribute_local_to_global(vec_local_coarse, dst);
@@ -84,7 +86,7 @@ test()
 
         cell_coarse->get_dof_values(src, vec_local_coarse);
 
-        cell_fine->get_dof_values(valence_coarse, weights);
+        cell_coarse->get_dof_values(valence_coarse, weights);
         vec_local_coarse.scale(weights);
 
         projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
@@ -104,6 +106,7 @@ test()
 void
 test_mg()
 {
+  const unsigned int n_global_ref   = 2;
   const unsigned int dim            = 2;
   const unsigned int n_subdivisions = 5;
   using Number                      = double;
@@ -111,6 +114,8 @@ test_mg()
 
   // Create patch mesh
   Triangulation<dim> tria;
+  GridGenerator::hyper_cube(tria);
+  tria.refine_global(n_global_ref);
 
   // Create coarse system
   FE_DGQ<dim>       fe_coarse(0);
@@ -128,6 +133,9 @@ test_mg()
   VectorType vec_coarse(dof_handler_coarse.n_dofs());
   VectorType vec_fine(dof_handler_fine.n_dofs());
 
+  std::cout << vec_coarse.size() << std::endl;
+  std::cout << vec_fine.size() << std::endl;
+
   // interpolate
   transfer.prolongate_and_add(vec_coarse, vec_fine);
 
@@ -137,11 +145,10 @@ test_mg()
 
 
 int
-main()
+main(int argc, char *argv[])
 {
-  return 0; // only test if program compiles
-
+  Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
   test(); // manually
 
-  test_mg(); // with MG infrastructure
+  // test_mg(); // with MG infrastructure
 }
