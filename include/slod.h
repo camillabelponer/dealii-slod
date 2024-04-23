@@ -27,7 +27,7 @@
 #  include <deal.II/grid/grid_tools.h>
 
 #  include <deal.II/lac/arpack_solver.h>
-#include <deal.II/lac/dynamic_sparsity_pattern.h>
+#  include <deal.II/lac/dynamic_sparsity_pattern.h>
 #  include <deal.II/lac/full_matrix.h>
 #  include <deal.II/lac/generic_linear_algebra.h>
 #  include <deal.II/lac/la_parallel_vector.h>
@@ -38,7 +38,7 @@
 #  include <deal.II/lac/petsc_vector.h>
 #  include <deal.II/lac/slepc_solver.h>
 #  include <deal.II/lac/solver_control.h>
-# include <deal.II/lac/sparsity_tools.h>
+#  include <deal.II/lac/sparsity_tools.h>
 
 #  include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 

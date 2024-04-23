@@ -255,7 +255,7 @@ SLOD<dim>::output_results() const
   // std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
   //                                 ".pvd");
 }
-
+/*
 template <int dim>
 LinearOperator<LinearAlgebra::distributed::Vector<double>>
 transfer_operator(
@@ -297,7 +297,7 @@ transfer_operator(
 
   return return_op;
 }
-
+*/
 const unsigned int SPECIAL_NUMBER = 69;
 
 template <int dim>
@@ -426,7 +426,9 @@ SLOD<dim>::compute_basis_function_candidates()
   DoFHandler<dim> dh_coarse_patch;
   DoFHandler<dim> dh_fine_patch;
 
-  using VectorType = LinearAlgebra::distributed::Vector<double>;
+  // using VectorType = LinearAlgebra::distributed::Vector<double>;
+  // would be nice to have LA::distributed
+  using VectorType = Vector<double>;
 
   // TODO: reinit in loop
   LA::MPI::SparseMatrix     patch_stiffness_matrix;
@@ -438,7 +440,7 @@ SLOD<dim>::compute_basis_function_candidates()
   for (auto current_patch_id : locally_owned_patches)
     {
 
-      MGTwoLevelTransfer<dim, VectorType> transfer;
+     //  MGTwoLevelTransfer<dim, VectorType> transfer;
 
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
@@ -514,29 +516,86 @@ SLOD<dim>::compute_basis_function_candidates()
       //  auto c_i = P_bar_S_inv_Pt_inv * e_i;
       //  c_i = S_inv_Pt * c_i;
 
-      transfer.reinit_polynomial_transfer(dh_coarse_patch,
-                                           dh_fine_patch);
-      // const auto P = transfer_operator(transfer,
-      //                                   dh_coarse_patch.n_dofs(),
-      //                                   dh_fine_patch.n_dofs());
-      VectorType u_i (dh_coarse_patch.n_dofs());
-      std::cout << "u_i: " << u_i.size()<< std::endl;
-      // u_i = 0.0;
-      // u_i[2] = 1.0;
+      // create projection matrix from fine to coarse cell (DG)
+  FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(), fe_fine->n_dofs_per_cell());
+  FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
 
-      VectorType temp (dh_fine_patch.n_dofs());
+  // averaging (inverse of P0 mass matrix)
+  VectorType valence_coarse(dh_coarse_patch.n_dofs());
+  VectorType local_identity_coarse(fe_coarse->n_dofs_per_cell());
+  local_identity_coarse = 1.0;
+
+  for (const auto &cell : dh_coarse_patch.active_cell_iterators())
+    cell->distribute_local_to_global(local_identity_coarse, valence_coarse);
+
+  for (auto &elem : valence_coarse)
+    elem = 1.0 / elem;
+
+  // define interapolation function and its transposed
+  const auto projectT = [&](auto &dst, const auto &src) {
+    VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+    VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+    VectorType weights(fe_coarse->n_dofs_per_cell());
+
+    for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+    // should be locally owned
+      {
+        const auto cell_coarse =
+          cell->as_dof_handler_iterator(dh_coarse_patch);
+        const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+
+        cell_fine->get_dof_values(src, vec_local_fine);
+
+        projection_matrix.vmult(vec_local_coarse, vec_local_fine);
+
+        cell_coarse->get_dof_values(valence_coarse, weights);
+        vec_local_coarse.scale(weights);
+
+        cell_coarse->distribute_local_to_global(vec_local_coarse, dst);
+      }
+  };
+
+  const auto project = [&](auto &dst, const auto &src) {
+    VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+    VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+    VectorType weights(fe_coarse->n_dofs_per_cell());
+
+    for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+    // should be locally_owned
+      {
+        const auto cell_coarse =
+          cell->as_dof_handler_iterator(dh_coarse_patch);
+        const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+
+        cell_coarse->get_dof_values(src, vec_local_coarse);
+
+        cell_coarse->get_dof_values(valence_coarse, weights);
+        vec_local_coarse.scale(weights);
+
+        projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+
+        cell_fine->distribute_local_to_global(vec_local_fine, dst);
+      }
+  };
+
+VectorType u_i (dh_fine_patch.n_dofs());
+      std::cout << "u_i: " << u_i.size()<< std::endl;
+      VectorType temp (dh_coarse_patch.n_dofs());
 
       std::cout << "temp: " << temp.size()<< std::endl;
-      // temp = 0.0;
-      // temp[2] = 1.0;
-      transfer.prolongate_and_add(u_i, temp);
-      // transfer.restrict_and_add(temp, u_i);
+      for (auto j = 0; j< dh_coarse_patch.n_dofs(); ++j)
+      {
+        u_i = 0.0;
+        temp = 0.0;
+        temp[j] = 1.0;
+      project(u_i, temp);
       for (auto i : u_i)
       {
-        std::cout << i;
+        std::cout << i << "\t";
       }
        std::cout << std::endl;
-      
+
+      }
       dh_fine_patch.clear();
     }
   std::cout << ": done" << std::endl;
