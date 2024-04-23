@@ -73,7 +73,7 @@ public:
   Triangulation<dim>                                          sub_tria;
   // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
   // change!!! cannot be unique
-  //DoFHandler<dim> dh_fine;
+  // DoFHandler<dim> dh_fine;
   std::vector<LinearAlgebra::distributed::Vector<double>>
                basis_function_candidates;
   unsigned int contained_patches = 0;
@@ -168,9 +168,9 @@ private:
   void
   check_nested_patches(); // AFTER PATCHES ARE CREATED
   void
-  assemble_stiffness_for_patch(//Patch<dim> &           current_patch,
-                               LA::MPI::SparseMatrix &stiffness_matrix,
-                               const DoFHandler<dim> & dh);
+  assemble_stiffness_for_patch( // Patch<dim> &           current_patch,
+    LA::MPI::SparseMatrix &stiffness_matrix,
+    const DoFHandler<dim> &dh);
 
   parallel::distributed::Triangulation<dim> tria;
   DoFHandler<dim>                           dof_handler;

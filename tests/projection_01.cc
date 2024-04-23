@@ -4,8 +4,8 @@
 #include <deal.II/fe/fe_q_iso_q1.h>
 #include <deal.II/fe/fe_tools.h>
 
-#include <deal.II/grid/tria.h>
 #include <deal.II/grid/grid_generator.h>
+#include <deal.II/grid/tria.h>
 
 #include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 
@@ -26,7 +26,7 @@ test()
   tria.refine_global(n_global_ref);
 
   // Create coarse system
-  FE_DGQ<dim>       fe_coarse(0);
+  FE_DGQ<dim>     fe_coarse(0);
   DoFHandler<dim> dof_handler_coarse(tria);
   dof_handler_coarse.distribute_dofs(fe_coarse);
 
@@ -36,7 +36,8 @@ test()
   dof_handler_fine.distribute_dofs(fe_fine);
 
   // create projection matrix from fine to coarse cell (DG)
-  FullMatrix<Number> projection_matrix(fe_coarse.n_dofs_per_cell(), fe_fine.n_dofs_per_cell());
+  FullMatrix<Number> projection_matrix(fe_coarse.n_dofs_per_cell(),
+                                       fe_fine.n_dofs_per_cell());
   FETools::get_projection_matrix(fe_fine, fe_coarse, projection_matrix);
 
   // averaging (inverse of P0 mass matrix)
@@ -118,7 +119,7 @@ test_mg()
   tria.refine_global(n_global_ref);
 
   // Create coarse system
-  FE_DGQ<dim>       fe_coarse(0);
+  FE_DGQ<dim>     fe_coarse(0);
   DoFHandler<dim> dof_handler_coarse(tria);
   dof_handler_coarse.distribute_dofs(fe_coarse);
 
