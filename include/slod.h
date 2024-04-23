@@ -27,6 +27,7 @@
 #  include <deal.II/grid/grid_tools.h>
 
 #  include <deal.II/lac/arpack_solver.h>
+#include <deal.II/lac/dynamic_sparsity_pattern.h>
 #  include <deal.II/lac/full_matrix.h>
 #  include <deal.II/lac/generic_linear_algebra.h>
 #  include <deal.II/lac/la_parallel_vector.h>
@@ -37,6 +38,7 @@
 #  include <deal.II/lac/petsc_vector.h>
 #  include <deal.II/lac/slepc_solver.h>
 #  include <deal.II/lac/solver_control.h>
+# include <deal.II/lac/sparsity_tools.h>
 
 #  include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 
@@ -69,7 +71,9 @@ public:
   std::vector<typename DoFHandler<dim>::active_cell_iterator> cells;
   IndexSet                                                    cell_indices;
   Triangulation<dim>                                          sub_tria;
-  std::unique_ptr<DoFHandler<dim>>                            dh_fine;
+  // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
+  // change!!! cannot be unique
+  //DoFHandler<dim> dh_fine;
   std::vector<LinearAlgebra::distributed::Vector<double>>
                basis_function_candidates;
   unsigned int contained_patches = 0;
@@ -164,8 +168,9 @@ private:
   void
   check_nested_patches(); // AFTER PATCHES ARE CREATED
   void
-  assemble_stiffness_for_patch(Patch<dim> &           current_patch,
-                               LA::MPI::SparseMatrix &stiffness_matrix);
+  assemble_stiffness_for_patch(//Patch<dim> &           current_patch,
+                               LA::MPI::SparseMatrix &stiffness_matrix,
+                               const DoFHandler<dim> & dh);
 
   parallel::distributed::Triangulation<dim> tria;
   DoFHandler<dim>                           dof_handler;
