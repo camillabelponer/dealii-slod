@@ -1,0 +1,64 @@
+# Listing of Parameters
+# ---------------------
+subsection Error
+  set Enable computation of the errors = true
+  set Error file name                  = 
+  set Error precision                  = 3
+  set Exponent for p-norms             = 2
+  set Extra columns                    = cells, dofs
+  set List of error norms to compute   = L2_norm, Linfty_norm, H1_norm
+  set Rate key                         = dofs
+  set Rate mode                        = reduction_rate_log2
+end
+
+subsection Problem
+  set Number of basis vectors      = 1
+  set Number of global refinements = 1
+  set Number of subdivisions       = 4
+  set Output directory             = .
+  set Output name                  = solution
+  set oversampling                 = 1
+
+
+  subsection Dirichlet boundary conditions
+    set Function constants  = 
+    set Function expression = 1
+    set Variable names      = x,t
+  end
+
+  subsection Exact solution
+    set Function constants  = 
+    set Function expression = 1
+    set Variable names      = x,t
+  end
+
+  subsection Right hand side
+    set Function constants  = 
+    set Function expression = 0
+    set Variable names      = x,t
+  end
+
+  subsection Solver
+    subsection Coarse solver control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-10
+    end
+
+    subsection Fine solver control
+      set Log frequency = 1
+      set Log history   = false
+      set Log result    = true
+      set Max steps     = 100
+      set Reduction     = 1.e-2
+      set Tolerance     = 1.e-10
+    end
+
+  end
+
+end
+
+
