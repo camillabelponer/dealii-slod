@@ -586,23 +586,47 @@ SLOD<dim>::compute_basis_function_candidates()
           }
       };
 
+      VectorType temp(dh_fine_patch.n_dofs());
+      VectorType temp1(dh_coarse_patch.n_dofs());
       VectorType u_i(dh_fine_patch.n_dofs());
-      std::cout << "u_i: " << u_i.size() << std::endl;
-      VectorType temp(dh_coarse_patch.n_dofs());
+      VectorType v_i(dh_coarse_patch.n_dofs());
+      FullMatrix<double> triple_product(dh_coarse_patch.n_dofs());
+      FullMatrix<double> A_inv_P(dh_fine_patch.n_dofs(), dh_coarse_patch.n_dofs());
 
-      std::cout << "temp: " << temp.size() << std::endl;
-      for (auto j = 0; j < dh_coarse_patch.n_dofs(); ++j)
+      for (unsigned int i = 0; i < dh_coarse_patch.n_dofs(); ++i)
         {
-          u_i     = 0.0;
-          temp    = 0.0;
-          temp[j] = 1.0;
-          project(u_i, temp);
-          for (auto i : u_i)
-            {
-              std::cout << i << "\t";
-            }
-          std::cout << std::endl;
+          v_i     = 0.0;
+          v_i[i] = 1.0;
+          temp = 0.0;
+          u_i = 0.0;
+
+          project(temp, v_i);
+          u_i = A0_inv * temp;
+          v_i     = 0.0;
+          projectT(v_i, u_i);
+          for (unsigned int j = 0; j < dh_coarse_patch.n_dofs(); j++) {
+            triple_product(j, i) = v_i[j];
+            // std::cout << v_i[j] << "\t";
+          }
+          // std::cout << std::endl;
+          // std::cout << std::endl;
+          for (unsigned int j = 0; j < dh_fine_patch.n_dofs(); j++) {
+            A_inv_P(j, i) = u_i[j];
+            // std::cout << u_i[j] << "\t";
+          }
+          // std::cout << std::endl;
         }
+      triple_product.gauss_jordan();
+      for (unsigned int i = 0; i < dh_coarse_patch.n_dofs(); ++i)
+        {
+          v_i     = 0.0;
+          v_i[i] = 1.0;
+          triple_product.vmult(temp1, v_i);
+          A_inv_P.vmult(u_i, temp1);
+          current_patch->basis_function_candidates.push_back(u_i);
+        }
+
+
       dh_fine_patch.clear();
     }
   std::cout << ": done" << std::endl;
@@ -830,11 +854,11 @@ SLOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
 
   // not needed because computed outside?
   // on the local problem we always impose homogeneous dirichlet bc
-  // VectorTools::interpolate_boundary_values(
-  //   dh,
-  //   0,
-  //   Functions::ConstantFunction<dim, double>(0),
-  //   local_stiffnes_constraints);
+  VectorTools::interpolate_boundary_values(
+    dh,
+    0,
+    Functions::ConstantFunction<dim, double>(0),
+    local_stiffnes_constraints);
   local_stiffnes_constraints.close();
 
   for (const auto &cell : dh.active_cell_iterators())

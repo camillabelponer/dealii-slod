@@ -74,7 +74,7 @@ public:
   // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
   // change!!! cannot be unique
   // DoFHandler<dim> dh_fine;
-  std::vector<LinearAlgebra::distributed::Vector<double>>
+  std::vector<Vector<double>>
                basis_function_candidates;
   unsigned int contained_patches = 0;
 };
