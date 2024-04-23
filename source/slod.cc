@@ -422,11 +422,11 @@ template <int dim>
 void
 SLOD<dim>::compute_basis_function_candidates()
 {
-  
   std::cout << "   compute basis function candidate";
   DoFHandler<dim> dh_coarse_patch;
   DoFHandler<dim> dh_fine_patch;
 
+  using VectorType = LinearAlgebra::distributed::Vector<double>;
 
   // TODO: reinit in loop
   LA::MPI::SparseMatrix     patch_stiffness_matrix;
@@ -438,7 +438,8 @@ SLOD<dim>::compute_basis_function_candidates()
   for (auto current_patch_id : locally_owned_patches)
     {
 
-      MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> transfer;
+      MGTwoLevelTransfer<dim, VectorType> transfer;
+
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
 
@@ -485,16 +486,14 @@ SLOD<dim>::compute_basis_function_candidates()
 
       // do we actually need A?
       // i think A with the constrained ( see make sparsity pattern) might be already what we need as A0
-      const auto A =
-        linear_operator<LinearAlgebra::distributed::Vector<double>>(
+      const auto A = linear_operator<VectorType>(
           patch_stiffness_matrix);
       const auto A0 = // S
-        constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(
+        constrained_linear_operator<VectorType>(
           internal_boundary_constraints, A);
       auto A0_inv = A0;
 
-      SolverCG<LinearAlgebra::distributed::Vector<double>> cg_A(
-        par.fine_solver_control);
+      SolverCG<VectorType> cg_A(par.fine_solver_control);
       A0_inv = inverse_operator(A0, cg_A);
 
       local_dofs_fine.clear();
@@ -505,7 +504,7 @@ SLOD<dim>::compute_basis_function_candidates()
       local_dofs_coarse.add_range(0, dh_coarse_patch.n_dofs());
 
       //  FullMatrix<double> S_inv_Pt(Nfine, Ncoarse);
-      const auto S_inv = linear_operator<LA::MPI::Vector>(A0_inv);
+      // const auto S_inv = linear_operator<LA::MPI::Vector>(A0_inv);
       //  S_inv_Pt = A0_inv* projection_matrix;
       // const auto P = linear_operator<LA::MPI::Vector>(projection_matrix);
       // const auto Pt = transpose_operator(P);
@@ -515,11 +514,28 @@ SLOD<dim>::compute_basis_function_candidates()
       //  auto c_i = P_bar_S_inv_Pt_inv * e_i;
       //  c_i = S_inv_Pt * c_i;
 
-       transfer.reinit_polynomial_transfer(dh_coarse_patch,
+      transfer.reinit_polynomial_transfer(dh_coarse_patch,
                                            dh_fine_patch);
-       const auto P = transfer_operator(transfer,
-                                        dh_coarse_patch.n_dofs(),
-                                        dh_fine_patch.n_dofs());
+      // const auto P = transfer_operator(transfer,
+      //                                   dh_coarse_patch.n_dofs(),
+      //                                   dh_fine_patch.n_dofs());
+      VectorType u_i (dh_coarse_patch.n_dofs());
+      std::cout << "u_i: " << u_i.size()<< std::endl;
+      // u_i = 0.0;
+      // u_i[2] = 1.0;
+
+      VectorType temp (dh_fine_patch.n_dofs());
+
+      std::cout << "temp: " << temp.size()<< std::endl;
+      // temp = 0.0;
+      // temp[2] = 1.0;
+      transfer.prolongate_and_add(u_i, temp);
+      // transfer.restrict_and_add(temp, u_i);
+      for (auto i : u_i)
+      {
+        std::cout << i;
+      }
+       std::cout << std::endl;
       
       dh_fine_patch.clear();
     }
