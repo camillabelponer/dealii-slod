@@ -24,7 +24,7 @@ test()
   // TODO: create mesh
 
   // Create coarse system
-  FE_Q<dim>       fe_coarse(1);
+  FE_DGQ<dim>       fe_coarse(0);
   DoFHandler<dim> dof_handler_coarse(tria);
   dof_handler_coarse.distribute_dofs(fe_coarse);
 
@@ -113,7 +113,7 @@ test_mg()
   Triangulation<dim> tria;
 
   // Create coarse system
-  FE_Q<dim>       fe_coarse(1);
+  FE_DGQ<dim>       fe_coarse(0);
   DoFHandler<dim> dof_handler_coarse(tria);
   dof_handler_coarse.distribute_dofs(fe_coarse);
 

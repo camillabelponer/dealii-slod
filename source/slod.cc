@@ -435,10 +435,10 @@ SLOD<dim>::compute_basis_function_candidates()
   IndexSet local_dofs_fine;
   IndexSet local_dofs_coarse;
 
-  MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> transfer;
-
   for (auto current_patch_id : locally_owned_patches)
     {
+
+      MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>> transfer;
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
 
@@ -485,13 +485,13 @@ SLOD<dim>::compute_basis_function_candidates()
 
       // do we actually need A?
       // i think A with the constrained ( see make sparsity pattern) might be already what we need as A0
-      // const auto A =
-      //   linear_operator<LinearAlgebra::distributed::Vector<double>>(
-      //     patch_stiffness_matrix);
-      // const auto A0 = // S
-      //   constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(
-      //     internal_boundary_constraints, A);
-      // auto A0_inv = A0;
+      const auto A =
+        linear_operator<LinearAlgebra::distributed::Vector<double>>(
+          patch_stiffness_matrix);
+      const auto A0 = // S
+        constrained_linear_operator<LinearAlgebra::distributed::Vector<double>>(
+          internal_boundary_constraints, A);
+      auto A0_inv = A0;
 
       SolverCG<LinearAlgebra::distributed::Vector<double>> cg_A(
         par.fine_solver_control);
@@ -504,37 +504,22 @@ SLOD<dim>::compute_basis_function_candidates()
       local_dofs_coarse.set_size(dh_coarse_patch.n_dofs());
       local_dofs_coarse.add_range(0, dh_coarse_patch.n_dofs());
 
-// should P be with the fine mesh size?
-      auto Ncoarse = dof_handler.n_dofs();
-      auto Nfine = dh_fine_patch.n_dofs();
-      FullMatrix<double> projection_matrix(Nfine, Ncoarse);
-      Vector<double> e_i(Ncoarse); // indicator function of the patch, coarse
-      e_i = 0.0;
-      for (auto j : local_dofs_coarse)
-      {
-        e_i[j] = 1.0;
-        for (auto i : local_dofs_fine)
-        {
-          projection_matrix(i,j) = h/2;
-        }
-      }
-      
-      // FullMatrix<double> S_inv_Pt(Nfine, Ncoarse);
-      //const auto S_inv = linear_operator<LA::MPI::Vector>(A0_inv);
-      // S_inv_Pt = A0_inv* projection_matrix;
-      //const auto P = linear_operator<LA::MPI::Vector>(projection_matrix);
-      //const auto Pt = transpose_operator(P);
-      // const auto S_inv_Pt = A0_inv * Pt;
-      // auto P_bar_S_inv_Pt_inv = linear_operator<LA::MPI::Vector>(projection_matrix) * S_inv_Pt;
-      // P_bar_S_inv_Pt_inv.invert();
-      // auto c_i = P_bar_S_inv_Pt_inv * e_i;
-      // c_i = S_inv_Pt * c_i;
+      //  FullMatrix<double> S_inv_Pt(Nfine, Ncoarse);
+      const auto S_inv = linear_operator<LA::MPI::Vector>(A0_inv);
+      //  S_inv_Pt = A0_inv* projection_matrix;
+      // const auto P = linear_operator<LA::MPI::Vector>(projection_matrix);
+      // const auto Pt = transpose_operator(P);
+      //  const auto S_inv_Pt = A0_inv * Pt;
+      //  auto P_bar_S_inv_Pt_inv = linear_operator<LA::MPI::Vector>(projection_matrix) * S_inv_Pt;
+      //  P_bar_S_inv_Pt_inv.invert();
+      //  auto c_i = P_bar_S_inv_Pt_inv * e_i;
+      //  c_i = S_inv_Pt * c_i;
 
-      // transfer.reinit_polynomial_transfer(dh_coarse_patch,
-      //                                     dh_fine_patch);
-      // const auto P = transfer_operator(transfer,
-      //                                  dh_coarse_patch.n_dofs(),
-      //                                  dh_fine_patch.n_dofs());
+       transfer.reinit_polynomial_transfer(dh_coarse_patch,
+                                           dh_fine_patch);
+       const auto P = transfer_operator(transfer,
+                                        dh_coarse_patch.n_dofs(),
+                                        dh_fine_patch.n_dofs());
       
       dh_fine_patch.clear();
     }
