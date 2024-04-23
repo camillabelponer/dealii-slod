@@ -128,19 +128,16 @@ test_mg()
   dof_handler_fine.distribute_dofs(fe_fine);
 
   MGTwoLevelTransfer<dim, VectorType> transfer;
-  transfer.reinit_polynomial_transfer(dof_handler_coarse, dof_handler_fine);
+  transfer.reinit_polynomial_transfer(dof_handler_fine, dof_handler_coarse);
 
   VectorType vec_coarse(dof_handler_coarse.n_dofs());
   VectorType vec_fine(dof_handler_fine.n_dofs());
 
-  std::cout << vec_coarse.size() << std::endl;
-  std::cout << vec_fine.size() << std::endl;
-
   // interpolate
-  transfer.prolongate_and_add(vec_coarse, vec_fine);
+  transfer.restrict_and_add(vec_coarse, vec_fine);
 
   // interpolateT
-  transfer.restrict_and_add(vec_fine, vec_coarse);
+  transfer.prolongate_and_add(vec_fine, vec_coarse);
 }
 
 
@@ -150,5 +147,5 @@ main(int argc, char *argv[])
   Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
   test(); // manually
 
-  // test_mg(); // with MG infrastructure
+  test_mg(); // with MG infrastructure
 }
