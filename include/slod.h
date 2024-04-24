@@ -60,9 +60,6 @@ using namespace dealii;
 template <int dim>
 class Patch
 {
-  // TODO
-  // transofrm SLOD::create_patches and SLOD::chek_nested_patches into a
-  // constructor for the class
 public:
   // TODO
   // make everything private and write getter and setter functions
@@ -72,11 +69,15 @@ public:
   IndexSet                                                    cell_indices;
   Triangulation<dim>                                          sub_tria;
   // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
-  // change!!! cannot be unique
-  // DoFHandler<dim> dh_fine;
+  // change!!! cannot be unique and cannot point at stuff that's destructed
   std::vector<Vector<double>>
                basis_function_candidates;
+  std::vector<Vector<double>>
+               A_times_basis_function_candidates;
   unsigned int contained_patches = 0;
+  unsigned int patch_id;
+
+
 };
 
 
@@ -91,6 +92,7 @@ public:
   unsigned int oversampling         = 1;
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
+  /// @brief 
   unsigned int num_basis_vectors    = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim - 1>> rhs;
@@ -135,6 +137,8 @@ public:
   void
   run();
 
+private:
+
   void
   make_fe();
   void
@@ -155,8 +159,9 @@ public:
   output_results() const;
   void
   print_parameters() const;
+  void
+  initialize_patches();
 
-private:
   const SLODParameters<dim, dim> &par;
   MPI_Comm                        mpi_communicator;
   ConditionalOStream              pcout;
@@ -186,7 +191,7 @@ private:
   // std::unique_ptr<FiniteElement<dim>>  fe_fine;
   std::unique_ptr<Quadrature<dim>> quadrature_fine;
 
-  // TODO: This should be an MPI vector
+  // TODO: This should be an MPI vector ? no bc everyone has to know
   std::vector<Patch<dim>> patches;
   // TrilinosWrappers::MPI::Vector patches;
   std::map<unsigned int, std::vector<std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
