@@ -88,6 +88,7 @@ SLOD<dim>::create_patches()
   locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(
       mpi_communicator, tria.n_active_cells());
+  global_to_local_cell_map.resize(tria.n_global_active_cells());
   // patches = TrilinosWrappers::MPI::Vector(locally_owned_patches,
   //                                          mpi_communicator);
   // patches = 0;
@@ -550,21 +551,44 @@ SLOD<dim>::compute_basis_function_candidates()
         VectorType weights(fe_coarse->n_dofs_per_cell());
 
         for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
-          // should be locally_owned ?
+          // should be locally_owned
           {
             const auto cell_coarse =
               cell->as_dof_handler_iterator(dh_coarse_patch);
             const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
 
-            cell_coarse->get_dof_values(src, vec_local_coarse);
+           cell_coarse->get_dof_values(src, vec_local_coarse);
 
-            cell_coarse->get_dof_values(valence_coarse, weights);
-            vec_local_coarse.scale(weights);
+             cell_coarse->get_dof_values(valence_coarse, weights);
+             vec_local_coarse.scale(weights);
 
-            projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+             projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
 
             cell_fine->distribute_local_to_global(vec_local_fine, dst);
           }
+      };
+
+      // Specialization of projection for the case where src is the P0 basis function of a single cell
+      // Works only for P0 coarse elements
+      const auto project_cell = [&](auto &dst, const auto &cell) {
+        Assert(fe_coarse->n_dofs_per_cell() == 1, "Only works with DGQ1 elements");
+        VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+        VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+        VectorType weights(fe_coarse->n_dofs_per_cell());
+
+          const auto cell_coarse =
+            cell->as_dof_handler_iterator(dh_coarse_patch);
+          const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+
+          // cell_coarse->get_dof_values(src, vec_local_coarse);
+          vec_local_coarse[0] = 1.0;
+
+          cell_coarse->get_dof_values(valence_coarse, weights);
+          vec_local_coarse.scale(weights);
+
+          projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+
+          cell_fine->distribute_local_to_global(vec_local_fine, dst);
       };
 
       // we now compute c_loc_i = S^-1 P^T (P S^-1 P^T)^-1 e_i
@@ -624,8 +648,52 @@ SLOD<dim>::compute_basis_function_candidates()
         current_patch->basis_function_candidates.push_back(c_i);
 
         project(Ac_i, triple_product_inv_e_i);
-        current_patch->A_times_basis_function_candidates.push_back(Ac_i);
+        current_patch->basis_function_candidates_premultiplied.push_back(Ac_i);
       }
+
+      /*
+      VectorType temp(Ndofs_fine);
+      VectorType temp1(Ndofs_coarse);
+      VectorType u_i(Ndofs_fine);
+      VectorType v_i(Ndofs_coarse);
+      FullMatrix<double> triple_product(Ndofs_coarse);
+      FullMatrix<double> A_inv_P(Ndofs_fine, Ndofs_coarse);
+
+      for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+        {
+          unsigned int i = cell->active_cell_index();
+          temp = 0.0;
+          u_i = 0.0;
+
+          project_cell(temp, cell);
+          u_i = A0_inv * temp;
+          v_i     = 0.0;
+          projectT(v_i, u_i);
+          for (unsigned int j = 0; j < Ndofs_coarse; j++) {
+            triple_product(j, i) = v_i[j];
+            // std::cout << v_i[j] << "\t";
+          }
+          // std::cout << std::endl;
+          // std::cout << std::endl;
+          for (unsigned int j = 0; j < Ndofs_fine; j++) {
+            A_inv_P(j, i) = u_i[j];
+            // std::cout << u_i[j] << "\t";
+          }
+          // std::cout << std::endl;
+        }
+      triple_product.gauss_jordan();
+      {
+        v_i     = 0.0;
+        // 0 is the index of the central cell
+        // (this is also the central dof because we use P0 elements)
+        v_i[0] = 1.0;
+        triple_product.vmult(temp1, v_i);
+        A_inv_P.vmult(u_i, temp1);
+        current_patch->basis_function_candidates.push_back(u_i);
+        temp1 = A0 * u_i;
+        current_patch->basis_function_candidates_premultiplied.push_back(temp1);
+      }
+      */
 
       dh_fine_patch.clear();
       
@@ -766,7 +834,7 @@ SLOD<dim>::assemble_global_matrix()
             other_patch_cell_tria->as_dof_handler_iterator(dh_fine_other_patch);
 
 
-          iterator_to_cell_in_other_patch->get_dof_values(other_patch.A_times_basis_function_candidates[0], Aphi_loc);
+          iterator_to_cell_in_other_patch->get_dof_values(other_patch.basis_function_candidates_premultiplied[0], Aphi_loc);
           local_stiffness_matrix(current_patch_id, other_patch_id) += phi_loc * Aphi_loc;
         }
 

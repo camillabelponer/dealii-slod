@@ -73,7 +73,7 @@ public:
   std::vector<Vector<double>>
                basis_function_candidates;
   std::vector<Vector<double>>
-               A_times_basis_function_candidates;
+               basis_function_candidates_premultiplied;
   unsigned int contained_patches = 0;
   unsigned int patch_id;
 
@@ -194,7 +194,11 @@ private:
   // TODO: This should be an MPI vector ? no bc everyone has to know
   std::vector<Patch<dim>> patches;
   // TrilinosWrappers::MPI::Vector patches;
-  std::map<unsigned int, std::vector<std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
+
+  // List of lists of pairs (patch ID, cell in patch mesh)
+  // The index in the outer list corresponds to the index of the cell in the global (coarse) mesh
+  // and the inner lists store the information, which patches contain this global cell.
+  std::vector<std::vector<std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
 
   IndexSet locally_owned_patches;
 
