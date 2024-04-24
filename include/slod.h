@@ -76,6 +76,8 @@ public:
   // DoFHandler<dim> dh_fine;
   std::vector<Vector<double>>
                basis_function_candidates;
+  std::vector<Vector<double>>
+               basis_function_candidates_premultiplied;
   unsigned int contained_patches = 0;
 };
 

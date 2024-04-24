@@ -648,6 +648,8 @@ SLOD<dim>::compute_basis_function_candidates()
         triple_product.vmult(temp1, v_i);
         A_inv_P.vmult(u_i, temp1);
         current_patch->basis_function_candidates.push_back(u_i);
+        temp1 = A0 * u_i;
+        current_patch->basis_function_candidates_premultiplied.push_back(temp1);
       }
 
 
@@ -819,8 +821,7 @@ SLOD<dim>::assemble_global_matrix()
             other_patch_cell_tria->as_dof_handler_iterator(dh_fine_other_patch);
 
 
-          // TODO: We actuall need to store A * basis_function
-          other_patch_cell->get_dof_values(other_patch.basis_function_candidates[0], Aphi_loc);
+          other_patch_cell->get_dof_values(other_patch.basis_function_candidates_premultiplied[0], Aphi_loc);
           global_stiffness_matrix.add(current_patch_id, other_patch_id, phi_loc * Aphi_loc);
           
         }
