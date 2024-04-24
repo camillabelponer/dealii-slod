@@ -571,7 +571,7 @@ SLOD<dim>::compute_basis_function_candidates()
       // Specialization of projection for the case where src is the P0 basis function of a single cell
       // Works only for P0 coarse elements
       const auto project_cell = [&](auto &dst, const auto &cell) {
-        Assert(fe_coarse->n_dofs_per_cell() == 1, "Only works with DGQ1 elements");
+        AssertDimension(fe_coarse->n_dofs_per_cell(), 1);
         VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
         VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
         VectorType weights(fe_coarse->n_dofs_per_cell());
