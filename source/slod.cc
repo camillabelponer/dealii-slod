@@ -47,19 +47,20 @@ SLOD<dim>::make_fe()
     constraints);
   constraints.close();
 
-  DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(dof_handler,
-                                  sparsity_pattern,
-                                  constraints,
-                                  /*keep constrained dofs*/ false);
-  SparsityTools::distribute_sparsity_pattern(sparsity_pattern,
-                                             locally_owned_dofs,
-                                             mpi_communicator,
-                                             locally_relevant_dofs);
-  global_stiffness_matrix.reinit(locally_owned_dofs,
-                                 locally_owned_dofs,
-                                 sparsity_pattern,
-                                 mpi_communicator);
+  patches_pattern.reinit(dof_handler.n_dofs(), dof_handler.n_dofs(), locally_relevant_dofs);
+  // DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
+  // DoFTools::make_sparsity_pattern(dof_handler,
+  //                                 sparsity_pattern,
+  //                                 constraints,
+  //                                 /*keep constrained dofs*/ false);
+  // SparsityTools::distribute_sparsity_pattern(sparsity_pattern,
+  //                                            locally_owned_dofs,
+  //                                            mpi_communicator,
+  //                                            locally_relevant_dofs);
+  // global_stiffness_matrix.reinit(locally_owned_dofs,
+  //                                locally_owned_dofs,
+  //                                sparsity_pattern,
+  //                                mpi_communicator);
   system_rhs.reinit(locally_owned_dofs, mpi_communicator);
 
   fe_fine =
@@ -88,7 +89,7 @@ SLOD<dim>::create_patches()
   locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(
       mpi_communicator, tria.n_active_cells());
-  global_to_local_cell_map.resize(tria.n_global_active_cells());
+  global_to_local_cell_map.resize(tria.n_active_cells());
   // patches = TrilinosWrappers::MPI::Vector(locally_owned_patches,
   //                                          mpi_communicator);
   // patches = 0;
@@ -112,8 +113,8 @@ SLOD<dim>::create_patches()
         unsigned int l_start = 0;
         unsigned int l_end   = 1;
         patch->cells.push_back(cell);
-        patch->cell_indices.set_size(tria.n_active_cells());
-        patch->cell_indices.add_index(cell_index);
+        // patch->cell_indices.set_size(tria.n_active_cells());
+        patches_pattern.add(cell_index, cell_index);
         for (unsigned int l = 1; l <= par.oversampling; l++)
           {
             for (unsigned int i = l_start; i < l_end; i++)
@@ -126,15 +127,14 @@ SLOD<dim>::create_patches()
                          GridTools::find_cells_adjacent_to_vertex(dof_handler,
                                                                   vertex))
                       {
-                        if (!patch->cell_indices.is_element(
+                        if (!patches_pattern.exists(
+                              cell_index,
                               neighbour->active_cell_index()))
                           {
                             patch_iterators.push_back(neighbour);
+                            patches_pattern.add(cell_index, neighbour->active_cell_index());
                             patch->cells.push_back(neighbour);
 //                             std::cout << neighbour->active_cell_index() << " ";
-                          
-                        patch->cell_indices.add_index(
-                          neighbour->active_cell_index());
                           }
                       }
                   }
@@ -144,7 +144,11 @@ SLOD<dim>::create_patches()
           }
       }
         
-      }
+    }
+
+  DynamicSparsityPattern global_sparsity_pattern;
+  global_sparsity_pattern.compute_mmult_pattern(patches_pattern, patches_pattern);
+  global_stiffness_matrix.reinit(global_sparsity_pattern);
     
   // patches.compress(VectorOperation::add);
   // MPI::Barrier();
@@ -193,22 +197,40 @@ SLOD<dim>::check_nested_patches()
   TimerOutput::Scope t(computing_timer, "check nested patches");
 
   for (auto current_patch_id : locally_owned_patches)
-    {
-      AssertIndexRange(current_patch_id, patches.size());
-      auto       current_patch    = &patches[current_patch_id];
-      const auto current_cell_set = current_patch->cell_indices;
-      for (auto cell_to_check : current_cell_set)
-        {
-          if (!(cell_to_check == current_patch_id))
-            {
-              AssertIndexRange(cell_to_check, patches.size());
-              auto set_to_check = patches[cell_to_check].cell_indices;
-              set_to_check.subtract_set(current_cell_set);
-              if (set_to_check.is_empty())
-                current_patch->contained_patches++;
-            }
+  {
+    for (unsigned int i = 0; i < patches_pattern.row_length(current_patch_id); i++) {
+      const auto other_patch_id = patches_pattern.column_index(current_patch_id, i);
+      if (current_patch_id == other_patch_id) continue;
+      bool current_patch_is_contained = true;
+      for (unsigned int j = 0; i < patches_pattern.row_length(current_patch_id); i++) {
+        const auto cell = patches_pattern.column_index(current_patch_id, j);
+        if (!patches_pattern.exists(other_patch_id, cell)) {
+          current_patch_is_contained = false;
+          break;
         }
+      }
+      if (current_patch_is_contained) {
+        patches[current_patch_id].contained_patches++;
+      }
     }
+  }
+  // for (auto current_patch_id : locally_owned_patches)
+  //   {
+  //     AssertIndexRange(current_patch_id, patches.size());
+  //     auto       current_patch    = &patches[current_patch_id];
+  //     const auto current_cell_set = current_patch->cell_indices;
+  //     for (auto cell_to_check : current_cell_set)
+  //       {
+  //         if (!(cell_to_check == current_patch_id))
+  //           {
+  //             AssertIndexRange(cell_to_check, patches.size());
+  //             auto set_to_check = patches[cell_to_check].cell_indices;
+  //             set_to_check.subtract_set(current_cell_set);
+  //             if (set_to_check.is_empty())
+  //               current_patch->contained_patches++;
+  //           }
+  //       }
+  //   }
   std::cout << ": done" << std::endl;
 }
 

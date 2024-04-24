@@ -66,7 +66,7 @@ public:
 
   // coarse cells that make up the patch
   std::vector<typename DoFHandler<dim>::active_cell_iterator> cells;
-  IndexSet                                                    cell_indices;
+  // IndexSet                                                    cell_indices;
   Triangulation<dim>                                          sub_tria;
   // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
   // change!!! cannot be unique and cannot point at stuff that's destructed
@@ -193,6 +193,7 @@ private:
 
   // TODO: This should be an MPI vector ? no bc everyone has to know
   std::vector<Patch<dim>> patches;
+  DynamicSparsityPattern patches_pattern;
   // TrilinosWrappers::MPI::Vector patches;
 
   // List of lists of pairs (patch ID, cell in patch mesh)
