@@ -89,6 +89,7 @@ SLOD<dim>::create_patches()
   locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(
       mpi_communicator, tria.n_active_cells());
+  global_to_local_cell_map.resize(tria.n_global_active_cells());
   // patches = TrilinosWrappers::MPI::Vector(locally_owned_patches,
   //                                          mpi_communicator);
   // patches = 0;
@@ -141,7 +142,6 @@ SLOD<dim>::create_patches()
             l_start = l_end;
             l_end   = patch_iterators.size();
           }
-        }
       }
     }
   // patches.compress(VectorOperation::add);
@@ -564,27 +564,50 @@ SLOD<dim>::compute_basis_function_candidates()
           }
       };
 
-      const auto project = [&](auto &dst, const auto &src) {
+      // const auto project = [&](auto &dst, const auto &src) {
+      //   VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+      //   VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+      //   VectorType weights(fe_coarse->n_dofs_per_cell());
+
+      //   for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+      //     // should be locally_owned
+      //     {
+      //       const auto cell_coarse =
+      //         cell->as_dof_handler_iterator(dh_coarse_patch);
+      //       const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+
+      //       cell_coarse->get_dof_values(src, vec_local_coarse);
+
+      //       cell_coarse->get_dof_values(valence_coarse, weights);
+      //       vec_local_coarse.scale(weights);
+
+      //       projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+
+      //       cell_fine->distribute_local_to_global(vec_local_fine, dst);
+      //     }
+      // };
+
+      // Specialization of projection for the case where src is the P0 basis function of a single cell
+      // Works only for P0 coarse elements
+      const auto project_cell = [&](auto &dst, const auto &cell) {
+        Assert(fe_coarse->n_dofs_per_cell() == 1, "Only works with DGQ1 elements");
         VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
         VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
         VectorType weights(fe_coarse->n_dofs_per_cell());
 
-        for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
-          // should be locally_owned
-          {
-            const auto cell_coarse =
-              cell->as_dof_handler_iterator(dh_coarse_patch);
-            const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+          const auto cell_coarse =
+            cell->as_dof_handler_iterator(dh_coarse_patch);
+          const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
 
-            cell_coarse->get_dof_values(src, vec_local_coarse);
+          // cell_coarse->get_dof_values(src, vec_local_coarse);
+          vec_local_coarse[0] = 1.0;
 
-            cell_coarse->get_dof_values(valence_coarse, weights);
-            vec_local_coarse.scale(weights);
+          cell_coarse->get_dof_values(valence_coarse, weights);
+          vec_local_coarse.scale(weights);
 
-            projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+          projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
 
-            cell_fine->distribute_local_to_global(vec_local_fine, dst);
-          }
+          cell_fine->distribute_local_to_global(vec_local_fine, dst);
       };
 
       VectorType temp(dh_fine_patch.n_dofs());
@@ -594,14 +617,13 @@ SLOD<dim>::compute_basis_function_candidates()
       FullMatrix<double> triple_product(dh_coarse_patch.n_dofs());
       FullMatrix<double> A_inv_P(dh_fine_patch.n_dofs(), dh_coarse_patch.n_dofs());
 
-      for (unsigned int i = 0; i < dh_coarse_patch.n_dofs(); ++i)
+      for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
         {
-          v_i     = 0.0;
-          v_i[i] = 1.0;
+          unsigned int i = cell->active_cell_index();
           temp = 0.0;
           u_i = 0.0;
 
-          project(temp, v_i);
+          project_cell(temp, cell);
           u_i = A0_inv * temp;
           v_i     = 0.0;
           projectT(v_i, u_i);
@@ -786,7 +808,7 @@ SLOD<dim>::assemble_global_matrix()
       for (auto current_patch_cell : dh_fine_other_patch.active_cell_iterators()) {
         auto current_global_cell = current_patch->cells[i];
 
-        current_global_cell->get_dof_values(current_patch->basis_function_candidates[0], phi_loc);
+        current_patch_cell->get_dof_values(current_patch->basis_function_candidates[0], phi_loc);
         for (auto pair : global_to_local_cell_map[current_global_cell->active_cell_index()]) {
           auto other_patch_id = pair.first;
           auto other_patch_cell_tria = pair.second;
@@ -799,7 +821,7 @@ SLOD<dim>::assemble_global_matrix()
 
           // TODO: We actuall need to store A * basis_function
           other_patch_cell->get_dof_values(other_patch.basis_function_candidates[0], Aphi_loc);
-          global_stiffness_matrix(current_patch_id, other_patch_id) += dot(phi_loc, Aphi_loc);
+          global_stiffness_matrix.add(current_patch_id, other_patch_id, phi_loc * Aphi_loc);
           
         }
         i++;
