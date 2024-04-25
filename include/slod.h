@@ -67,17 +67,13 @@ public:
   // coarse cells that make up the patch
   std::vector<typename DoFHandler<dim>::active_cell_iterator> cells;
   // IndexSet                                                    cell_indices;
-  Triangulation<dim>                                          sub_tria;
+  Triangulation<dim> sub_tria;
   // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
   // change!!! cannot be unique and cannot point at stuff that's destructed
-  std::vector<Vector<double>>
-               basis_function_candidates;
-  std::vector<Vector<double>>
-               basis_function_candidates_premultiplied;
-  unsigned int contained_patches = 0;
-  unsigned int patch_id;
-
-
+  std::vector<Vector<double>> basis_function_candidates;
+  std::vector<Vector<double>> basis_function_candidates_premultiplied;
+  unsigned int                contained_patches = 0;
+  unsigned int                patch_id;
 };
 
 
@@ -92,8 +88,8 @@ public:
   unsigned int oversampling         = 1;
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
-  /// @brief 
-  unsigned int num_basis_vectors    = 1;
+  /// @brief
+  unsigned int num_basis_vectors = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim - 1>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim - 1>>
@@ -138,7 +134,6 @@ public:
   run();
 
 private:
-
   void
   make_fe();
   void
@@ -191,22 +186,23 @@ private:
   // std::unique_ptr<FiniteElement<dim>>  fe_fine;
   std::unique_ptr<Quadrature<dim>> quadrature_fine;
 
-  // TODO: This should be an MPI vector ? no bc everyone has to know
   std::vector<Patch<dim>> patches;
-  DynamicSparsityPattern patches_pattern;
+  DynamicSparsityPattern  patches_pattern;
   // TrilinosWrappers::MPI::Vector patches;
 
   // List of lists of pairs (patch ID, cell in patch mesh)
-  // The index in the outer list corresponds to the index of the cell in the global (coarse) mesh
-  // and the inner lists store the information, which patches contain this global cell.
-  std::vector<std::vector<std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
+  // The index in the outer list corresponds to the index of the cell in the
+  // global (coarse) mesh and the inner lists store the information, which
+  // patches contain this global cell.
+  std::vector<std::vector<
+    std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>>
+    global_to_local_cell_map;
 
   IndexSet locally_owned_patches;
 
   LA::MPI::SparseMatrix global_stiffness_matrix;
   LA::MPI::Vector       solution;
   LA::MPI::Vector       system_rhs;
-  // TODO: stiffness is not actually sparse
 };
 
 // template <int dim>
