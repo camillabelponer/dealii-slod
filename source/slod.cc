@@ -1141,6 +1141,7 @@ SLOD<dim>::solve_fine_problem_and_compare() const
     TimerOutput::Scope t(computing_timer, "Solve");
 
     // define fine quantities on global domain
+    // TODO: use the dof_handler_fine instead of dh_fine
     DoFHandler<dim>           dh_fine(tria);
     LA::MPI::SparseMatrix     fine_global_stiffness_matrix;
     LA::MPI::Vector           fine_solution;
@@ -1274,7 +1275,7 @@ SLOD<dim>::solve_fine_problem_and_compare() const
     //                                           solution,
     //                                           constraints,
     //                                           dst);
-    FETools::interpolate(dof_handler, solution, dh_fine, coarse_solution);
+    FETools::interpolate(dof_handler_coarse, solution, dh_fine, coarse_solution);
     par.convergence_table.difference(dh_fine, fine_solution, coarse_solution);
   }
 }
