@@ -652,14 +652,17 @@ SLOD<dim>::compute_basis_function_candidates()
       FullMatrix<double> triple_product(Ndofs_coarse);
       FullMatrix<double> A_inv_P(Ndofs_fine, Ndofs_coarse);
 
-      for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+      for (auto coarse_cell : dh_coarse_patch.active_cell_iterators())
+      // for (unsigned int i = 0; i < Ndofs_coarse; ++i)
         {
-          e_i    = 0.0;
-          e_i[i] = 1.0;
+          auto i = coarse_cell->active_cell_index();
+          // e_i    = 0.0;
+          // e_i[i] = 1.0;
           P_e_i  = 0.0;
           u_i    = 0.0;
 
-          project(P_e_i, e_i);
+          // project(P_e_i, e_i);
+          project_cell(P_e_i, coarse_cell);
 
           u_i = A0_inv * P_e_i;
           e_i = 0.0;
