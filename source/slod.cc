@@ -1,3 +1,4 @@
+#include <deal.II/base/exceptions.h>
 #include <slod.h>
 
 template <int dim>
@@ -10,7 +11,8 @@ SLOD<dim>::SLOD(const SLODParameters<dim, dim> &par)
                     TimerOutput::summary,
                     TimerOutput::wall_times)
   , tria(mpi_communicator)
-  , dof_handler(tria)
+  , dof_handler_coarse(tria)
+  , dof_handler_fine(tria)
 {}
 
 template <int dim>
@@ -30,24 +32,35 @@ SLOD<dim>::make_fe()
   TimerOutput::Scope t(computing_timer, "make FE spaces");
   // fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), 1);
   fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
-  dof_handler.distribute_dofs(*fe_coarse);
+  dof_handler_coarse.distribute_dofs(*fe_coarse);
 
-  auto locally_owned_dofs = dof_handler.locally_owned_dofs();
+  auto locally_owned_dofs = dof_handler_coarse.locally_owned_dofs();
   auto locally_relevant_dofs =
-    DoFTools::extract_locally_relevant_dofs(dof_handler);
+    DoFTools::extract_locally_relevant_dofs(dof_handler_coarse);
 
   constraints.clear();
-  DoFTools::make_hanging_node_constraints(dof_handler, constraints);
+  DoFTools::make_hanging_node_constraints(dof_handler_coarse, constraints);
   VectorTools::interpolate_boundary_values(
     // dof_handler, 0, par.bc, constraints);
-    dof_handler,
+    dof_handler_coarse,
     0,
     Functions::ConstantFunction<dim, double>(0),
     constraints);
   constraints.close();
 
-  patches_pattern.reinit(dof_handler.n_dofs(),
-                         dof_handler.n_dofs(),
+  fe_fine =
+    std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions));
+  // std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions), 1);
+  // TODO: set order  != 2 from input file
+  dof_handler_fine.distribute_dofs(*fe_fine);
+  quadrature_fine = std::make_unique<Quadrature<dim>>(
+    QIterated<dim>(QGauss<1>(2), par.n_subdivisions));
+
+  patches_pattern.reinit(dof_handler_coarse.n_dofs(),
+                         dof_handler_coarse.n_dofs(),
+                         locally_relevant_dofs);
+  patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
+                         dof_handler_fine.n_dofs(),
                          locally_relevant_dofs);
   // DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
   // DoFTools::make_sparsity_pattern(dof_handler,
@@ -63,13 +76,6 @@ SLOD<dim>::make_fe()
   //                                sparsity_pattern,
   //                                mpi_communicator);
   system_rhs.reinit(locally_owned_dofs, mpi_communicator);
-
-  fe_fine =
-    std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions));
-  // std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions), 1);
-  // TODO: set order  != 2 from input file
-  quadrature_fine = std::make_unique<Quadrature<dim>>(
-    QIterated<dim>(QGauss<1>(2), par.n_subdivisions));
 }
 
 template <int dim>
@@ -90,13 +96,14 @@ SLOD<dim>::create_patches()
   locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(
       mpi_communicator, tria.n_active_cells());
-  global_to_local_cell_map.resize(tria.n_active_cells());
+  // global_to_local_cell_map.resize(tria.n_active_cells());
   // patches = TrilinosWrappers::MPI::Vector(locally_owned_patches,
   //                                          mpi_communicator);
+  std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
 
   // Queue for patches for which neighbours should be added
   std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
-  for (const auto &cell : dof_handler.active_cell_iterators())
+  for (const auto &cell : dof_handler_coarse.active_cell_iterators())
     {
       auto cell_index = cell->active_cell_index();
       // if (locally_owned_patches.is_element(cell_index))
@@ -115,6 +122,10 @@ SLOD<dim>::create_patches()
         patch->cells.push_back(cell);
         // patch->cell_indices.set_size(tria.n_active_cells());
         patches_pattern.add(cell_index, cell_index);
+        auto cell_fine = cell->as_dof_handler_iterator(dof_handler_fine);
+        cell_fine->get_dof_indices(fine_dofs);
+        patches_pattern_fine.add_row_entries(cell_index,
+                                fine_dofs);
         for (unsigned int l = 1; l <= par.oversampling; l++)
           {
             for (unsigned int i = l_start; i < l_end; i++)
@@ -124,7 +135,7 @@ SLOD<dim>::create_patches()
                   {
                     auto vertex = patch_iterators[i]->vertex_index(ver);
                     for (const auto &neighbour :
-                         GridTools::find_cells_adjacent_to_vertex(dof_handler,
+                         GridTools::find_cells_adjacent_to_vertex(dof_handler_coarse,
                                                                   vertex))
                       {
                         // std::cout << "index " <<
@@ -140,6 +151,12 @@ SLOD<dim>::create_patches()
                             patch_iterators.push_back(neighbour);
                             patches_pattern.add(cell_index,
                                                 neighbour->active_cell_index());
+                            patches_pattern.add(cell_index,
+                                                neighbour->active_cell_index());
+                            auto cell_fine = neighbour->as_dof_handler_iterator(dof_handler_fine);
+                            cell_fine->get_dof_indices(fine_dofs);
+                            patches_pattern_fine.add_row_entries(cell_index,
+                                                    fine_dofs);
                             patch->cells.push_back(neighbour);
                             // std::cout <<
                             // neighbour->active_cell_index()
@@ -283,7 +300,7 @@ SLOD<dim>::output_results() const
       DataComponentInterpretation::component_is_scalar);
 
   DataOut<dim> data_out;
-  data_out.attach_dof_handler(dof_handler);
+  data_out.attach_dof_handler(dof_handler_coarse);
 
   // data_out.add_data_vector(solution, solution_names);
   data_out.add_data_vector(solution,
@@ -810,10 +827,10 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
   for (const auto &cell : current_patch.cells)
     {
       // TODO: Find better way to get patch id
-      global_to_local_cell_map[cell->active_cell_index()].push_back(
-        std::pair<unsigned int,
-                  typename Triangulation<dim>::active_cell_iterator>(
-          current_patch.cells[0]->active_cell_index(), sub_cell));
+      // global_to_local_cell_map[cell->active_cell_index()].push_back(
+      //   std::pair<unsigned int,
+      //             typename Triangulation<dim>::active_cell_iterator>(
+      //     current_patch.cells[0]->active_cell_index(), sub_cell));
       // faces
       for (const auto f : cell->face_indices())
         {
@@ -850,6 +867,48 @@ SLOD<dim>::assemble_global_matrix()
 {
   TimerOutput::Scope t(computing_timer, "assemble global matrix");
 
+  DoFHandler<dim> dh_fine_current_patch;
+
+  basis_matrix.reinit(patches_pattern_fine);
+  premultiplied_basis_matrix.reinit(patches_pattern_fine);
+  basis_matrix = 0.0;
+  premultiplied_basis_matrix = 0.0;
+
+  Vector<double>                       phi_loc(fe_fine->n_dofs_per_cell());
+  std::vector<unsigned int> global_dofs(fe_fine->n_dofs_per_cell());
+
+  for (auto current_patch_id : locally_owned_patches)
+    {
+      const auto current_patch = &patches[current_patch_id];
+      dh_fine_current_patch.reinit(current_patch->sub_tria);
+      dh_fine_current_patch.distribute_dofs(*fe_fine);
+
+      for (auto iterator_to_cell_in_current_patch :
+           dh_fine_current_patch.active_cell_iterators())
+        {
+          auto iterator_to_cell_global = current_patch->cells[iterator_to_cell_in_current_patch->active_cell_index()]->as_dof_handler_iterator(dof_handler_fine);
+          iterator_to_cell_global->get_dof_indices(global_dofs);
+
+          iterator_to_cell_in_current_patch->get_dof_values(
+            current_patch->basis_function_candidates[0], phi_loc);
+          // AssertDimension(global_dofs.size(), phi_loc.size())
+          basis_matrix.set(current_patch_id, phi_loc.size(), global_dofs.data(), phi_loc.data());
+
+          iterator_to_cell_in_current_patch->get_dof_values(
+            current_patch->basis_function_candidates_premultiplied[0], phi_loc);
+          // AssertDimension(global_dofs.size(), phi_loc.size())
+          premultiplied_basis_matrix.set(current_patch_id, phi_loc.size(), global_dofs.data(), phi_loc.data());
+        }
+    }
+  premultiplied_basis_matrix.transpose();
+  global_stiffness_matrix.mmult(basis_matrix, premultiplied_basis_matrix);
+  premultiplied_basis_matrix.transpose();
+
+  ////////
+  // DOES NOT WORK
+  // This adds values that are on the boundary of patches multiple times. I think there is no way to avoid this but to use a global fine dof handler.
+
+  /*
   DoFHandler<dim> dh_fine_current_patch;
   DoFHandler<dim> dh_fine_other_patch;
 
@@ -915,6 +974,7 @@ SLOD<dim>::assemble_global_matrix()
           current_cell_id++;
         }
     }
+  */
   /*
   // assemble global matrix COARSE
     std::unique_ptr<Quadrature<dim>> quadrature_coarse(

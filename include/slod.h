@@ -179,10 +179,13 @@ private:
     const DoFHandler<dim> &dh);
 
   parallel::distributed::Triangulation<dim> tria;
-  DoFHandler<dim>                           dof_handler;
+  DoFHandler<dim>                           dof_handler_coarse;
+  DoFHandler<dim>                           dof_handler_fine;
 
   AffineConstraints<double> constraints;
 
+  LA::MPI::SparseMatrix basis_matrix;
+  LA::MPI::SparseMatrix premultiplied_basis_matrix;
   LA::MPI::SparseMatrix global_matrix;
   // TODO: Add rhs
 
@@ -194,15 +197,16 @@ private:
 
   std::vector<Patch<dim>> patches;
   DynamicSparsityPattern  patches_pattern;
+  DynamicSparsityPattern  patches_pattern_fine;
   // TrilinosWrappers::MPI::Vector patches;
 
   // List of lists of pairs (patch ID, cell in patch mesh)
   // The index in the outer list corresponds to the index of the cell in the
   // global (coarse) mesh and the inner lists store the information, which
   // patches contain this global cell.
-  std::vector<std::vector<
-    std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>>
-    global_to_local_cell_map;
+  // std::vector<std::vector<
+  //   std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>>
+  //   global_to_local_cell_map;
 
   IndexSet locally_owned_patches;
 
