@@ -10,6 +10,8 @@
 #  include <deal.II/base/timer.h>
 #  include <deal.II/base/types.h>
 
+#  include <deal.II/distributed/grid_refinement.h>
+#  include <deal.II/distributed/solution_transfer.h>
 #  include <deal.II/distributed/tria.h>
 
 #  include <deal.II/dofs/dof_tools.h>
@@ -25,6 +27,7 @@
 
 #  include <deal.II/grid/grid_generator.h>
 #  include <deal.II/grid/grid_tools.h>
+#  include <deal.II/grid/intergrid_map.h>
 
 #  include <deal.II/lac/arpack_solver.h>
 #  include <deal.II/lac/dynamic_sparsity_pattern.h>
@@ -89,12 +92,12 @@ public:
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
   /// @brief
-  unsigned int num_basis_vectors = 1;
+  unsigned int num_basis_vectors  = 1;
+  bool         solve_fine_problem = false;
 
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim - 1>> rhs;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim - 1>>
-    exact_solution;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim - 1>> bc;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> bc;
 
   mutable ParameterAcceptorProxy<ReductionControl> fine_solver_control;
   mutable ParameterAcceptorProxy<ReductionControl> coarse_solver_control;
@@ -107,9 +110,9 @@ public:
 template <int dim, int spacedim>
 SLODParameters<dim, spacedim>::SLODParameters()
   : ParameterAcceptor("/Problem")
-  , rhs("/Problem/Right hand side", dim - 1)
-  , exact_solution("/Problem/Exact solution", dim - 1)
-  , bc("/Problem/Dirichlet boundary conditions", dim - 1)
+  , rhs("/Problem/Right hand side", dim)
+  , exact_solution("/Problem/Exact solution", dim)
+  , bc("/Problem/Dirichlet boundary conditions", dim)
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
 {
@@ -119,6 +122,7 @@ SLODParameters<dim, spacedim>::SLODParameters()
   add_parameter("Number of subdivisions", n_subdivisions);
   add_parameter("Number of global refinements", n_global_refinements);
   add_parameter("Number of basis vectors", num_basis_vectors);
+  add_parameter("Compare with fine global solution", solve_fine_problem);
   this->prm.enter_subsection("Error");
   convergence_table.add_parameters(this->prm);
   this->prm.leave_subsection();
@@ -150,6 +154,8 @@ private:
   assemble_global_matrix();
   void
   solve();
+  void
+  solve_fine_problem_and_compare() const;
   void
   output_results() const;
   void
