@@ -41,6 +41,7 @@
 #  include <deal.II/lac/petsc_vector.h>
 #  include <deal.II/lac/slepc_solver.h>
 #  include <deal.II/lac/solver_control.h>
+#  include <deal.II/lac/solver_minres.h>
 #  include <deal.II/lac/sparsity_tools.h>
 
 #  include <deal.II/multigrid/mg_transfer_global_coarsening.h>
@@ -91,8 +92,8 @@ public:
   unsigned int oversampling         = 1;
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
-  /// @brief
   unsigned int num_basis_vectors  = 1;
+  unsigned int p_order_on_patch     = 2;
   bool         solve_fine_problem = false;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
@@ -102,7 +103,9 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> fine_solver_control;
   mutable ParameterAcceptorProxy<ReductionControl> coarse_solver_control;
 
-  mutable ParsedConvergenceTable convergence_table;
+  mutable ParsedConvergenceTable convergence_table_SLOD;
+  mutable ParsedConvergenceTable convergence_table_FEM;
+  mutable ParsedConvergenceTable convergence_table_compare;
 };
 
 
@@ -110,9 +113,9 @@ public:
 template <int dim, int spacedim>
 SLODParameters<dim, spacedim>::SLODParameters()
   : ParameterAcceptor("/Problem")
-  , rhs("/Problem/Right hand side", dim)
-  , exact_solution("/Problem/Exact solution", dim)
-  , bc("/Problem/Dirichlet boundary conditions", dim)
+  , rhs("/Problem/Right hand side")//, dim-1)
+  , exact_solution("/Problem/Exact solution")//, dim-1)
+  , bc("/Problem/Dirichlet boundary conditions")//, dim-1)
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
 {
@@ -122,9 +125,12 @@ SLODParameters<dim, spacedim>::SLODParameters()
   add_parameter("Number of subdivisions", n_subdivisions);
   add_parameter("Number of global refinements", n_global_refinements);
   add_parameter("Number of basis vectors", num_basis_vectors);
+  add_parameter("order polynomial on patch", p_order_on_patch);
   add_parameter("Compare with fine global solution", solve_fine_problem);
   this->prm.enter_subsection("Error");
-  convergence_table.add_parameters(this->prm);
+  convergence_table_SLOD.add_parameters(this->prm);
+  convergence_table_FEM.add_parameters(this->prm);
+  convergence_table_compare.add_parameters(this->prm);
   this->prm.leave_subsection();
 }
 
@@ -147,7 +153,7 @@ private:
   void
   compute_basis_function_candidates();
   void
-  compute_basis_function_candidates_using_SVD();
+  compute_basis_function_candidates_using_SVD() {};
   void
   stabilize();
   void
@@ -155,7 +161,7 @@ private:
   void
   solve();
   void
-  solve_fine_problem_and_compare() const;
+  solve_fine_problem_and_compare();// const;
   void
   output_results() const;
   void
@@ -176,7 +182,8 @@ private:
   void
   assemble_stiffness_for_patch( // Patch<dim> &           current_patch,
     LA::MPI::SparseMatrix &stiffness_matrix,
-    const DoFHandler<dim> &dh);
+    const DoFHandler<dim> &dh,
+    AffineConstraints<double> &local_stiffnes_constraints);
 
   parallel::distributed::Triangulation<dim> tria;
   DoFHandler<dim>                           dof_handler_coarse;
@@ -186,14 +193,15 @@ private:
 
   LA::MPI::SparseMatrix basis_matrix;
   LA::MPI::SparseMatrix premultiplied_basis_matrix;
-  LA::MPI::SparseMatrix global_matrix;
-  // TODO: Add rhs
+  LA::MPI::SparseMatrix global_stiffness_matrix;
+  LA::MPI::Vector       solution;
+  LA::MPI::Vector       system_rhs;
 
   std::unique_ptr<FE_DGQ<dim>> fe_coarse;
-  // std::unique_ptr<FiniteElement<dim>>  fe_coarse;
   std::unique_ptr<FE_Q_iso_Q1<dim>> fe_fine;
-  // std::unique_ptr<FiniteElement<dim>>  fe_fine;
-  std::unique_ptr<Quadrature<dim>> quadrature_fine;
+  // std::unique_ptr<FiniteElement<dim>> fe_coarse;
+  // std::unique_ptr<FiniteElement<dim>> fe_fine;
+  std::unique_ptr<Quadrature<dim>>    quadrature_fine;
 
   std::vector<Patch<dim>> patches;
   DynamicSparsityPattern  patches_pattern;
@@ -205,14 +213,14 @@ private:
   // global (coarse) mesh and the inner lists store the information, which
   // patches contain this global cell.
   // std::vector<std::vector<
-  //   std::pair<unsigned int, typename Triangulation<dim>::active_cell_iterator>>>
-  //   global_to_local_cell_map;
+  //   std::pair<unsigned int, typename
+  //   Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
 
   IndexSet locally_owned_patches;
+  IndexSet locally_owned_dofs;  
+  IndexSet locally_relevant_dofs;
 
-  LA::MPI::SparseMatrix global_stiffness_matrix;
-  LA::MPI::Vector       solution;
-  LA::MPI::Vector       system_rhs;
+
 };
 
 // template <int dim>
