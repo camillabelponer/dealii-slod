@@ -25,19 +25,19 @@ subsection Problem
   subsection Dirichlet boundary conditions
     set Function constants  = 
     set Function expression = 0
-    set Variable names      = x,t
+    set Variable names      = x,y,t
   end
 
   subsection Exact solution
     set Function constants  = 
     set Function expression = 0
-    set Variable names      = x,t
+    set Variable names      = x,y,t
   end
 
   subsection Right hand side
     set Function constants  = 
-    set Function expression = 1
-    set Variable names      = x,t
+    set Function expression = floor(x+y)
+    set Variable names      = x,y,t
   end
 
   subsection Solver

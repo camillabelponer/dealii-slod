@@ -92,9 +92,9 @@ public:
   unsigned int oversampling         = 1;
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
-  unsigned int num_basis_vectors  = 1;
+  unsigned int num_basis_vectors    = 1;
   unsigned int p_order_on_patch     = 2;
-  bool         solve_fine_problem = false;
+  bool         solve_fine_problem   = false;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
@@ -113,9 +113,9 @@ public:
 template <int dim, int spacedim>
 SLODParameters<dim, spacedim>::SLODParameters()
   : ParameterAcceptor("/Problem")
-  , rhs("/Problem/Right hand side")//, dim-1)
-  , exact_solution("/Problem/Exact solution")//, dim-1)
-  , bc("/Problem/Dirichlet boundary conditions")//, dim-1)
+  , rhs("/Problem/Right hand side")              //, dim-1)
+  , exact_solution("/Problem/Exact solution")    //, dim-1)
+  , bc("/Problem/Dirichlet boundary conditions") //, dim-1)
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
 {
@@ -153,7 +153,7 @@ private:
   void
   compute_basis_function_candidates();
   void
-  compute_basis_function_candidates_using_SVD() {};
+  compute_basis_function_candidates_using_SVD(){};
   void
   stabilize();
   void
@@ -161,7 +161,7 @@ private:
   void
   solve();
   void
-  solve_fine_problem_and_compare();// const;
+  solve_fine_problem_and_compare(); // const;
   void
   output_results() const;
   void
@@ -181,27 +181,27 @@ private:
   check_nested_patches(); // AFTER PATCHES ARE CREATED
   void
   assemble_stiffness_for_patch( // Patch<dim> &           current_patch,
-    LA::MPI::SparseMatrix &stiffness_matrix,
-    const DoFHandler<dim> &dh,
+    LA::MPI::SparseMatrix &    stiffness_matrix,
+    const DoFHandler<dim> &    dh,
     AffineConstraints<double> &local_stiffnes_constraints);
 
   parallel::distributed::Triangulation<dim> tria;
   DoFHandler<dim>                           dof_handler_coarse;
   DoFHandler<dim>                           dof_handler_fine;
 
-  AffineConstraints<double> constraints;
+  // AffineConstraints<double> constraints;
 
   LA::MPI::SparseMatrix basis_matrix;
-  LA::MPI::SparseMatrix premultiplied_basis_matrix;
+  LA::MPI::SparseMatrix premultiplied_basis_matrix_transposed;
   LA::MPI::SparseMatrix global_stiffness_matrix;
   LA::MPI::Vector       solution;
   LA::MPI::Vector       system_rhs;
 
-  std::unique_ptr<FE_DGQ<dim>> fe_coarse;
+  std::unique_ptr<FE_DGQ<dim>>      fe_coarse;
   std::unique_ptr<FE_Q_iso_Q1<dim>> fe_fine;
   // std::unique_ptr<FiniteElement<dim>> fe_coarse;
   // std::unique_ptr<FiniteElement<dim>> fe_fine;
-  std::unique_ptr<Quadrature<dim>>    quadrature_fine;
+  std::unique_ptr<Quadrature<dim>> quadrature_fine;
 
   std::vector<Patch<dim>> patches;
   DynamicSparsityPattern  patches_pattern;
@@ -217,10 +217,8 @@ private:
   //   Triangulation<dim>::active_cell_iterator>>> global_to_local_cell_map;
 
   IndexSet locally_owned_patches;
-  IndexSet locally_owned_dofs;  
+  IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;
-
-
 };
 
 // template <int dim>
