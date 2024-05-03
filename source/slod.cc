@@ -20,6 +20,7 @@ template <int dim>
 void
 SLOD<dim>::print_parameters() const
 {
+  TimerOutput::Scope t(computing_timer, "printing parameters");
   pcout << "Running SLODProblem" << std::endl;
   par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
                              std::to_string(dim) + ".prm",
@@ -329,13 +330,13 @@ void
 SLOD<dim>::compute_basis_function_candidates()
 {
   std::cout << "   compute basis function candidate";
-  //TimerOutput::Scope t(computing_timer, "compute basis function candidate");
+  // TimerOutput::Scope t(computing_timer, "compute basis function candidate");
   computing_timer.enter_subsection("compute basis function candidate");
-  DoFHandler<dim>    dh_coarse_patch;
-  DoFHandler<dim>    dh_fine_patch;
+  DoFHandler<dim> dh_coarse_patch;
+  DoFHandler<dim> dh_fine_patch;
 
   // using VectorType = LinearAlgebra::distributed::Vector<double>;
-  // would be nice to have LA::distributed
+  // TODO would be nice to have LA::distributed
   using VectorType = Vector<double>;
 
   // need reinit in loop
@@ -360,6 +361,9 @@ SLOD<dim>::compute_basis_function_candidates()
 
       auto Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
+      // double h            = dh_fine_patch.begin_active()->diameter();
+      // h /= par.n_subdivisions;
+      // std::cout << "h = " << h << std::endl;
 
       IndexSet relevant_dofs;
       DoFTools::extract_locally_relevant_dofs(dh_fine_patch, relevant_dofs);
@@ -428,6 +432,10 @@ SLOD<dim>::compute_basis_function_candidates()
         local_stiffnes_constraints);
       // internal_boundary_constraints);
 
+      // std::cout << "      patch stiffness matrix frobenius norm = "
+      //           << patch_stiffness_matrix.frobenius_norm() << std::endl;
+
+
       // TODO: cahnge solver
       // do we actually need A?
       // i think A with the constrained ( see make sparsity pattern) might be
@@ -486,28 +494,26 @@ SLOD<dim>::compute_basis_function_candidates()
       };
 
       const auto project = [&](auto &dst, const auto &src) {
-       VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
-       VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
-       VectorType weights(fe_coarse->n_dofs_per_cell());
-      
-       for (const auto &cell :
-       current_patch->sub_tria.active_cell_iterators())
-         // should be locally_owned ?
-         {
-           const auto cell_coarse =
-             cell->as_dof_handler_iterator(dh_coarse_patch);
-           const auto cell_fine =
-           cell->as_dof_handler_iterator(dh_fine_patch);
-      
-           cell_coarse->get_dof_values(src, vec_local_coarse);
-      
-           cell_coarse->get_dof_values(valence_coarse, weights);
-           vec_local_coarse.scale(weights);
-      
-           projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
-      
-           cell_fine->distribute_local_to_global(vec_local_fine, dst);
-         }
+        VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+        VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+        VectorType weights(fe_coarse->n_dofs_per_cell());
+
+        for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+          // should be locally_owned ?
+          {
+            const auto cell_coarse =
+              cell->as_dof_handler_iterator(dh_coarse_patch);
+            const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+
+            cell_coarse->get_dof_values(src, vec_local_coarse);
+
+            cell_coarse->get_dof_values(valence_coarse, weights);
+            vec_local_coarse.scale(weights);
+
+            projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+
+            cell_fine->distribute_local_to_global(vec_local_fine, dst);
+          }
       };
 
       // Specialization of projection for the case where src is the P0 basis
@@ -573,81 +579,98 @@ SLOD<dim>::compute_basis_function_candidates()
 
       std::vector<VectorType> candidates;
       std::vector<VectorType> Palpha_i;
-      VectorType         Pa_i(Ndofs_fine);
+      VectorType              Pa_i(Ndofs_fine);
 
       for (unsigned int index = 0; index < Ndofs_coarse; ++index)
-      // auto index = 0;
-      {
-        c_i                    = 0.0;
-        e_i                    = 0.0;
-        triple_product_inv_e_i = 0.0;
-
-        // 0 is the index of the central cell
-        // (this is also the central dof because we use P0 elements)
-        e_i[index] = 1.0;
-        triple_product.vmult(triple_product_inv_e_i, e_i);
-
-        A0_inv_P.vmult(c_i, triple_product_inv_e_i);
-        c_i /= c_i.l2_norm();
-        /*
-        current_patch->basis_function=c_i;
-
-        // project(Ac_i, triple_product_inv_e_i);
-        // no longer correct bc what we actually need to do is A*A0-1
-        Ac_i                   = 0.0;
-        Ac_i = A * c_i;
-        current_patch->basis_function_premultiplied=Ac_i;
-        */
-        candidates.push_back(c_i);
-        Pa_i = 0;
-        project(Pa_i, triple_product_inv_e_i);
-        Palpha_i.push_back(Pa_i);
-      }
-      
-      const auto stabilize = [&](Vector<double> &dst, const std::vector<Vector<double>> &candidates) {
-        FullMatrix<double> B (Ndofs_fine, Ndofs_coarse-1);
-
-        VectorType B_0 = A*candidates[0];
-        B_0 += Palpha_i[0];
-
-        for (unsigned int col = 0; col < Palpha_i.size()-1; ++col)
+        // auto index = 0;
         {
-          VectorType B_i = A*candidates[col+1];
-          B_i += Palpha_i[col+1];
-          for (unsigned int row = 0; row < B_i.size(); ++row)
-          {
-            B.set(row, col, B_i[row]);
-          }
+          c_i                    = 0.0;
+          e_i                    = 0.0;
+          triple_product_inv_e_i = 0.0;
+
+          // 0 is the index of the central cell
+          // (this is also the central dof because we use P0 elements)
+          e_i[index] = 1.0;
+          triple_product.vmult(triple_product_inv_e_i, e_i);
+          // triple_product_inv_e_i *= (h*h);
+
+          A0_inv_P.vmult(c_i, triple_product_inv_e_i);
+          c_i /= c_i.l2_norm();
+          /*
+          current_patch->basis_function=c_i;
+
+          // project(Ac_i, triple_product_inv_e_i);
+          // no longer correct bc what we actually need to do is A*A0-1
+          Ac_i                   = 0.0;
+          Ac_i = A * c_i;
+          current_patch->basis_function_premultiplied=Ac_i;
+          */
+          candidates.push_back(c_i);
+          Pa_i = 0;
+          project(Pa_i, triple_product_inv_e_i);
+          Palpha_i.push_back(Pa_i);
         }
 
-        FullMatrix<double> BTB (Ndofs_coarse-1, Ndofs_coarse-1);
-        B.Tmmult(BTB, B);
-        LAPACKFullMatrix<double> SVD(Ndofs_coarse-1, Ndofs_coarse-1);
-        SVD = BTB;
-        SVD.compute_inverse_svd();
-        for (unsigned int k = 0; k < current_patch->contained_patches; ++k)
-        {
-          SVD.remove_row_and_column(SVD.m()-1, SVD.n()-1);
-        }
-        // VectorType d_i;
-        // d_i.reinit(???);
-        // d_i = SVD * BT * B0
+      Assert(candidates.size() > 0, ExcInternalError());
 
+      const auto stabilize =
+        [&](Vector<double> &                   dst,
+            const std::vector<Vector<double>> &candidates) {
+          if (candidates.size() > 1)
+            {
+              FullMatrix<double> B(Ndofs_fine, Ndofs_coarse - 1);
 
-        dst = candidates[0];
-        // for (unsigned int index = 1; index < candidates.size(); ++index)
-        // {
-        //   dts += d_i[index]*candidates[index];
-        // }
-      };
+              VectorType B_0 = A * candidates[0];
+              B_0 += Palpha_i[0];
 
-    Vector<double> selected_basis_function;
-    stabilize(selected_basis_function, candidates);
-    //   selected_basis_function = candidates[0];
+              for (unsigned int col = 0; col < Palpha_i.size() - 1; ++col)
+                {
+                  VectorType B_i = A * candidates[col + 1];
+                  B_i += Palpha_i[col + 1];
+                  for (unsigned int row = 0; row < B_i.size(); ++row)
+                    {
+                      B.set(row, col, B_i[row]);
+                    }
+                }
 
-      current_patch->basis_function = selected_basis_function;
-      Ac_i = 0;
-      Ac_i = A * selected_basis_function;
+              FullMatrix<double> BTB(Ndofs_coarse - 1, Ndofs_coarse - 1);
+              B.Tmmult(BTB, B);
+              LAPACKFullMatrix<double> SVD(Ndofs_coarse - 1, Ndofs_coarse - 1);
+              SVD = BTB;
+              SVD.compute_inverse_svd();
+              for (unsigned int k = 0; k < current_patch->contained_patches;
+                   ++k)
+                {
+                  SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
+                }
+
+              VectorType d_i(candidates.size()-1);
+              d_i = 0;
+              // FullMatrix<double> Matrix_rhs(SVD.m(),Ndofs_coarse - 1);
+              //LAPACKFullMatrix<double> Blapack(Ndofs_fine, Ndofs_coarse - 1);
+              //Blapack = B;
+              // VectorType 
+              // SVD.mTmult(Matrix_rhs, Blapack);
+              // Matrix_rhs.vmult(d_i, B_0);
+              VectorType BTB_0(Ndofs_coarse - 1);
+              B.Tvmult(BTB_0, B_0);
+              SVD.vmult(d_i, BTB_0);
+
+              dst = candidates[0];
+              for (unsigned int index = 0; index < candidates.size()-1;
+              ++index)
+                {
+                  dst += d_i[index] * candidates[index];
+                }
+            }
+        };
+
+      Vector<double> selected_basis_function;
+      stabilize(selected_basis_function, candidates);
+
+      current_patch->basis_function               = selected_basis_function;
+      Ac_i                                        = 0;
+      Ac_i                                        = A * selected_basis_function;
       current_patch->basis_function_premultiplied = Ac_i;
 
       dh_fine_patch.clear();
@@ -828,8 +851,15 @@ SLOD<dim>::assemble_global_matrix()
   // do we need to compress them??
   // basis_matrix.compress(VectorOperation::add);
   // premultiplied_basis_matrix_transposed.compress(VectorOperation::add);
+  std::cout << "     basis matrix frobenius norm = "
+            << basis_matrix.frobenius_norm() << std::endl;
+  std::cout << "     premultiplied basis matrix frobenius norm = "
+            << premultiplied_basis_matrix_transposed.frobenius_norm()
+            << std::endl;
   VectorTools::interpolate(dof_handler_fine, par.rhs, rhs_values);
   basis_matrix.vmult(system_rhs, rhs_values);
+  //VectorTools::interpolate(dof_handler_coarse, par.rhs, system_rhs);
+  std::cout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
   // transpose does not work if the matrix is called as an argument
   // premultiplied_basis_matrix_transposed.transpose();
@@ -1021,8 +1051,9 @@ SLOD<dim>::solve_fine_problem_and_compare() // const
       // TODO: use the dof_handler_fine instead of dh_fine
       // unsigned int fine_refinement = (unsigned int)
       // floor(par.n_subdivisions/2);
-      // tria.refine_global(par.n_global_refinements);
+      // tria.refine_global(fine_refinement);
       DoFHandler<dim>           dh(tria);
+
       LA::MPI::SparseMatrix     fine_global_stiffness_matrix;
       LA::MPI::Vector           fine_solution;
       LA::MPI::Vector           locally_relevant_solution;
@@ -1030,10 +1061,10 @@ SLOD<dim>::solve_fine_problem_and_compare() // const
       AffineConstraints<double> fine_constraints;
 
       // std::unique_ptr<FiniteElement<dim>> fe =
-      // std::make_unique<FESystem<dim>>(FE_Q<dim>(par.p_order_on_patch),1);
+      // std::make_unique<FESystem<dim>>(FE_Q<dim>(1),1);
       dh.distribute_dofs(*fe_fine);
       // std::unique_ptr<Quadrature<dim>> quadrature =
-      // std::make_unique<QGauss<dim>>(par.p_order_on_patch + 1);
+      // std::make_unique<QGauss<dim>>(1 + 1);
 
       auto     locally_owned_dofs = dh.locally_owned_dofs();
       IndexSet locally_relevant_dofs;
@@ -1125,6 +1156,11 @@ SLOD<dim>::solve_fine_problem_and_compare() // const
       fine_global_stiffness_matrix.compress(VectorOperation::add);
       fine_rhs.compress(VectorOperation::add);
 
+      std::cout << "     fine stiffness matrix frobenius norm = "
+                << fine_global_stiffness_matrix.frobenius_norm() << std::endl;
+      std::cout << "     fine rhs l2 norm = " << fine_rhs.l2_norm()
+                << std::endl;
+
       // solve
       LA::MPI::PreconditionAMG prec_Sh;
       prec_Sh.initialize(fine_global_stiffness_matrix, 1.2);
@@ -1156,8 +1192,12 @@ SLOD<dim>::solve_fine_problem_and_compare() // const
       // 2
       // InterGridMap<DoFHandler<dim> > coarse_to_fine_map;
       // coarse_to_fine_map.make_mapping(dof_handler, dh_fine);
+      
       LA::MPI::Vector coarse_solution;
-      coarse_solution.reinit(patches_pattern_fine.nonempty_cols(), mpi_communicator);
+      coarse_solution.reinit(patches_pattern_fine.nonempty_cols(),
+                             mpi_communicator);
+
+      // Vector<double> coarse_solution(patches_pattern_fine.nonempty_cols());
       // VectorTools::interpolate_to_different_mesh(coarse_to_fine_map,
       //                                           solution,
       //                                           constraints,
@@ -1216,30 +1256,6 @@ SLOD<dim>::solve_fine_problem_and_compare() // const
     }
 }
 
-
-template <int dim>
-Vector<double>
-SLOD<dim>::stabilize(std::vector<Vector<double>> candidates)
-{ 
-  return candidates[0];
-
-
-  /*
-   get vector of cand
-   define conormal op.
-   apply op (B) to cand(0)
-   apply b to all other candidates
-   solve somehow d = B-1 B0 cannot do that then
-   svd (Parpack)
-   truncate by throwing away as many patches as this patches containes ( the
- smallest) etc
- */
-  // cosntruct B
-  // take first col of B as rhs
-  // the rest is B_r
-  // SVD of B_r ^T B_r and then truncate
-}
-
 template <int dim>
 void
 SLOD<dim>::initialize_patches()
@@ -1266,18 +1282,29 @@ SLOD<dim>::initialize_patches()
   //       std::cout << "}" << std::endl;
   //     ++i;
   //   }
-  // std::cout << "printing the sparsity pattern: [global_cell_id] = {cells}" <<
-  // std::endl; for (auto cell = 0; cell < tria.n_active_cells(); ++cell)
-  //   {
-  //     std::cout << "cell " << cell << " is connected to patches/cells: {";
-  //     for (unsigned int j = 0;
-  //              j < patches_pattern.row_length(cell);
-  //              j++)
-  //     {
-  //       std::cout << patches_pattern.column_number(cell, j) << " ";
-  //     }
-  //       std::cout << "}" << std::endl;
-  //   }
+  if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0 ||
+      Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
+    {
+      const std::string filename(par.output_directory + "/patches.txt");
+      std::ofstream     file;
+      file.open(filename);
+      file << "printing the sparsity pattern: [global_cell_id] = {cells}"
+           << std::endl;
+      // for (unsigned int cell = 0; cell < tria.n_active_cells(); ++cell)
+      for (const auto &cell_it : tria.active_cell_iterators())
+        {
+          auto cell = cell_it->active_cell_index();
+          file << "- cell " << cell << " (baricenter "
+               << cell_it->barycenter() << ") is connected to patches/cells: {";
+          for (unsigned int j = 0; j < patches_pattern.row_length(cell); j++)
+            {
+              file << patches_pattern.column_number(cell, j) << " ";
+            }
+          file << "}. contained patches = " << patches[cell].contained_patches
+               << std::endl;
+        }
+      file.close();
+    }
 }
 
 template <int dim>
@@ -1288,9 +1315,8 @@ SLOD<dim>::run()
   make_grid();
   make_fe();
   initialize_patches();
-
-  compute_basis_function_candidates();
-
+  
+  compute_basis_function_candidates(); 
   assemble_global_matrix();
   solve();
   solve_fine_problem_and_compare();
@@ -1299,15 +1325,15 @@ SLOD<dim>::run()
   par.convergence_table_SLOD.error_from_exact(dof_handler_coarse,
                                               solution,
                                               par.exact_solution);
-  if (pcout.is_active())
-    {
-      pcout << "SLOD vs exact solution (coarse mesh)" << std::endl;
-      par.convergence_table_SLOD.output_table(pcout.get_stream());
-      pcout << "FEM vs exact solution (fine mesh)" << std::endl;
-      par.convergence_table_FEM.output_table(pcout.get_stream());
-      pcout << "SLOD vs FEM (fine mesh)" << std::endl;
-      par.convergence_table_compare.output_table(pcout.get_stream());
-    }
+    if (pcout.is_active())
+      {
+        pcout << "SLOD vs exact solution (coarse mesh)" << std::endl;
+        par.convergence_table_SLOD.output_table(pcout.get_stream());
+        pcout << "FEM vs exact solution (fine mesh)" << std::endl;
+        par.convergence_table_FEM.output_table(pcout.get_stream());
+        // pcout << "SLOD vs FEM (fine mesh)" << std::endl;
+        // par.convergence_table_compare.output_table(pcout.get_stream());
+      }
 }
 
 

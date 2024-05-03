@@ -17,7 +17,7 @@ subsection Problem
   set Number of subdivisions       = 1
   set Output directory             = ./output/
   set Output name                  = sol
-  set oversampling                 = 1
+  set oversampling                 = 0
   set order polynomial on patch    = 2
   set Compare with fine global solution = true
 
@@ -30,13 +30,13 @@ subsection Problem
 
   subsection Exact solution
     set Function constants  = 
-    set Function expression = 0
+    set Function expression = sin(pi*x)*sin(pi*y)
     set Variable names      = x,y,t
   end
 
   subsection Right hand side
     set Function constants  = 
-    set Function expression = floor(abs(x)+abs(y))
+    set Function expression = 2*(pi)^2 * sin(pi*x) * sin(pi*y)
     set Variable names      = x,y,t
   end
 

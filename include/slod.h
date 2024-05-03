@@ -77,8 +77,8 @@ public:
   // change!!! cannot be unique and cannot point at stuff that's destructed
   Vector<double> basis_function;
   Vector<double> basis_function_premultiplied;
-  unsigned int                contained_patches = 0;
-  unsigned int                patch_id;
+  unsigned int   contained_patches = 0;
+  unsigned int   patch_id;
 };
 
 
@@ -155,8 +155,6 @@ private:
   compute_basis_function_candidates();
   void
   compute_basis_function_candidates_using_SVD(){};
-  Vector<double>
-  stabilize(std::vector<Vector<double>>);
   void
   assemble_global_matrix();
   void
@@ -260,3 +258,19 @@ private:
 // elasticity
 // parallelization
 // optimize C^T S C
+
+// 30 04 24 : stabilization
+/*
+ get vector of cand
+ define conormal op.
+ apply op (B) to cand(0)
+ apply b to all other candidates
+ solve somehow d = B-1 B0 cannot do that then
+ svd (Parpack)
+ truncate by throwing away as many patches as this patches containes ( the
+smallest) etc
+*/
+// cosntruct B
+// take first col of B as rhs
+// the rest is B_r
+// SVD of B_r ^T B_r and then truncate
