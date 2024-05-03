@@ -225,23 +225,23 @@ SLOD<dim>::check_nested_patches()
           {
             if (current_patch_id == other_patch_id)
               continue;
-            bool current_patch_is_contained = true;
+            bool other_patch_is_contained = true;
             for (unsigned int j = 0;
-                 j < patches_pattern.row_length(current_patch_id);
+                 j < patches_pattern.row_length(other_patch_id);
                  j++)
               {
                 const auto cell =
-                  patches_pattern.column_number(current_patch_id, j);
+                  patches_pattern.column_number(other_patch_id, j);
                 // if (cell != numbers::invalid_size_type)
                 {
-                  if (!patches_pattern.exists(other_patch_id, cell))
+                  if (!patches_pattern.exists(current_patch_id, cell))
                     {
-                      current_patch_is_contained = false;
+                      other_patch_is_contained = false;
                       break;
                     }
                 }
               }
-            if (current_patch_is_contained)
+            if (other_patch_is_contained)
               {
                 AssertIndexRange(current_patch_id, patches.size());
                 patches[current_patch_id].contained_patches++;
