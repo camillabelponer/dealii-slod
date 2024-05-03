@@ -34,6 +34,7 @@
 #  include <deal.II/lac/full_matrix.h>
 #  include <deal.II/lac/generic_linear_algebra.h>
 #  include <deal.II/lac/la_parallel_vector.h>
+#  include <deal.II/lac/lapack_full_matrix.h>
 #  include <deal.II/lac/linear_operator.h>
 #  include <deal.II/lac/linear_operator_tools.h>
 #  include <deal.II/lac/petsc_full_matrix.h>
@@ -74,8 +75,8 @@ public:
   Triangulation<dim> sub_tria;
   // std::unique_ptr<DoFHandler<dim>>                            dh_fine;
   // change!!! cannot be unique and cannot point at stuff that's destructed
-  std::vector<Vector<double>> basis_function_candidates;
-  std::vector<Vector<double>> basis_function_candidates_premultiplied;
+  Vector<double> basis_function;
+  Vector<double> basis_function_premultiplied;
   unsigned int                contained_patches = 0;
   unsigned int                patch_id;
 };
@@ -154,8 +155,8 @@ private:
   compute_basis_function_candidates();
   void
   compute_basis_function_candidates_using_SVD(){};
-  void
-  stabilize();
+  Vector<double>
+  stabilize(std::vector<Vector<double>>);
   void
   assemble_global_matrix();
   void
@@ -163,7 +164,7 @@ private:
   void
   solve_fine_problem_and_compare(); // const;
   void
-  output_results() const;
+  output_results();
   void
   print_parameters() const;
   void
