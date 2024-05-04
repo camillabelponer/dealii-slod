@@ -616,9 +616,11 @@ SLOD<dim>::compute_basis_function_candidates()
       const auto stabilize =
         [&](Vector<double> &                   dst,
             const std::vector<Vector<double>> &candidates) {
-          if (candidates.size() > 1)
+              
+          unsigned int N_other_phi = candidates.size()-1;
+          if (N_other_phi > 0 && (N_other_phi > current_patch->contained_patches))
             {
-              FullMatrix<double> B(Ndofs_fine, Ndofs_coarse - 1);
+              FullMatrix<double> B(Ndofs_fine, N_other_phi);
 
               VectorType B_0 = A * candidates[0];
               B_0 += Palpha_i[0];
@@ -633,9 +635,9 @@ SLOD<dim>::compute_basis_function_candidates()
                     }
                 }
 
-              FullMatrix<double> BTB(Ndofs_coarse - 1, Ndofs_coarse - 1);
+              FullMatrix<double> BTB(N_other_phi, N_other_phi);
               B.Tmmult(BTB, B);
-              LAPACKFullMatrix<double> SVD(Ndofs_coarse - 1, Ndofs_coarse - 1);
+              LAPACKFullMatrix<double> SVD(N_other_phi, N_other_phi);
               SVD = BTB;
               SVD.compute_inverse_svd();
               for (unsigned int k = 0; k < current_patch->contained_patches;
@@ -643,8 +645,12 @@ SLOD<dim>::compute_basis_function_candidates()
                 {
                   SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
                 }
+              // SVD.grow_or_shrink(N_other_phi);
+              unsigned int considered_candidates = SVD.m();
+              Assert((N_other_phi - current_patch->contained_patches == SVD.n()), ExcInternalError());
+              Assert(considered_candidates == SVD.n(), ExcInternalError());
 
-              VectorType d_i(candidates.size()-1);
+              VectorType d_i(considered_candidates);
               d_i = 0;
               // FullMatrix<double> Matrix_rhs(SVD.m(),Ndofs_coarse - 1);
               //LAPACKFullMatrix<double> Blapack(Ndofs_fine, Ndofs_coarse - 1);
@@ -652,17 +658,20 @@ SLOD<dim>::compute_basis_function_candidates()
               // VectorType 
               // SVD.mTmult(Matrix_rhs, Blapack);
               // Matrix_rhs.vmult(d_i, B_0);
-              VectorType BTB_0(Ndofs_coarse - 1);
+              VectorType BTB_0(N_other_phi);
               B.Tvmult(BTB_0, B_0);
+              BTB_0.grow_or_shrink(considered_candidates);
               SVD.vmult(d_i, BTB_0);
 
               dst = candidates[0];
-              for (unsigned int index = 0; index < candidates.size()-1;
+              for (unsigned int index = 0; index < considered_candidates;
               ++index)
                 {
                   dst += d_i[index] * candidates[index];
                 }
             }
+            else
+            dst = candidates[0];
         };
 
       Vector<double> selected_basis_function;
@@ -1024,6 +1033,8 @@ SLOD<dim>::solve()
 
   const auto A    = linear_operator<LA::MPI::Vector>(global_stiffness_matrix);
   auto       invA = A;
+
+  // TODO: oversampling = 0 global stiffness is not well defined
 
   const auto amgA = linear_operator(A, prec_A);
 

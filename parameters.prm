@@ -13,11 +13,11 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 1
+  set Number of global refinements = 4
   set Number of subdivisions       = 1
   set Output directory             = ./output/
   set Output name                  = sol
-  set oversampling                 = 0
+  set oversampling                 = 2
   set order polynomial on patch    = 2
   set Compare with fine global solution = true
 
