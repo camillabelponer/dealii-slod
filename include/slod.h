@@ -44,6 +44,7 @@
 #  include <deal.II/lac/solver_control.h>
 #  include <deal.II/lac/solver_minres.h>
 #  include <deal.II/lac/sparsity_tools.h>
+#  include <deal.II/lac/trilinos_vector.h>
 
 #  include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 
@@ -191,7 +192,7 @@ private:
   // AffineConstraints<double> constraints;
 
   LA::MPI::SparseMatrix basis_matrix;
-  LA::MPI::SparseMatrix premultiplied_basis_matrix_transposed;
+  LA::MPI::SparseMatrix premultiplied_basis_matrix;
   LA::MPI::SparseMatrix global_stiffness_matrix;
   LA::MPI::Vector       solution;
   LA::MPI::Vector       system_rhs;
