@@ -13,13 +13,14 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 2
-  set Number of subdivisions       = 3
+  set Number of global refinements = 3
+  set Number of subdivisions       = 8
   set Output directory             = ./output/
   set Output name                  = sol
   set oversampling                 = 1
-  set order polynomial on patch    = 1
+  set order polynomial on patch    = 2
   set Compare with fine global solution = true
+  set Stabilize phi_LOD candidates = false
 
 
   subsection Dirichlet boundary conditions
@@ -30,13 +31,15 @@ subsection Problem
 
   subsection Exact solution
     set Function constants  = 
-    set Function expression = sin(pi*x)*sin(pi*y)
+    set Function expression = 0
+    #sin(pi*x)*sin(pi*y)
     set Variable names      = x,y,t
   end
 
   subsection Right hand side
     set Function constants  = 
-    set Function expression = 2*(pi)^2 * sin(pi*x) * sin(pi*y)
+    set Function expression = 1
+    #2*(pi)^2 * sin(pi*x) * sin(pi*y)
     set Variable names      = x,y,t
   end
 

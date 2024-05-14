@@ -97,6 +97,7 @@ public:
   unsigned int num_basis_vectors    = 1;
   unsigned int p_order_on_patch     = 2;
   bool         solve_fine_problem   = false;
+  bool         LOD_stabilization    = false;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
@@ -129,6 +130,7 @@ SLODParameters<dim, spacedim>::SLODParameters()
   add_parameter("Number of basis vectors", num_basis_vectors);
   add_parameter("order polynomial on patch", p_order_on_patch);
   add_parameter("Compare with fine global solution", solve_fine_problem);
+  add_parameter("Stabilize phi_LOD candidates", LOD_stabilization);
   this->prm.enter_subsection("Error");
   convergence_table_SLOD.add_parameters(this->prm);
   convergence_table_FEM.add_parameters(this->prm);
@@ -161,7 +163,9 @@ private:
   void
   solve();
   void
-  solve_fine_problem_and_compare(); // const;
+  solve_fem_problem();
+  void
+  compare_fem_slod(); // const;
   void
   output_results();
   void
@@ -173,14 +177,13 @@ private:
   MPI_Comm                        mpi_communicator;
   ConditionalOStream              pcout;
   mutable TimerOutput             computing_timer;
-  // std::unique_ptr<Quadrature<dim>>             quadrature_coarse;
 
   void
   create_mesh_for_patch(Patch<dim> &current_patch);
   void
   check_nested_patches(); // AFTER PATCHES ARE CREATED
   void
-  assemble_stiffness_for_patch( // Patch<dim> &           current_patch,
+  assemble_stiffness_for_patch(
     LA::MPI::SparseMatrix &    stiffness_matrix,
     const DoFHandler<dim> &    dh,
     AffineConstraints<double> &local_stiffnes_constraints);
@@ -189,19 +192,23 @@ private:
   DoFHandler<dim>                           dof_handler_coarse;
   DoFHandler<dim>                           dof_handler_fine;
 
-  // AffineConstraints<double> constraints;
+  AffineConstraints<double> constraints;
 
   LA::MPI::SparseMatrix basis_matrix;
   LA::MPI::SparseMatrix premultiplied_basis_matrix;
   LA::MPI::SparseMatrix global_stiffness_matrix;
   LA::MPI::Vector       solution;
   LA::MPI::Vector       system_rhs;
+  LA::MPI::Vector       fem_rhs;
+  LA::MPI::Vector       fem_solution;
 
   std::unique_ptr<FE_DGQ<dim>>      fe_coarse;
   std::unique_ptr<FE_Q_iso_Q1<dim>> fe_fine;
   // std::unique_ptr<FiniteElement<dim>> fe_coarse;
   // std::unique_ptr<FiniteElement<dim>> fe_fine;
   std::unique_ptr<Quadrature<dim>> quadrature_fine;
+  // std::unique_ptr<Quadrature<dim>> quadrature_coarse;
+
 
   std::vector<Patch<dim>> patches;
   DynamicSparsityPattern  patches_pattern;
@@ -220,22 +227,6 @@ private:
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;
 };
-
-// template <int dim>
-// class TransferWrapper {
-// public:
-//   TransferWrapper(MGTwoLevelTransfer<dim,
-//   LinearAlgebra::distributed::Vector<double>> &transfer, unsigned int
-//   n_coarse, unsigned int n_fine); void
-//   vmult(LinearAlgebra::distributed::Vector<double> &out, const
-//   LinearAlgebra::distributed::Vector<double> &in) const; void
-//   Tvmult(LinearAlgebra::distributed::Vector<double> &out, const
-//   LinearAlgebra::distributed::Vector<double> &in) const; unsigned int m()
-//   const; unsigned int n() const;
-// private:
-//   MGTwoLevelTransfer<dim, LinearAlgebra::distributed::Vector<double>>
-//   &transfer; unsigned int n_coarse; unsigned int n_fine;
-// };
 
 #endif
 
