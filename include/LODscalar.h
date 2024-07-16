@@ -174,9 +174,9 @@ private:
   initialize_patches();
 
   const LODParameters<dim, dim> &par;
-  MPI_Comm                        mpi_communicator;
-  ConditionalOStream              pcout;
-  mutable TimerOutput             computing_timer;
+  MPI_Comm                       mpi_communicator;
+  ConditionalOStream             pcout;
+  mutable TimerOutput            computing_timer;
 
   void
   create_mesh_for_patch(Patch<dim> &current_patch);
@@ -189,9 +189,10 @@ private:
     AffineConstraints<double> &local_stiffnes_constraints);
 
   parallel::shared::Triangulation<dim> tria;
+  // chek ghost layer, needs to be set to whole domain
   // shared not distributed bc we want all processors to get access to all cells
-  DoFHandler<dim>                           dof_handler_coarse;
-  DoFHandler<dim>                           dof_handler_fine;
+  DoFHandler<dim> dof_handler_coarse;
+  DoFHandler<dim> dof_handler_fine;
 
   AffineConstraints<double> constraints;
 

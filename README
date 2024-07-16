@@ -1,0 +1,10 @@
+only sequential, at 16.07.24 mpi is work in progress for the scalar case.
+to run the vector case change line 16 in CMakeList.txt to 
+file(GLOB TARGET_SRC source/LODvector.cc )
+uncomment lines 39-42 and comment 43-45
+
+#TODO 
+- fix CMakeFile.txt 
+- mpirun
+- convergence test for elasticity case
+- nested patches are deprecated in the vector case

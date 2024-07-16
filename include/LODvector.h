@@ -79,8 +79,8 @@ public:
   // VECTOR / SCALAR
   std::vector<Vector<double>> basis_function;
   std::vector<Vector<double>> basis_function_premultiplied;
-  unsigned int   contained_patches = 0;
-  unsigned int   patch_id;
+  unsigned int                contained_patches = 0;
+  unsigned int                patch_id;
 };
 
 
@@ -123,7 +123,9 @@ LODParameters<dim, spacedim>::LODParameters()
   , bc("/Problem/Dirichlet boundary conditions", dim) //, dim-1)
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
+  , convergence_table_LOD(std::vector<std::string>(dim, "u"))
   , convergence_table_FEM(std::vector<std::string>(dim, "u"))
+  , convergence_table_compare(std::vector<std::string>(dim, "u"))
 {
   add_parameter("Output directory", output_directory);
   add_parameter("Output name", output_name);
@@ -177,9 +179,9 @@ private:
   initialize_patches();
 
   const LODParameters<dim, dim> &par;
-  MPI_Comm                        mpi_communicator;
-  ConditionalOStream              pcout;
-  mutable TimerOutput             computing_timer;
+  MPI_Comm                       mpi_communicator;
+  ConditionalOStream             pcout;
+  mutable TimerOutput            computing_timer;
 
   void
   create_mesh_for_patch(Patch<dim> &current_patch);
@@ -210,7 +212,7 @@ private:
   // std::unique_ptr<FE_Q_iso_Q1<dim>> fe_fine;
   std::unique_ptr<FiniteElement<dim>> fe_coarse;
   std::unique_ptr<FiniteElement<dim>> fe_fine;
-  std::unique_ptr<Quadrature<dim>> quadrature_fine;
+  std::unique_ptr<Quadrature<dim>>    quadrature_fine;
   // std::unique_ptr<Quadrature<dim>> quadrature_coarse;
 
 

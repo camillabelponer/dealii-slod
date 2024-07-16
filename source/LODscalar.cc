@@ -373,7 +373,7 @@ LOD<dim>::compute_basis_function_candidates()
       // h /= (par.n_subdivisions + 1);
 
       IndexSet relevant_dofs;
-      DoFTools::extract_locally_relevant_dofs(dh_fine_patch, relevant_dofs);
+      DoFTools::extract_locally_active_dofs(dh_fine_patch, relevant_dofs);
 
       {
         // constraints on the node that are on the boundary of the patch but not
@@ -400,8 +400,10 @@ LOD<dim>::compute_basis_function_candidates()
         local_stiffnes_constraints.close();
       }
       {
+        // DynamicSparsityPattern dsp(relevant_dofs);
+        // auto                   owned_dofs = relevant_dofs;
+        auto                   owned_dofs = dh_fine_patch.locally_owned_dofs();
         DynamicSparsityPattern dsp(relevant_dofs);
-        auto                   owned_dofs = relevant_dofs;
         DoFTools::make_sparsity_pattern(dh_fine_patch,
                                         dsp,
                                         internal_boundary_constraints,
@@ -1196,28 +1198,28 @@ LOD<dim>::compare_fem_lod()
   // 4
 
   LA::MPI::Vector lod_solution(patches_pattern_fine.nonempty_cols(),
-                                mpi_communicator);
+                               mpi_communicator);
   lod_solution = 0;
 
   const auto C  = linear_operator<LA::MPI::Vector>(basis_matrix);
   const auto CT = transpose_operator(C);
-  lod_solution = CT * solution;
+  lod_solution  = CT * solution;
 
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
   par.convergence_table_FEM.error_from_exact(dh,
                                              fem_solution,
                                              par.exact_solution);
   par.convergence_table_LOD.error_from_exact(dh,
-                                              lod_solution,
-                                              par.exact_solution);
+                                             lod_solution,
+                                             par.exact_solution);
 
   computing_timer.leave_subsection();
   computing_timer.enter_subsection("fine output");
 
   // output fem solution
-  std::vector<std::string> fem_names(dim - 1, "fem_solution");
-  std::vector<std::string> exact_solution_names(dim - 1, "exact_solution_fine");
-  std::vector<std::string> lod_names(dim - 1, "lod_solution_fine");
+  std::vector<std::string> fem_names(1, "fem_solution");
+  std::vector<std::string> exact_solution_names(1, "exact_solution_fine");
+  std::vector<std::string> lod_names(1, "lod_solution_fine");
 
   auto exact_vec(fem_solution);
   VectorTools::interpolate(dh, par.exact_solution, exact_vec);
