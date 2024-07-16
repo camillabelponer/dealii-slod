@@ -1,5 +1,5 @@
-#ifndef dealii_slod_h
-#  define dealii_slod_h
+#ifndef dealii_lod_h
+#  define dealii_lod_h
 
 #  include <deal.II/base/conditional_ostream.h>
 #  include <deal.II/base/exceptions.h>
@@ -84,10 +84,10 @@ public:
 
 
 template <int dim, int spacedim = dim>
-class SLODParameters : public ParameterAcceptor
+class LODParameters : public ParameterAcceptor
 {
 public:
-  SLODParameters();
+  LODParameters();
 
   std::string  output_directory     = ".";
   std::string  output_name          = "solution";
@@ -106,7 +106,7 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> fine_solver_control;
   mutable ParameterAcceptorProxy<ReductionControl> coarse_solver_control;
 
-  mutable ParsedConvergenceTable convergence_table_SLOD;
+  mutable ParsedConvergenceTable convergence_table_LOD;
   mutable ParsedConvergenceTable convergence_table_FEM;
   mutable ParsedConvergenceTable convergence_table_compare;
 };
@@ -114,7 +114,7 @@ public:
 
 
 template <int dim, int spacedim>
-SLODParameters<dim, spacedim>::SLODParameters()
+LODParameters<dim, spacedim>::LODParameters()
   : ParameterAcceptor("/Problem")
   , rhs("/Problem/Right hand side")              //, dim-1)
   , exact_solution("/Problem/Exact solution")    //, dim-1)
@@ -132,17 +132,17 @@ SLODParameters<dim, spacedim>::SLODParameters()
   add_parameter("Compare with fine global solution", solve_fine_problem);
   add_parameter("Stabilize phi_LOD candidates", LOD_stabilization);
   this->prm.enter_subsection("Error");
-  convergence_table_SLOD.add_parameters(this->prm);
+  convergence_table_LOD.add_parameters(this->prm);
   convergence_table_FEM.add_parameters(this->prm);
   convergence_table_compare.add_parameters(this->prm);
   this->prm.leave_subsection();
 }
 
 template <int dim>
-class SLOD
+class LOD
 {
 public:
-  SLOD(const SLODParameters<dim, dim> &par);
+  LOD(const LODParameters<dim, dim> &par);
 
   void
   run();
@@ -165,7 +165,7 @@ private:
   void
   solve_fem_problem();
   void
-  compare_fem_slod(); // const;
+  compare_fem_lod(); // const;
   void
   output_results();
   void
@@ -173,7 +173,7 @@ private:
   void
   initialize_patches();
 
-  const SLODParameters<dim, dim> &par;
+  const LODParameters<dim, dim> &par;
   MPI_Comm                        mpi_communicator;
   ConditionalOStream              pcout;
   mutable TimerOutput             computing_timer;
@@ -188,7 +188,8 @@ private:
     const DoFHandler<dim> &    dh,
     AffineConstraints<double> &local_stiffnes_constraints);
 
-  parallel::distributed::Triangulation<dim> tria;
+  parallel::shared::Triangulation<dim> tria;
+  // shared not distributed bc we want all processors to get access to all cells
   DoFHandler<dim>                           dof_handler_coarse;
   DoFHandler<dim>                           dof_handler_fine;
 

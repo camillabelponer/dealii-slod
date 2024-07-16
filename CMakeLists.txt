@@ -13,7 +13,7 @@ ENDIF()
 
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 
-file(GLOB TARGET_SRC source/*.cc )
+file(GLOB TARGET_SRC source/LODscalar.cc )
 
 INCLUDE_DIRECTORIES(include)
 
@@ -36,9 +36,23 @@ ADD_CUSTOM_TARGET(release
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 DEAL_II_SETUP_TARGET(lod)
 
-ADD_EXECUTABLE(ElasticSLOD app/main.cc)
-TARGET_LINK_LIBRARIES(ElasticSLOD lod)      
-DEAL_II_SETUP_TARGET(ElasticSLOD DEBUG)
+# ADD_EXECUTABLE(ElasticityLOD app/main_Elasticity.cc)
+# TARGET_LINK_LIBRARIES(ElasticityLOD lod)      
+# DEAL_II_SETUP_TARGET(ElasticityLOD DEBUG)     
+# # DEAL_II_SETUP_TARGET(ElasticLOD RELEASE)
+ADD_EXECUTABLE(DiffusionLOD app/main_Diffusion.cc)
+TARGET_LINK_LIBRARIES(DiffusionLOD lod)      
+DEAL_II_SETUP_TARGET(DiffusionLOD DEBUG)  
+# FOREACH(_main ${_main_files})
+#       # Setup one executable per dimension/per build type
+#       get_filename_component(_main_we ${_main} NAME_WE)
+#       STRING(REPLACE "app_" "" _main_we ${_main_we})
+#       SET(_exe "${_main_we}")
+#       MESSAGE("-- Configuring executable ${_exe}")
+#       ADD_EXECUTABLE(${_exe} ${_main})
+#       TARGET_LINK_LIBRARIES(${_exe} lod)      
+#       DEAL_II_SETUP_TARGET(${_exe} DEBUG)
+# ENDFOREACH()
 
 
 IF(EXISTS ${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt)

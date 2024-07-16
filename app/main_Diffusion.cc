@@ -1,4 +1,4 @@
-#include "slod.h"
+#include "LODscalar.h"
 
 int
 main(int argc, char *argv[])
@@ -14,8 +14,8 @@ main(int argc, char *argv[])
         prm_file = argv[1];
       else
         prm_file = "parameters.prm";
-      SLODParameters<2, 2> par;
-      SLOD<2>              problem(par);
+      LODParameters<2, 2> par;
+      LOD<2>              problem(par);
       ParameterAcceptor::initialize(prm_file);
 
       problem.run();

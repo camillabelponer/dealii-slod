@@ -1,9 +1,9 @@
 #include <deal.II/base/exceptions.h>
 
-#include <slod.h>
+#include <LODscalar.h>
 
 template <int dim>
-SLOD<dim>::SLOD(const SLODParameters<dim, dim> &par)
+LOD<dim>::LOD(const LODParameters<dim, dim> &par)
   : par(par)
   , mpi_communicator(MPI_COMM_WORLD)
   , pcout(std::cout, (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
@@ -18,10 +18,10 @@ SLOD<dim>::SLOD(const SLODParameters<dim, dim> &par)
 
 template <int dim>
 void
-SLOD<dim>::print_parameters() const
+LOD<dim>::print_parameters() const
 {
   TimerOutput::Scope t(computing_timer, "printing parameters");
-  pcout << "Running SLODProblem" << std::endl;
+  pcout << "Running scalar LOD diffusion problem" << std::endl;
   par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
                              std::to_string(dim) + ".prm",
                            ParameterHandler::Short);
@@ -29,7 +29,7 @@ SLOD<dim>::print_parameters() const
 
 template <int dim>
 void
-SLOD<dim>::make_fe()
+LOD<dim>::make_fe()
 {
   TimerOutput::Scope t(computing_timer, "make FE spaces");
   // fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), dim);
@@ -83,7 +83,7 @@ SLOD<dim>::make_fe()
 
 template <int dim>
 void
-SLOD<dim>::make_grid()
+LOD<dim>::make_grid()
 {
   TimerOutput::Scope t(computing_timer, "create grid");
   GridGenerator::hyper_cube(tria);
@@ -92,7 +92,7 @@ SLOD<dim>::make_grid()
 
 template <int dim>
 void
-SLOD<dim>::create_patches()
+LOD<dim>::create_patches()
 {
   pcout << "   creating patches";
 
@@ -112,7 +112,6 @@ SLOD<dim>::create_patches()
     {
       auto cell_index = cell->active_cell_index();
       // if (locally_owned_patches.is_element(cell_index))
-      // we want all processors to create the whole patch
       {
         // for each cell we create its patch and add it to the global vector
         // of patches
@@ -218,7 +217,7 @@ SLOD<dim>::create_patches()
 
 template <int dim>
 void
-SLOD<dim>::check_nested_patches()
+LOD<dim>::check_nested_patches()
 {
   pcout << "   checking nested patches";
 
@@ -281,14 +280,14 @@ SLOD<dim>::check_nested_patches()
 
 template <int dim>
 void
-SLOD<dim>::output_results()
+LOD<dim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Output results");
 
-  std::vector<std::string> solution_names(dim - 1, "SLOD_solution");
+  std::vector<std::string> solution_names(dim - 1, "LOD_solution");
   std::vector<std::string> exact_solution_names(dim - 1,
                                                 "coarse_exact_solution");
-  // std::string solution_names = "SLOD_solution";
+  // std::string solution_names = "LOD_solution";
   // std::string exact_solution_names = "exact_solution";
 
   auto exact_vec(solution);
@@ -335,7 +334,7 @@ const unsigned int SPECIAL_NUMBER = 69;
 
 template <int dim>
 void
-SLOD<dim>::compute_basis_function_candidates()
+LOD<dim>::compute_basis_function_candidates()
 {
   pcout << "   computing basis functions: ";
   TimerOutput::Scope t(computing_timer, "compute basis function");
@@ -676,7 +675,7 @@ SLOD<dim>::compute_basis_function_candidates()
 
 template <int dim>
 void
-SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
+LOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
 {
   current_patch.sub_tria.clear();
 
@@ -769,7 +768,7 @@ SLOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
 
 template <int dim>
 void
-SLOD<dim>::assemble_global_matrix()
+LOD<dim>::assemble_global_matrix()
 {
   TimerOutput::Scope t(computing_timer, "assemble global matrix");
 
@@ -861,7 +860,7 @@ SLOD<dim>::assemble_global_matrix()
   //           << premultiplied_basis_matrix.frobenius_norm() << std::endl;
 
   // TODO: the following line is done twice: save M or compute here also
-  // slod_solution needed to compare
+  // lod_solution needed to compare
   // const auto M = linear_operator<LA::MPI::Vector>(basis_matrix);
   // VectorTools::interpolate(dof_handler_fine, par.rhs, rhs_values);
   // basis_matrix.vmult(system_rhs, rhs_values);
@@ -952,7 +951,7 @@ SLOD<dim>::assemble_global_matrix()
 
 template <int dim>
 void
-SLOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
+LOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
   LA::MPI::SparseMatrix &    stiffness_matrix,
   const DoFHandler<dim> &    dh,
   AffineConstraints<double> &local_stiffnes_constraints)
@@ -1014,7 +1013,7 @@ SLOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
 
 template <int dim>
 void
-SLOD<dim>::solve()
+LOD<dim>::solve()
 {
   TimerOutput::Scope       t(computing_timer, "Solve");
   LA::MPI::PreconditionAMG prec_A;
@@ -1050,7 +1049,7 @@ SLOD<dim>::solve()
 
 template <int dim>
 void
-SLOD<dim>::solve_fem_problem() //_and_compare() // const
+LOD<dim>::solve_fem_problem() //_and_compare() // const
 {
   TimerOutput::Scope t(computing_timer, "solve fine FEM");
 
@@ -1173,9 +1172,9 @@ SLOD<dim>::solve_fem_problem() //_and_compare() // const
 
 template <int dim>
 void
-SLOD<dim>::compare_fem_slod()
+LOD<dim>::compare_fem_lod()
 {
-  computing_timer.enter_subsection("compare FEM vs SLOD");
+  computing_timer.enter_subsection("compare FEM vs LOD");
   const auto &dh = dof_handler_fine;
   // compare
   // 1
@@ -1193,23 +1192,23 @@ SLOD<dim>::compare_fem_slod()
   //                                           constraints,
   //                                           dst);
   // FETools::interpolate(dof_handler_coarse, solution, dh,
-  // slod_solution);
+  // lod_solution);
   // 4
 
-  LA::MPI::Vector slod_solution(patches_pattern_fine.nonempty_cols(),
+  LA::MPI::Vector lod_solution(patches_pattern_fine.nonempty_cols(),
                                 mpi_communicator);
-  slod_solution = 0;
+  lod_solution = 0;
 
   const auto C  = linear_operator<LA::MPI::Vector>(basis_matrix);
   const auto CT = transpose_operator(C);
-  slod_solution = CT * solution;
+  lod_solution = CT * solution;
 
-  par.convergence_table_compare.difference(dh, fem_solution, slod_solution);
+  par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
   par.convergence_table_FEM.error_from_exact(dh,
                                              fem_solution,
                                              par.exact_solution);
-  par.convergence_table_SLOD.error_from_exact(dh,
-                                              slod_solution,
+  par.convergence_table_LOD.error_from_exact(dh,
+                                              lod_solution,
                                               par.exact_solution);
 
   computing_timer.leave_subsection();
@@ -1218,7 +1217,7 @@ SLOD<dim>::compare_fem_slod()
   // output fem solution
   std::vector<std::string> fem_names(dim - 1, "fem_solution");
   std::vector<std::string> exact_solution_names(dim - 1, "exact_solution_fine");
-  std::vector<std::string> slod_names(dim - 1, "slod_solution_fine");
+  std::vector<std::string> lod_names(dim - 1, "lod_solution_fine");
 
   auto exact_vec(fem_solution);
   VectorTools::interpolate(dh, par.exact_solution, exact_vec);
@@ -1244,8 +1243,8 @@ SLOD<dim>::compare_fem_slod()
                            //  DataOut<dim>::type_dof_data,
                            data_component_interpretation);
   data_out.add_data_vector(dh,
-                           slod_solution,
-                           slod_names,
+                           lod_solution,
+                           lod_names,
                            //  DataOut<dim>::type_dof_data,
                            data_component_interpretation);
   data_out.build_patches();
@@ -1262,7 +1261,7 @@ SLOD<dim>::compare_fem_slod()
 
 template <int dim>
 void
-SLOD<dim>::initialize_patches()
+LOD<dim>::initialize_patches()
 {
   TimerOutput::Scope t(computing_timer, "Initialize patches");
   create_patches();
@@ -1306,7 +1305,7 @@ SLOD<dim>::initialize_patches()
 
 template <int dim>
 void
-SLOD<dim>::run()
+LOD<dim>::run()
 {
   print_parameters();
   make_grid();
@@ -1317,22 +1316,22 @@ SLOD<dim>::run()
   assemble_global_matrix();
   solve_fem_problem();
   solve();
-  compare_fem_slod();
+  compare_fem_lod();
 
   output_results();
-  // par.convergence_table_SLOD.error_from_exact(dof_handler_coarse,
+  // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
   //                                             par.exact_solution);
   if (pcout.is_active())
     {
-      pcout << "SLOD vs exact solution (fine mesh)" << std::endl;
-      par.convergence_table_SLOD.output_table(pcout.get_stream());
+      pcout << "LOD vs exact solution (fine mesh)" << std::endl;
+      par.convergence_table_LOD.output_table(pcout.get_stream());
       pcout << "FEM vs exact solution (fine mesh)" << std::endl;
       par.convergence_table_FEM.output_table(pcout.get_stream());
-      pcout << "SLOD vs FEM (fine mesh)" << std::endl;
+      pcout << "LOD vs FEM (fine mesh)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());
     }
 }
 
 
-template class SLOD<2>;
+template class LOD<2>;
