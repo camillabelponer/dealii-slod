@@ -49,7 +49,7 @@ main()
                                dof_handler_coarse.n_dofs());
 
   for (const auto &cell : tria.active_cell_iterators())
-    if (cell->is_locally_owned())
+    if (cell->is_locally_owned()) // parallel for-loop
       {
         std::vector<types::global_dof_index> local_dof_indices_coarse;
 
@@ -87,7 +87,7 @@ main()
 
   // 4) set dummy constraints (TODO: adjust for LOD)
   for (const auto &cell : tria.active_cell_iterators())
-    if (cell->is_locally_owned())
+    if (cell->is_locally_owned()) // parallel for-loop
       {
         const auto j = cell->active_cell_index();
 
@@ -103,7 +103,7 @@ main()
   // 5) convert sparse matrix C to shifted AffineConstraints
   // (TODO: only loop over local rows)
   AffineConstraints<double> constraints_lod_fem;
-  for (unsigned int row = 0; row < C.m(); ++row)
+  for (unsigned int row = 0; row < C.m(); ++row) // parallel for-loop
     {
       std::vector<std::pair<types::global_dof_index, double>> dependencies;
 
@@ -118,7 +118,7 @@ main()
 
   // 6) assembly LOD matrix
   for (const auto &cell : dof_handler_fine.active_cell_iterators())
-    if (cell->is_locally_owned())
+    if (cell->is_locally_owned()) // parallel for-loop
       {
         const unsigned int n_dofs_per_cell = cell->get_fe().n_dofs_per_cell();
 
@@ -143,4 +143,6 @@ main()
       }
 
   A_lod.print(std::cout);
+
+  // 7) solve
 }
