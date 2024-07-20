@@ -1,3 +1,16 @@
+// A^LOD = C^T A^FEM C
+//
+// implemented as
+//
+// | A^LOD  0 |
+// |   0    0 |
+//                =
+// | 0  0 | | 0    0   | | 0 C |
+// |C^T 0 | | 0  A^FEM | | 0 0 |
+//
+// Needed: C (computed column-wise, for AffineConstraints
+// we need to access the full row)
+
 #include <deal.II/dofs/dof_handler.h>
 
 #include <deal.II/fe/fe_dgq.h>
