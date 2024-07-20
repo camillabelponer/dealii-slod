@@ -1,12 +1,13 @@
-// A^LOD = C^T A^FEM C
+// LOD as triple-matrix multiplication:
+//   A^LOD = C^T A^FEM C
 //
 // implemented as
 //
 // | A^LOD  0 |
 // |   0    0 |
 //                =
-// | 0  0 | | 0    0   | | 0 C |
-// |C^T 0 | | 0  A^FEM | | 0 0 |
+// | 0  C^T | | 0    0   | | 0 0 |
+// | 0   0  | | 0  A^FEM | | C 0 |
 //
 // Needed: C (computed column-wise, for AffineConstraints
 // we need to access the full row)
