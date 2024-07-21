@@ -117,6 +117,7 @@ main()
   constraints_lod_fem.close();
 
   // 6) assembly LOD matrix
+  Vector<double> rhs_lod(dof_handler_coarse.n_dofs());
   for (const auto &cell : dof_handler_fine.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
@@ -124,10 +125,14 @@ main()
 
         // a) compute FEM element stiffness matrix
         FullMatrix<double> cell_matrix_fem(n_dofs_per_cell, n_dofs_per_cell);
+        Vector<double>     cell_vector_fem(n_dofs_per_cell);
 
         for (unsigned int i = 0; i < cell_matrix_fem.m(); ++i)
           for (unsigned int j = 0; j < cell_matrix_fem.n(); ++j)
             cell_matrix_fem[i][j] = 1.0; // TODO: element stiffeness matrix
+
+        for (unsigned int i = 0; i < cell_vector_fem.size(); ++i)
+          cell_vector_fem[i] = 1.0;
 
         // b) assemble into LOD matrix by using constraints
         std::vector<types::global_dof_index> local_dof_indices(n_dofs_per_cell);
@@ -140,6 +145,10 @@ main()
                                                        local_dof_indices,
                                                        local_dof_indices,
                                                        A_lod);
+
+        constraints_lod_fem.distribute_local_to_global(cell_vector_fem,
+                                                       local_dof_indices,
+                                                       rhs_lod);
       }
 
   A_lod.print(std::cout);
