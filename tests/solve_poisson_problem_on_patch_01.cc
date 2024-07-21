@@ -150,8 +150,37 @@ public:
       }
   }
 
+  unsigned int
+  n_dofs() const
+  {
+    unsigned int n_dofs_patch = 1;
+    for (const auto i : patch_subdivions_size)
+      n_dofs_patch *= i + 1;
+
+    return n_dofs_patch;
+  }
+
   void
-  get_dof_indices(std::vector<types::global_dof_index> &dof_indices) const;
+  get_dof_indices(std::vector<types::global_dof_index> &dof_indices) const
+  {
+    AssertDimension(dof_indices.size(), this->n_dofs());
+
+    for (unsigned int j = 0, c = 0; j <= patch_subdivions_size[1]; ++j)
+      for (unsigned int i = 0; i <= patch_subdivions_size[0]; ++i, ++c)
+        dof_indices[c] =
+          (i + patch_subdivions_start[0]) +
+          (j + patch_subdivions_start[1]) * (repetitions[0] * fe_degree + 1);
+  }
+
+  template <typename Number>
+  void
+  make_zero_boundary_constraints(const unsigned int         surface,
+                                 AffineConstraints<Number> &constraints)
+  {
+    ::make_zero_boundary_constraints<Number, dim>(surface,
+                                                  patch_subdivions_size,
+                                                  constraints);
+  }
 
   unsigned int
   n_cells() const;
@@ -195,24 +224,15 @@ main()
   Patch<dim> patch(fe_degree, repetitions);
   patch.reinit(patch_start, patch_size);
 
-  unsigned int n_dofs_patch = 1;
-  for (const auto i : patch.patch_subdivions_size)
-    n_dofs_patch *= i + 1;
+  const auto n_dofs_patch = patch.n_dofs();
 
   std::vector<types::global_dof_index> patch_indices(n_dofs_patch);
-
-  for (unsigned int j = 0, c = 0; j <= patch.patch_subdivions_size[1]; ++j)
-    for (unsigned int i = 0; i <= patch.patch_subdivions_size[0]; ++i, ++c)
-      patch_indices[c] = (i + patch.patch_subdivions_start[0]) +
-                         (j + patch.patch_subdivions_start[1]) *
-                           (repetitions[0] * fe_degree + 1);
+  patch.get_dof_indices(patch_indices);
 
   // 3) determine constraints on patch
   AffineConstraints<double> patch_constraints;
   for (unsigned int d = 0; d < 2 * dim; ++d)
-    make_zero_boundary_constraints<double, dim>(d,
-                                                patch.patch_subdivions_size,
-                                                patch_constraints);
+    patch.make_zero_boundary_constraints<double>(d, patch_constraints);
   patch_constraints.close();
 
   // 4) assemble system
