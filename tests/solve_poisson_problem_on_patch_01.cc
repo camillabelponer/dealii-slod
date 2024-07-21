@@ -230,6 +230,7 @@ private:
 int
 main()
 {
+  // 0) parameters
   const unsigned int dim       = 2;
   const unsigned int fe_degree = 7;
 
@@ -237,14 +238,13 @@ main()
   Point<dim>                p1(0, 0);
   Point<dim>                p2(1, 1);
 
-  Triangulation<dim> tria;
-
-  // 1) create fine mesh
-  GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
-
-  // 2) define patch
+  // 1) define patch (parameter)
   std::array<unsigned int, dim> patch_start = {{1, 2}};
   std::array<unsigned int, dim> patch_size  = {{4, 3}};
+
+  // 2) create mesh
+  Triangulation<dim> tria;
+  GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
 
   // 3) create patch
   Patch<dim> patch(fe_degree, repetitions);
