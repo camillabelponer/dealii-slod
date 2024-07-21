@@ -123,6 +123,56 @@ make_zero_boundary_constraints(
       }
 }
 
+template <int dim>
+class Patch
+{
+public:
+  Patch(const unsigned int               fe_degree,
+        const std::vector<unsigned int> &repetitions)
+    : fe_degree(fe_degree)
+  {
+    for (unsigned int d = 0; d < dim; ++d)
+      this->repetitions[d] = repetitions[d];
+  }
+
+  void
+  reinit(const std::array<unsigned int, dim> &patch_start,
+         const std::array<unsigned int, dim> &patch_size)
+  {
+    this->patch_start = patch_start;
+    this->patch_size  = patch_size;
+
+
+    for (unsigned int d = 0; d < dim; ++d)
+      {
+        patch_subdivions_start[d] = patch_start[d] * fe_degree;
+        patch_subdivions_size[d]  = patch_size[d] * fe_degree;
+      }
+  }
+
+  void
+  get_dof_indices(std::vector<types::global_dof_index> &dof_indices) const;
+
+  unsigned int
+  n_cells() const;
+
+  typename Triangulation<dim>::active_cell_iterator
+  get_cell(const unsigned int index) const;
+
+  void
+  get_dof_indices_of_cell(
+    const unsigned int                    index,
+    std::vector<types::global_dof_index> &dof_indices) const;
+
+
+  const unsigned int            fe_degree;
+  std::array<unsigned int, dim> repetitions;
+  std::array<unsigned int, dim> patch_start;
+  std::array<unsigned int, dim> patch_size;
+  std::array<unsigned int, dim> patch_subdivions_start;
+  std::array<unsigned int, dim> patch_subdivions_size;
+};
+
 int
 main()
 {
@@ -142,32 +192,26 @@ main()
   std::array<unsigned int, dim> patch_start = {{1, 2}};
   std::array<unsigned int, dim> patch_size  = {{4, 3}};
 
-  std::array<unsigned int, dim> patch_subdivions_start;
-  std::array<unsigned int, dim> patch_subdivions_size;
-
-  for (unsigned int d = 0; d < dim; ++d)
-    {
-      patch_subdivions_start[d] = patch_start[d] * fe_degree;
-      patch_subdivions_size[d]  = patch_size[d] * fe_degree;
-    }
+  Patch<dim> patch(fe_degree, repetitions);
+  patch.reinit(patch_start, patch_size);
 
   unsigned int n_dofs_patch = 1;
-  for (const auto i : patch_subdivions_size)
+  for (const auto i : patch.patch_subdivions_size)
     n_dofs_patch *= i + 1;
 
   std::vector<types::global_dof_index> patch_indices(n_dofs_patch);
 
-  for (unsigned int j = 0, c = 0; j <= patch_subdivions_size[1]; ++j)
-    for (unsigned int i = 0; i <= patch_subdivions_size[0]; ++i, ++c)
-      patch_indices[c] =
-        (i + patch_subdivions_start[0]) +
-        (j + patch_subdivions_start[1]) * (repetitions[0] * fe_degree + 1);
+  for (unsigned int j = 0, c = 0; j <= patch.patch_subdivions_size[1]; ++j)
+    for (unsigned int i = 0; i <= patch.patch_subdivions_size[0]; ++i, ++c)
+      patch_indices[c] = (i + patch.patch_subdivions_start[0]) +
+                         (j + patch.patch_subdivions_start[1]) *
+                           (repetitions[0] * fe_degree + 1);
 
   // 3) determine constraints on patch
   AffineConstraints<double> patch_constraints;
   for (unsigned int d = 0; d < 2 * dim; ++d)
     make_zero_boundary_constraints<double, dim>(d,
-                                                patch_subdivions_size,
+                                                patch.patch_subdivions_size,
                                                 patch_constraints);
   patch_constraints.close();
 
@@ -218,7 +262,7 @@ main()
           for (unsigned int ii = 0; ii <= fe_degree; ++ii, ++c)
             indices[lexicographic_to_hierarchic_numbering[c]] =
               (ii + i * fe_degree) +
-              (jj + j * fe_degree) * (patch_subdivions_size[0] + 1);
+              (jj + j * fe_degree) * (patch.patch_subdivions_size[0] + 1);
 
         patch_constraints.distribute_local_to_global(
           cell_matrix, cell_rhs, indices, A, rhs);
