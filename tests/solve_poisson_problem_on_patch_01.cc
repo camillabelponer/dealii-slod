@@ -152,6 +152,41 @@ public:
       }
   }
 
+  void
+  reinit(const typename Triangulation<dim>::active_cell_iterator &cell,
+         const unsigned int                                       n_overlap)
+  {
+    const unsigned int index = cell->active_cell_index();
+    const unsigned int i     = index % repetitions[0];
+    const unsigned int j     = index / repetitions[0];
+
+    std::array<unsigned int, dim> patch_start = {{i, j}};
+    std::array<unsigned int, dim> patch_size  = {{1, 1}};
+
+    for (unsigned int d = 0; d < 2 * dim; ++d)
+      {
+        auto cell_neighbor = cell;
+
+        for (unsigned int i = 0; i < n_overlap; ++i)
+          {
+            if (cell_neighbor->at_boundary(d) == false)
+              {
+                if ((d % 2) == 0)
+                  patch_start[d / 2]--;
+                patch_size[d / 2]++;
+
+                cell_neighbor = cell_neighbor->neighbor(d);
+              }
+            else
+              {
+                break;
+              }
+          }
+      }
+
+    this->reinit(patch_start, patch_size);
+  }
+
   unsigned int
   n_dofs() const
   {
@@ -233,13 +268,14 @@ main()
   // 0) parameters
   const unsigned int dim       = 2;
   const unsigned int fe_degree = 7;
+  const unsigned int n_overlap = 3; // numbers::invalid_unsigned_int
 
   std::vector<unsigned int> repetitions = {{10, 10}};
   Point<dim>                p1(0, 0);
   Point<dim>                p2(1, 1);
 
   // 1) define patch (parameter)
-  std::array<unsigned int, dim> patch_start = {{1, 2}};
+  std::array<unsigned int, dim> patch_start = {{1, 4}};
   std::array<unsigned int, dim> patch_size  = {{4, 3}};
 
   // 2) create mesh
@@ -248,7 +284,14 @@ main()
 
   // 3) create patch
   Patch<dim> patch(fe_degree, repetitions);
-  patch.reinit(patch_start, patch_size);
+
+  if (n_overlap == numbers::invalid_unsigned_int)
+    patch.reinit(patch_start, patch_size);
+  else
+    patch.reinit(tria.create_cell_iterator(CellId(
+                   patch_start[0] + patch_start[1] * repetitions[0], {})),
+                 n_overlap);
+
 
   // 4) make constraints on patch
   AffineConstraints<double> patch_constraints;
