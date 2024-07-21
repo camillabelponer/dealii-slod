@@ -130,6 +130,8 @@ public:
   Patch(const unsigned int               fe_degree,
         const std::vector<unsigned int> &repetitions)
     : fe_degree(fe_degree)
+    , lexicographic_to_hierarchic_numbering(
+        FETools::lexicographic_to_hierarchic_numbering<dim>(fe_degree))
   {
     for (unsigned int d = 0; d < dim; ++d)
       this->repetitions[d] = repetitions[d];
@@ -183,18 +185,41 @@ public:
   }
 
   unsigned int
-  n_cells() const;
+  n_cells() const
+  {
+    return patch_size[0] * patch_size[1];
+  }
 
   typename Triangulation<dim>::active_cell_iterator
-  get_cell(const unsigned int index) const;
+  create_cell_iterator(const Triangulation<dim> &tria,
+                       const unsigned int        index) const
+  {
+    const unsigned int i = index % patch_size[0];
+    const unsigned int j = index / patch_size[0];
+
+    return tria.create_cell_iterator(
+      CellId((patch_start[0] + i) + (patch_start[1] + j) * repetitions[0], {}));
+  }
 
   void
   get_dof_indices_of_cell(
     const unsigned int                    index,
-    std::vector<types::global_dof_index> &dof_indices) const;
+    std::vector<types::global_dof_index> &dof_indices) const
+  {
+    const unsigned int i = index % patch_size[0];
+    const unsigned int j = index / patch_size[0];
 
+    for (unsigned int jj = 0, c = 0; jj <= fe_degree; ++jj)
+      for (unsigned int ii = 0; ii <= fe_degree; ++ii, ++c)
+        dof_indices[lexicographic_to_hierarchic_numbering[c]] =
+          (ii + i * fe_degree) +
+          (jj + j * fe_degree) * (patch_subdivions_size[0] + 1);
+  }
 
-  const unsigned int            fe_degree;
+private:
+  const unsigned int        fe_degree;
+  std::vector<unsigned int> lexicographic_to_hierarchic_numbering;
+
   std::array<unsigned int, dim> repetitions;
   std::array<unsigned int, dim> patch_start;
   std::array<unsigned int, dim> patch_size;
@@ -221,21 +246,18 @@ main()
   std::array<unsigned int, dim> patch_start = {{1, 2}};
   std::array<unsigned int, dim> patch_size  = {{4, 3}};
 
+  // 3) create patch
   Patch<dim> patch(fe_degree, repetitions);
   patch.reinit(patch_start, patch_size);
 
-  const auto n_dofs_patch = patch.n_dofs();
-
-  std::vector<types::global_dof_index> patch_indices(n_dofs_patch);
-  patch.get_dof_indices(patch_indices);
-
-  // 3) determine constraints on patch
+  // 4) make constraints on patch
   AffineConstraints<double> patch_constraints;
   for (unsigned int d = 0; d < 2 * dim; ++d)
     patch.make_zero_boundary_constraints<double>(d, patch_constraints);
   patch_constraints.close();
 
-  // 4) assemble system
+  // 5) assemble system on patch
+  const auto         n_dofs_patch = patch.n_dofs();
   FullMatrix<double> A(n_dofs_patch, n_dofs_patch);
   Vector<double>     rhs(n_dofs_patch);
   Vector<double>     solution(n_dofs_patch);
@@ -246,59 +268,49 @@ main()
                         quadrature,
                         update_values | update_gradients | update_JxW_values);
 
-  const auto lexicographic_to_hierarchic_numbering =
-    FETools::lexicographic_to_hierarchic_numbering<dim>(fe_degree);
+  // ... by looping over cells in patch
+  for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+    {
+      fe_values.reinit(patch.create_cell_iterator(tria, cell));
 
-  for (unsigned int j = 0; j < patch_size[1]; ++j)
-    for (unsigned int i = 0; i < patch_size[0]; ++i)
-      {
-        const auto cell = tria.create_cell_iterator(
-          CellId((patch_start[0] + i) + (patch_start[1] + j) * repetitions[0],
-                 {}));
+      const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
 
-        fe_values.reinit(cell);
+      FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+      Vector<double>     cell_rhs(dofs_per_cell);
 
-        const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+      for (const unsigned int q_index : fe_values.quadrature_point_indices())
+        {
+          for (const unsigned int i : fe_values.dof_indices())
+            for (const unsigned int j : fe_values.dof_indices())
+              cell_matrix(i, j) +=
+                (fe_values.shape_grad(i, q_index) *
+                 fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
 
-        FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-        Vector<double>     cell_rhs(dofs_per_cell);
+          for (const unsigned int i : fe_values.dof_indices())
+            cell_rhs(i) +=
+              (fe_values.shape_value(i, q_index) * 1. * fe_values.JxW(q_index));
+        }
 
-        for (const unsigned int q_index : fe_values.quadrature_point_indices())
-          {
-            for (const unsigned int i : fe_values.dof_indices())
-              for (const unsigned int j : fe_values.dof_indices())
-                cell_matrix(i, j) +=
-                  (fe_values.shape_grad(i, q_index) *
-                   fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+      std::vector<types::global_dof_index> indices(dofs_per_cell);
+      patch.get_dof_indices_of_cell(cell, indices);
 
-            for (const unsigned int i : fe_values.dof_indices())
-              cell_rhs(i) += (fe_values.shape_value(i, q_index) * 1. *
-                              fe_values.JxW(q_index));
-          }
+      patch_constraints.distribute_local_to_global(
+        cell_matrix, cell_rhs, indices, A, rhs);
+    }
 
-        std::vector<types::global_dof_index> indices(dofs_per_cell);
-
-        for (unsigned int jj = 0, c = 0; jj <= fe_degree; ++jj)
-          for (unsigned int ii = 0; ii <= fe_degree; ++ii, ++c)
-            indices[lexicographic_to_hierarchic_numbering[c]] =
-              (ii + i * fe_degree) +
-              (jj + j * fe_degree) * (patch.patch_subdivions_size[0] + 1);
-
-        patch_constraints.distribute_local_to_global(
-          cell_matrix, cell_rhs, indices, A, rhs);
-      }
-
-  // 5) solve system
+  // 6) solve patch system
   A.gauss_jordan();
   A.vmult(solution, rhs);
 
-  // 6) visualization on fine mesh
+  // 7) visualization on fine mesh
   DoFHandler<dim> dof_handler(tria);
   dof_handler.distribute_dofs(fe);
   compute_renumbering_lex(dof_handler);
 
   Vector<double> solution_fine(dof_handler.n_dofs());
 
+  std::vector<types::global_dof_index> patch_indices(n_dofs_patch);
+  patch.get_dof_indices(patch_indices);
   AffineConstraints<double>().distribute_local_to_global(solution,
                                                          patch_indices,
                                                          solution_fine);
