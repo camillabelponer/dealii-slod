@@ -125,12 +125,19 @@ public:
   reinit(const typename Triangulation<dim>::active_cell_iterator &cell,
          const unsigned int                                       n_overlap)
   {
+    AssertDimension(dim, 2);
+
     const unsigned int index = cell->active_cell_index();
     const unsigned int i     = index % repetitions[0];
     const unsigned int j     = index / repetitions[0];
 
-    std::array<unsigned int, dim> patch_start = {{i, j}};
-    std::array<unsigned int, dim> patch_size  = {{1, 1}};
+    std::array<unsigned int, dim> patch_start;
+    patch_start[0] = i;
+    patch_start[1] = j;
+
+    std::array<unsigned int, dim> patch_size;
+    patch_size[0] = 1;
+    patch_size[1] = 1;
 
     for (unsigned int d = 0; d < 2 * dim; ++d)
       {

@@ -31,9 +31,12 @@ main(int argc, char **argv)
   const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
   const MPI_Comm     comm      = MPI_COMM_WORLD;
 
-  std::vector<unsigned int> repetitions = {{5, 5}};
-  Point<dim>                p1(0, 0);
-  Point<dim>                p2(1, 1);
+  std::vector<unsigned int> repetitions(dim, 5);
+  Point<dim>                p1;
+  Point<dim>                p2;
+
+  for (unsigned int d = 0; d < dim; ++d)
+    p2[d] = 1.0;
 
   parallel::shared::Triangulation<dim> tria(comm);
   GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
@@ -189,11 +192,11 @@ main(int argc, char **argv)
   LinearAlgebra::distributed::Vector<double> rhs_lod(n_dofs_coarse); // TODO
 
   // 6) assembly LOD matrix
-  FE_Q_iso_Q1<dim>   fe(fe_degree);
-  const QIterated<2> quadrature(QGauss<1>(2), fe_degree);
-  FEValues<2>        fe_values(fe,
-                        quadrature,
-                        update_values | update_gradients | update_JxW_values);
+  FE_Q_iso_Q1<dim>     fe(fe_degree);
+  const QIterated<dim> quadrature(QGauss<1>(2), fe_degree);
+  FEValues<dim>        fe_values(fe,
+                          quadrature,
+                          update_values | update_gradients | update_JxW_values);
 
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
