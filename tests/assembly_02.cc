@@ -186,7 +186,7 @@ main(int argc, char **argv)
     comm);
   constraints_lod_fem.close();
 
-  constraints_lod_fem.print(std::cout);
+  LinearAlgebra::distributed::Vector<double> rhs_lod(n_dofs_coarse); // TODO
 
   // 6) assembly LOD matrix
   FE_Q_iso_Q1<dim>   fe(fe_degree);
@@ -233,9 +233,28 @@ main(int argc, char **argv)
                                                        local_dof_indices,
                                                        local_dof_indices,
                                                        A_lod);
+
+        constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
+                                                       local_dof_indices,
+                                                       rhs_lod);
       }
 
   A_lod.compress(VectorOperation::values::add);
 
-  std::cout << A_lod.frobenius_norm() << std::endl;
+  for (auto &entry : A_lod)
+    if ((entry.row() == entry.column()) && (entry.value() == 0.0))
+      {
+        entry.value() = 1.0;
+      }
+
+  std::cout << A_lod.frobenius_norm() << std::endl; // TODO
+
+  // solve
+  LinearAlgebra::distributed::Vector<double> solution_lod;
+  solution_lod.reinit(rhs_lod);
+
+  TrilinosWrappers::SolverDirect solver;
+  solver.solve(A_lod, solution_lod, rhs_lod);
+
+  solution_lod.print(std::cout); // TODO
 }
