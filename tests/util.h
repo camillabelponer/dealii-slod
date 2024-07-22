@@ -171,6 +171,7 @@ public:
                   const bool hiarchical = false) const
   {
     AssertDimension(dof_indices.size(), this->n_dofs());
+    AssertDimension(dim, 2);
 
     for (unsigned int j = 0, c = 0; j <= patch_subdivions_size[1]; ++j)
       for (unsigned int i = 0; i <= patch_subdivions_size[0]; ++i, ++c)
@@ -210,6 +211,8 @@ public:
   unsigned int
   n_cells() const
   {
+    AssertDimension(dim, 2);
+
     return patch_size[0] * patch_size[1];
   }
 
@@ -217,6 +220,8 @@ public:
   create_cell_iterator(const Triangulation<dim> &tria,
                        const unsigned int        index) const
   {
+    AssertDimension(dim, 2);
+
     const unsigned int i = index % patch_size[0];
     const unsigned int j = index / patch_size[0];
 
@@ -229,6 +234,8 @@ public:
     const unsigned int                    index,
     std::vector<types::global_dof_index> &dof_indices) const
   {
+    AssertDimension(dim, 2);
+
     const unsigned int i = index % patch_size[0];
     const unsigned int j = index / patch_size[0];
 
