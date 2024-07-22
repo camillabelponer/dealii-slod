@@ -240,12 +240,7 @@ main(int argc, char **argv)
       }
 
   A_lod.compress(VectorOperation::values::add);
-
-  for (auto &entry : A_lod)
-    if ((entry.row() == entry.column()) && (entry.value() == 0.0))
-      {
-        entry.value() = 1.0;
-      }
+  rhs_lod.compress(VectorOperation::values::add);
 
   std::cout << A_lod.frobenius_norm() << std::endl; // TODO
 
@@ -256,5 +251,6 @@ main(int argc, char **argv)
   TrilinosWrappers::SolverDirect solver;
   solver.solve(A_lod, solution_lod, rhs_lod);
 
+  rhs_lod.print(std::cout);      // TODO
   solution_lod.print(std::cout); // TODO
 }
