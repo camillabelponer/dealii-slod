@@ -10,6 +10,66 @@ using namespace dealii;
 
 
 template <int dim>
+std::array<unsigned int, dim>
+index_to_indices(const unsigned int                  index,
+                 const std::array<unsigned int, dim> Ns)
+{
+  std::array<unsigned int, dim> indices;
+
+  if (dim >= 1)
+    indices[0] = index % Ns[0];
+
+  if (dim >= 2)
+    indices[1] = (index / Ns[0]) % Ns[1];
+
+  if (dim >= 3)
+    indices[2] = index / (Ns[0] * Ns[1]);
+
+  return indices;
+}
+
+
+template <int dim>
+std::array<unsigned int, dim>
+index_to_indices(const unsigned int index, const unsigned int N)
+{
+  std::array<unsigned int, dim> Ns;
+  std::fill(Ns.begin(), Ns.end(), N);
+  return index_to_indices<dim>(index, Ns);
+}
+
+
+template <int dim>
+unsigned int
+indices_to_index(const std::array<unsigned int, dim> indices,
+                 const std::array<unsigned int, dim> Ns)
+{
+  unsigned int index = 0;
+
+  if (dim >= 1)
+    index += indices[0];
+
+  if (dim >= 2)
+    index += indices[1] * Ns[0];
+
+  if (dim >= 3)
+    index += indices[2] * Ns[0] * Ns[1];
+
+  return index;
+}
+
+
+template <int dim>
+unsigned int
+indices_to_index(const std::array<unsigned int, dim> index,
+                 const unsigned int                  N)
+{
+  std::array<unsigned int, dim> Ns;
+  std::fill(Ns.begin(), Ns.end(), N);
+  return indices_to_index<dim>(index, Ns);
+}
+
+template <int dim>
 void
 compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
 {
@@ -125,19 +185,11 @@ public:
   reinit(const typename Triangulation<dim>::active_cell_iterator &cell,
          const unsigned int                                       n_overlap)
   {
-    AssertDimension(dim, 2);
-
-    const unsigned int index = cell->active_cell_index();
-    const unsigned int i     = index % repetitions[0];
-    const unsigned int j     = index / repetitions[0];
-
-    std::array<unsigned int, dim> patch_start;
-    patch_start[0] = i;
-    patch_start[1] = j;
+    auto patch_start =
+      index_to_indices<dim>(cell->active_cell_index(), repetitions);
 
     std::array<unsigned int, dim> patch_size;
-    patch_size[0] = 1;
-    patch_size[1] = 1;
+    std::fill(patch_size.begin(), patch_size.end(), 1);
 
     for (unsigned int d = 0; d < 2 * dim; ++d)
       {
