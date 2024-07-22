@@ -230,13 +230,25 @@ public:
                   const bool hiarchical = false) const
   {
     AssertDimension(dof_indices.size(), this->n_dofs());
-    AssertDimension(dim, 2);
 
-    for (unsigned int j = 0, c = 0; j <= patch_subdivions_size[1]; ++j)
-      for (unsigned int i = 0; i <= patch_subdivions_size[0]; ++i, ++c)
+    auto patch_dofs = patch_subdivions_size;
+    for (auto &i : patch_dofs)
+      i += 1;
+
+    auto global_dofs = repetitions;
+    for (auto &i : global_dofs)
+      i = i * fe_degree + 1;
+
+    for (unsigned int c = 0; c < this->n_dofs(); ++c)
+      {
+        auto indices = index_to_indices<dim>(c, patch_dofs);
+
+        for (unsigned int d = 0; d < dim; ++d)
+          indices[d] += patch_subdivions_start[d];
+
         dof_indices[hiarchical ? lexicographic_to_hierarchic_numbering[c] : c] =
-          (i + patch_subdivions_start[0]) +
-          (j + patch_subdivions_start[1]) * (repetitions[0] * fe_degree + 1);
+          indices_to_index<dim>(indices, global_dofs);
+      }
   }
 
   template <typename Number>
@@ -298,7 +310,6 @@ public:
     const auto indices_0 = index_to_indices<dim>(index, patch_size);
 
     auto patch_dofs = patch_subdivions_size;
-
     for (auto &i : patch_dofs)
       i += 1;
 
