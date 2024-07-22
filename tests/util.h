@@ -167,13 +167,14 @@ public:
   }
 
   void
-  get_dof_indices(std::vector<types::global_dof_index> &dof_indices) const
+  get_dof_indices(std::vector<types::global_dof_index> &dof_indices,
+                  const bool hiarchical = false) const
   {
     AssertDimension(dof_indices.size(), this->n_dofs());
 
     for (unsigned int j = 0, c = 0; j <= patch_subdivions_size[1]; ++j)
       for (unsigned int i = 0; i <= patch_subdivions_size[0]; ++i, ++c)
-        dof_indices[c] =
+        dof_indices[hiarchical ? lexicographic_to_hierarchic_numbering[c] : c] =
           (i + patch_subdivions_start[0]) +
           (j + patch_subdivions_start[1]) * (repetitions[0] * fe_degree + 1);
   }

@@ -73,7 +73,7 @@ main(int argc, char **argv)
     if (cell->is_locally_owned()) // parallel for-loop
       {
         // A_lod sparsity pattern
-        patch.reinit(cell, n_overlap + 1 /*TODO: ?*/);
+        patch.reinit(cell, n_overlap * 2);
         std::vector<types::global_dof_index> local_dof_indices_coarse;
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
           local_dof_indices_coarse.emplace_back(
@@ -186,25 +186,45 @@ main(int argc, char **argv)
     comm);
   constraints_lod_fem.close();
 
+  constraints_lod_fem.print(std::cout);
+
   // 6) assembly LOD matrix
+  FE_Q_iso_Q1<dim>   fe(fe_degree);
+  const QIterated<2> quadrature(QGauss<1>(2), fe_degree);
+  FEValues<2>        fe_values(fe,
+                        quadrature,
+                        update_values | update_gradients | update_JxW_values);
+
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
         Patch<dim> patch(fe_degree, repetitions);
-        patch.reinit(cell, 1);
+        patch.reinit(cell, 0);
+
+        fe_values.reinit(cell);
 
         const unsigned int n_dofs_per_cell = patch.n_dofs();
 
         // a) compute FEM element stiffness matrix
         FullMatrix<double> cell_matrix_fem(n_dofs_per_cell, n_dofs_per_cell);
+        Vector<double>     cell_rhs_fem(n_dofs_per_cell);
 
-        for (unsigned int i = 0; i < cell_matrix_fem.m(); ++i)
-          for (unsigned int j = 0; j < cell_matrix_fem.n(); ++j)
-            cell_matrix_fem[i][j] = 1.0; // TODO: element stiffeness matrix
+        for (const unsigned int q_index : fe_values.quadrature_point_indices())
+          {
+            for (const unsigned int i : fe_values.dof_indices())
+              for (const unsigned int j : fe_values.dof_indices())
+                cell_matrix_fem(i, j) +=
+                  (fe_values.shape_grad(i, q_index) *
+                   fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+
+            for (const unsigned int i : fe_values.dof_indices())
+              cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
+                                  fe_values.JxW(q_index));
+          }
 
         // b) assemble into LOD matrix by using constraints
         std::vector<types::global_dof_index> local_dof_indices(n_dofs_per_cell);
-        patch.get_dof_indices(local_dof_indices);
+        patch.get_dof_indices(local_dof_indices, true /*hiearchical*/);
 
         for (auto &i : local_dof_indices)
           i += n_dofs_coarse; // shifted view
@@ -214,4 +234,8 @@ main(int argc, char **argv)
                                                        local_dof_indices,
                                                        A_lod);
       }
+
+  A_lod.compress(VectorOperation::values::add);
+
+  std::cout << A_lod.frobenius_norm() << std::endl;
 }
