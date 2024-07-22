@@ -270,22 +270,24 @@ public:
   unsigned int
   n_cells() const
   {
-    AssertDimension(dim, 2);
+    unsigned int n_cells = 1;
+    for (const auto i : patch_size)
+      n_cells *= i;
 
-    return patch_size[0] * patch_size[1];
+    return n_cells;
   }
 
   typename Triangulation<dim>::active_cell_iterator
   create_cell_iterator(const Triangulation<dim> &tria,
                        const unsigned int        index) const
   {
-    AssertDimension(dim, 2);
+    auto indices = index_to_indices<dim>(index, patch_size);
 
-    const unsigned int i = index % patch_size[0];
-    const unsigned int j = index / patch_size[0];
+    for (unsigned int d = 0; d < dim; ++d)
+      indices[d] += patch_start[d];
 
     return tria.create_cell_iterator(
-      CellId((patch_start[0] + i) + (patch_start[1] + j) * repetitions[0], {}));
+      CellId(indices_to_index<dim>(indices, repetitions), {}));
   }
 
   void
@@ -293,16 +295,23 @@ public:
     const unsigned int                    index,
     std::vector<types::global_dof_index> &dof_indices) const
   {
-    AssertDimension(dim, 2);
+    const auto indices_0 = index_to_indices<dim>(index, patch_size);
 
-    const unsigned int i = index % patch_size[0];
-    const unsigned int j = index / patch_size[0];
+    auto patch_dofs = patch_subdivions_size;
 
-    for (unsigned int jj = 0, c = 0; jj <= fe_degree; ++jj)
-      for (unsigned int ii = 0; ii <= fe_degree; ++ii, ++c)
+    for (auto &i : patch_dofs)
+      i += 1;
+
+    for (unsigned int c = 0; c < Utilities::pow(fe_degree + 1, dim); ++c)
+      {
+        auto indices_1 = index_to_indices<dim>(c, fe_degree + 1);
+
+        for (unsigned int d = 0; d < dim; ++d)
+          indices_1[d] += indices_0[d] * fe_degree;
+
         dof_indices[lexicographic_to_hierarchic_numbering[c]] =
-          (ii + i * fe_degree) +
-          (jj + j * fe_degree) * (patch_subdivions_size[0] + 1);
+          indices_to_index<dim>(indices_1, patch_dofs);
+      }
   }
 
 
