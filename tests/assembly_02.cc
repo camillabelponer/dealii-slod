@@ -27,7 +27,7 @@ main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
   const unsigned int dim       = 2;
-  const unsigned int fe_degree = 1;
+  const unsigned int fe_degree = 2;
   const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
   const MPI_Comm     comm      = MPI_COMM_WORLD;
 
@@ -256,4 +256,19 @@ main(int argc, char **argv)
 
   rhs_lod.print(std::cout);      // TODO
   solution_lod.print(std::cout); // TODO
+
+  //
+  MappingQ<dim> mapping(1);
+
+  DataOut<dim> data_out;
+  data_out.attach_triangulation(tria);
+
+  data_out.add_data_vector(solution_lod, "solution_lod");
+
+  data_out.build_patches();
+
+  const std::string file_name = "solution.vtu";
+
+  std::ofstream file(file_name);
+  data_out.write_vtu(file);
 }
