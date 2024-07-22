@@ -72,9 +72,8 @@ main(int argc, char **argv)
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
-        patch.reinit(cell, n_overlap);
-
         // A_lod sparsity pattern
+        patch.reinit(cell, n_overlap + 1 /*TODO: ?*/);
         std::vector<types::global_dof_index> local_dof_indices_coarse;
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
           local_dof_indices_coarse.emplace_back(
@@ -85,6 +84,7 @@ main(int argc, char **argv)
                                                  local_dof_indices_coarse);
 
         // C sparsity pattern
+        patch.reinit(cell, n_overlap);
         const auto                           n_dofs_patch = patch.n_dofs();
         std::vector<types::global_dof_index> local_dof_indices_fine(
           n_dofs_patch);
