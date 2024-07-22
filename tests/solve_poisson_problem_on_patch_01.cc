@@ -8,6 +8,11 @@
 
 #include <deal.II/grid/grid_generator.h>
 
+#include <deal.II/lac/trilinos_precondition.h>
+#include <deal.II/lac/trilinos_solver.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparsity_pattern.h>
+
 #include <deal.II/numerics/data_out.h>
 
 using namespace dealii;
@@ -130,6 +135,7 @@ public:
   Patch(const unsigned int               fe_degree,
         const std::vector<unsigned int> &repetitions)
     : fe_degree(fe_degree)
+    , dofs_per_cell(Utilities::pow(fe_degree + 1, dim))
     , lexicographic_to_hierarchic_numbering(
         FETools::lexicographic_to_hierarchic_numbering<dim>(fe_degree))
   {
@@ -251,8 +257,24 @@ public:
           (jj + j * fe_degree) * (patch_subdivions_size[0] + 1);
   }
 
+
+  template <typename Number, typename SparsityPatternType>
+  void
+  create_sparsity_pattern(const AffineConstraints<Number> &constraints,
+                          SparsityPatternType             &dsp) const
+  {
+    for (unsigned int cell = 0; cell < this->n_cells(); ++cell)
+      {
+        std::vector<types::global_dof_index> indices(this->dofs_per_cell);
+        this->get_dof_indices_of_cell(cell, indices);
+
+        constraints.add_entries_local_to_global(indices, dsp);
+      }
+  }
+
 private:
   const unsigned int        fe_degree;
+  const unsigned int        dofs_per_cell;
   std::vector<unsigned int> lexicographic_to_hierarchic_numbering;
 
   std::array<unsigned int, dim> repetitions;
@@ -263,8 +285,10 @@ private:
 };
 
 int
-main()
+main(int argc, char **argv)
 {
+  Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
+
   // 0) parameters
   const unsigned int dim       = 2;
   const unsigned int fe_degree = 7;
@@ -300,10 +324,16 @@ main()
   patch_constraints.close();
 
   // 5) assemble system on patch
-  const auto         n_dofs_patch = patch.n_dofs();
-  FullMatrix<double> A(n_dofs_patch, n_dofs_patch);
-  Vector<double>     rhs(n_dofs_patch);
-  Vector<double>     solution(n_dofs_patch);
+  const auto n_dofs_patch = patch.n_dofs();
+
+  TrilinosWrappers::SparsityPattern sparsity_pattern(n_dofs_patch,
+                                                     n_dofs_patch);
+  patch.create_sparsity_pattern(patch_constraints, sparsity_pattern);
+  sparsity_pattern.compress();
+
+  TrilinosWrappers::SparseMatrix A(sparsity_pattern);
+  Vector<double>                 rhs(n_dofs_patch);
+  Vector<double>                 solution(n_dofs_patch);
 
   FE_Q_iso_Q1<dim>   fe(fe_degree);
   const QIterated<2> quadrature(QGauss<1>(2), fe_degree);
@@ -341,9 +371,11 @@ main()
         cell_matrix, cell_rhs, indices, A, rhs);
     }
 
+  A.compress(VectorOperation::values::add);
+
   // 6) solve patch system
-  A.gauss_jordan();
-  A.vmult(solution, rhs);
+  TrilinosWrappers::SolverDirect solver;
+  solver.solve(A, solution, rhs);
 
   // 7) visualization on fine mesh
   DoFHandler<dim> dof_handler(tria);
