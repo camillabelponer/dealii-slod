@@ -13,10 +13,10 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 1
-  set Number of subdivisions       = 1
-  set Output directory             = ./output/vector/
-  set Output name                  = sol
+  set Number of global refinements = 4
+  set Number of subdivisions       = 7
+  set Output directory             = ./output/convergence_test_vector_piecewiseRhs/
+  set Output name                  = solution_ref4_subd7_overs0
   set oversampling                 = 0
   set order polynomial on patch    = 2
   set Compare with fine global solution = true
@@ -37,7 +37,7 @@ subsection Problem
 
   subsection Right hand side
     set Function constants  = 
-    set Function expression = 0;0
+    set Function expression = 1;1
     set Variable names      = x,y,t
   end
 

@@ -1083,6 +1083,9 @@ LOD<dim>::solve_fem_problem() //_and_compare() // const
                                              locally_relevant_dofs);
 
   LA::MPI::SparseMatrix fem_stiffness_matrix;
+
+  LA::MPI::SparseMatrix mass_matrix(dh.n_dofs(), tria.n_active_cells(), 4);
+
   fem_stiffness_matrix.reinit(locally_owned_dofs,
                               locally_owned_dofs,
                               sparsity_pattern,
@@ -1106,9 +1109,12 @@ LOD<dim>::solve_fem_problem() //_and_compare() // const
   std::vector<Tensor<1, dim>> grad_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
   std::vector<double>                  rhs_values(n_q_points);
+  // Vector<double>                  coarse_rhs_values(tria.n_active_cells());
   Vector<double>                       cell_rhs(dofs_per_cell);
+//   Vector<double>                       lod_fine_rhs_cell(dofs_per_cell);
 
   for (const auto &cell : dh.active_cell_iterators())
+  {
     if (cell->is_locally_owned())
       {
         cell_matrix = 0;
@@ -1116,11 +1122,15 @@ LOD<dim>::solve_fem_problem() //_and_compare() // const
         fe_values.reinit(cell);
         // par.rhs.vector_value_list(fe_values.get_quadrature_points(),
         par.rhs.value_list(fe_values.get_quadrature_points(), rhs_values);
+        // double cell_value = 0.0;
+        // par.rhs.value_list(cell->barycenter(), cell_value);
+        // coarse_rhs_values[cell->active_cell_index()] = cell_value;
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
               {
                 grad_phi_u[k] = fe_values.shape_grad(k, q);
+//                 lod_fine_rhs_cell(i) = (h/2)^2;
               }
             for (unsigned int i = 0; i < dofs_per_cell; ++i)
               {
@@ -1134,23 +1144,42 @@ LOD<dim>::solve_fem_problem() //_and_compare() // const
                 //   fe_coarse->system_to_component_index(i).first;
                 // cell_rhs(i) += fe_values.shape_value(i, q) *
                 //                rhs_values[q][comp_i] * fe_values.JxW(q);
+                // usual correct fem rhs
                 cell_rhs(i) += fe_values.shape_value(i, q) * rhs_values[q] *
                                fe_values.JxW(q);
               }
           }
-
 
         cell->get_dof_indices(local_dof_indices);
         fem_constraints.distribute_local_to_global(cell_matrix,
                                                    cell_rhs,
                                                    local_dof_indices,
                                                    fem_stiffness_matrix,
-                                                   fem_rhs);
-      }
+                                                   fem_rhs
+                                                   );
 
+      auto global_index = cell->active_cell_index();
+      auto h = cell->diameter();
+      h /= (par.n_subdivisions);
+      for (auto k : local_dof_indices)
+      {
+        mass_matrix.set(k, global_index, (h*h/4));
+      }
+      }
+  }
   fem_stiffness_matrix.compress(VectorOperation::add);
   fem_rhs.compress(VectorOperation::add);
 
+  // mass_matrix.compress(VectorOperation::insert);
+  // LA::MPI::SparseMatrix proj_matrix;
+  // proj_matrix.reinit(premultiplied_basis_matrix);
+  // proj_matrix = 1.0;
+
+  // LA::MPI::Vector coarse_rhs(fem_rhs);
+  // LA::MPI::Vector dts(mass_matrix.nonempty_cols(), mpi_communicator);
+  // proj_matrix.vmult(dts, coarse_rhs_values);
+  // mass_matrix.vmult(coarse_rhs, dts);
+  
   // std::cout << "     fine stiffness matrix frobenius norm = "
   //           << fem_stiffness_matrix.frobenius_norm() << std::endl;
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;

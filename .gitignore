@@ -11,3 +11,6 @@ CTestTestfile.cmake
 _deps
 build/
 output/
+*.pdf
+*.sh
+*.csv
