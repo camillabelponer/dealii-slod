@@ -839,7 +839,7 @@ LOD<dim>::assemble_global_matrix()
 
           iterator_to_cell_in_current_patch->get_dof_values(
             current_patch->basis_function_premultiplied, phi_loc);
-          AssertDimension(global_dofs.size(), phi_loc.size())
+          AssertDimension(global_dofs.size(), phi_loc.size());
             // premultiplied_basis_matrix.set(current_patch_id,
             //                                phi_loc.size(),
             //                                global_dofs.data(),
