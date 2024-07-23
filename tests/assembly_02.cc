@@ -31,6 +31,8 @@ main(int argc, char **argv)
   const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
   const MPI_Comm     comm      = MPI_COMM_WORLD;
 
+  AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
+
   std::vector<unsigned int> repetitions(dim, 5);
   Point<dim>                p1;
   Point<dim>                p2;
@@ -189,7 +191,8 @@ main(int argc, char **argv)
     comm);
   constraints_lod_fem.close();
 
-  LinearAlgebra::distributed::Vector<double> rhs_lod(n_dofs_coarse); // TODO
+  LinearAlgebra::distributed::Vector<double> rhs_lod(
+    n_dofs_coarse); // TODO: parallel
 
   // 6) assembly LOD matrix
   FE_Q_iso_Q1<dim>     fe(fe_degree);
@@ -258,15 +261,20 @@ main(int argc, char **argv)
   solution_lod.print(std::cout); // TODO
 
   // 8) convert to FEM solution
+  LinearAlgebra::distributed::Vector<double> solution_fem(
+    n_dofs_fine); // TODO: parallel
 
+  for (const auto i : locally_owned_fine_dofs)
+    if (const auto constraint_entries =
+          constraints_lod_fem.get_constraint_entries(i + n_dofs_coarse))
+      for (const auto &[j, weight] : *constraint_entries)
+        solution_fem[i] += weight * solution_lod[j];
 
   // 8) output LOD and FEM results
 
   DoFHandler<dim> dof_handler(tria);
   dof_handler.distribute_dofs(fe);
   compute_renumbering_lex(dof_handler);
-
-  LinearAlgebra::distributed::Vector<double> solution_fem(dof_handler.n_dofs());
 
   MappingQ<dim> mapping(1);
 
