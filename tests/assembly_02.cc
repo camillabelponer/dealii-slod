@@ -26,7 +26,7 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  const unsigned int dim       = 2;
+  const unsigned int dim       = 1;
   const unsigned int fe_degree = 2;
   const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
   const MPI_Comm     comm      = MPI_COMM_WORLD;
@@ -247,7 +247,7 @@ main(int argc, char **argv)
 
   std::cout << A_lod.frobenius_norm() << std::endl; // TODO
 
-  // solve
+  // 7) solve LOD system
   LinearAlgebra::distributed::Vector<double> solution_lod;
   solution_lod.reinit(rhs_lod);
 
@@ -257,15 +257,32 @@ main(int argc, char **argv)
   rhs_lod.print(std::cout);      // TODO
   solution_lod.print(std::cout); // TODO
 
-  //
+  // 8) convert to FEM solution
+
+
+  // 8) output LOD and FEM results
+
+  DoFHandler<dim> dof_handler(tria);
+  dof_handler.distribute_dofs(fe);
+  compute_renumbering_lex(dof_handler);
+
+  LinearAlgebra::distributed::Vector<double> solution_fem(dof_handler.n_dofs());
+
   MappingQ<dim> mapping(1);
 
+  DataOutBase::VtkFlags flags;
+
+  if (dim > 1)
+    flags.write_higher_order_cells = true;
+
   DataOut<dim> data_out;
-  data_out.attach_triangulation(tria);
+  data_out.set_flags(flags);
+  data_out.attach_dof_handler(dof_handler);
 
   data_out.add_data_vector(solution_lod, "solution_lod");
+  data_out.add_data_vector(solution_fem, "solution_fem");
 
-  data_out.build_patches();
+  data_out.build_patches(mapping, fe_degree);
 
   const std::string file_name = "solution.vtu";
 
