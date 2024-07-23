@@ -115,7 +115,7 @@ main(int argc, char **argv)
   TrilinosWrappers::SparseMatrix A_lod(sparsity_pattern_A_lod);
   TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
 
-  // 4) set dummy constraints (TODO: adjust for LOD)
+  // 4) set dummy constraints
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
@@ -131,11 +131,15 @@ main(int argc, char **argv)
           patch.make_zero_boundary_constraints<double>(d, patch_constraints);
         patch_constraints.close();
 
+        Vector<double> selected_basis_function(n_dofs_patch);
+        selected_basis_function = 1.0; // (TODO: adjust for LOD)
+        patch_constraints.set_zero(selected_basis_function);
+
         for (unsigned int i = 0; i < n_dofs_patch; ++i)
-          if (!patch_constraints.is_constrained(i))
+          if (selected_basis_function[i] != 0.0)
             C.set(local_dof_indices_fine[i],
                   cell->active_cell_index(),
-                  1.0 /*TODO*/);
+                  selected_basis_function[i]);
       }
 
   C.compress(VectorOperation::values::insert);
