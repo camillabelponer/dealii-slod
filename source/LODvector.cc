@@ -1,10 +1,10 @@
 #include <deal.II/base/exceptions.h>
 
-#include <LODvector.h>
+#include <LOD.h>
 #include <unistd.h>
 
-template <int dim>
-LOD<dim>::LOD(const LODParameters<dim, dim> &par)
+template <int dim, int spacedim>
+LOD<dim, spacedim>::LOD(const LODParameters<dim, spacedim> &par)
   : par(par)
   , mpi_communicator(MPI_COMM_WORLD)
   , pcout(std::cout, (Utilities::MPI::this_mpi_process(mpi_communicator) == 0))
@@ -17,25 +17,28 @@ LOD<dim>::LOD(const LODParameters<dim, dim> &par)
   , dof_handler_fine(tria)
 {}
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::print_parameters() const
+LOD<dim, spacedim>::print_parameters() const
 {
   TimerOutput::Scope t(computing_timer, "printing parameters");
-  pcout << "Running vector LOD elasticity problem" << std::endl;
+  if constexpr (spacedim == 1)
+    pcout << "Running LOD Diffusion problem in " << dim << "D" << std::endl;
+  else // spacedim == 2
+    pcout << "Running LOD Elasticity problem in " << dim << "D" << std::endl;
+
   par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
                              std::to_string(dim) + ".prm",
                            ParameterHandler::Short);
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::make_fe()
+LOD<dim, spacedim>::make_fe()
 {
   TimerOutput::Scope t(computing_timer, "make FE spaces");
-  // VECTOR/SCALAR problem
-  fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), dim);
-  // fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
+  fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), spacedim);
+  /// fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
   dof_handler_coarse.distribute_dofs(*fe_coarse);
 
   locally_owned_dofs = dof_handler_coarse.locally_owned_dofs();
@@ -44,60 +47,32 @@ LOD<dim>::make_fe()
 
   constraints.clear();
   DoFTools::make_hanging_node_constraints(dof_handler_coarse, constraints);
-  // constraints on the boundary of the domain: UNUSED
-  // TODO: check that we don't need this and delete
-  VectorTools::interpolate_boundary_values(
-    dof_handler_coarse,
-    0,
-    par.bc,
-    // Functions::ConstantFunction<dim, double>(0),
-    constraints);
+  // constraints on the boundary of the domain
+  VectorTools::interpolate_boundary_values(dof_handler_coarse,
+                                           0,
+                                           par.bc,
+                                           constraints);
   constraints.close();
 
   fe_fine =
-    // VECTOR/SCALAR problem
     //  std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions));
-    std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions), dim);
+    std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions),
+                                    spacedim);
   dof_handler_fine.distribute_dofs(*fe_fine);
   quadrature_fine = std::make_unique<Quadrature<dim>>(
     QIterated<dim>(QGauss<1>(2), par.n_subdivisions));
 
-  // VECTOR/SCALAR problem:
   patches_pattern.reinit(dof_handler_coarse.n_dofs(),
                          dof_handler_coarse.n_dofs(),
                          locally_relevant_dofs);
   patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
                               dof_handler_fine.n_dofs(),
                               locally_relevant_dofs);
-  // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  // hcange use of tria here! should be something local
-  // patches_pattern.reinit(tria.n_active_cells(),
-  //                        tria.n_active_cells(),
-  //                        locally_owned_patches);
-  // patches_pattern_fine.reinit(tria.n_active_cells(),
-  //                             tria.n_active_cells() * par.n_subdivisions,
-  //                             locally_owned_patches);
-
-
-  // DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
-  // DoFTools::make_sparsity_pattern(dof_handler,
-  //                                 sparsity_pattern,
-  //                                 constraints,
-  //                                 /*keep constrained dofs*/ false);
-  // SparsityTools::distribute_sparsity_pattern(sparsity_pattern,
-  //                                            locally_owned_dofs,
-  //                                            mpi_communicator,
-  //                                            locally_relevant_dofs);
-  // global_stiffness_matrix.reinit(locally_owned_dofs,
-  //                                locally_owned_dofs,
-  //                                sparsity_pattern,
-  //                                mpi_communicator);
-  // system_rhs.reinit(locally_owned_dofs, mpi_communicator);
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::make_grid()
+LOD<dim, spacedim>::make_grid()
 {
   TimerOutput::Scope t(computing_timer, "create grid");
   GridGenerator::hyper_cube(tria);
@@ -108,16 +83,14 @@ LOD<dim>::make_grid()
       mpi_communicator, tria.n_global_active_cells());
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::create_patches()
+LOD<dim, spacedim>::create_patches()
 {
   pcout << "   creating patches";
 
 
-  // global_to_local_cell_map.resize(tria.n_active_cells());
-  // patches = TrilinosWrappers::MPI::Vector(locally_owned_patches,
-  //                                          mpi_communicator);
+
   std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
   std::vector<unsigned int> coarse_dofs(fe_coarse->n_dofs_per_cell());
 
@@ -176,7 +149,7 @@ LOD<dim>::create_patches()
                                                       neig_coarse_dofs[0]))
                             {
                               patch_iterators.push_back(neighbour);
-                              for (unsigned d = 0; d < dim; ++d)
+                              for (unsigned d = 0; d < spacedim; ++d)
                                 patches_pattern.add_row_entries(
                                   coarse_dofs[d], neig_coarse_dofs);
 
@@ -184,7 +157,7 @@ LOD<dim>::create_patches()
                                 neighbour->as_dof_handler_iterator(
                                   dof_handler_fine);
                               cell_fine->get_dof_indices(fine_dofs);
-                              for (unsigned d = 0; d < dim; ++d)
+                              for (unsigned d = 0; d < spacedim; ++d)
                                 patches_pattern_fine.add_row_entries(
                                   coarse_dofs[d], fine_dofs);
                               patch->cells.push_back(neighbour);
@@ -223,6 +196,7 @@ LOD<dim>::create_patches()
             << "Patches size in (" << size_tiniest_patch << ", "
             << size_biggest_patch << ")" << std::endl;
     }
+
   // ALTERNATIVE VERSION
   // For patches at the border, find the neighbouring patch that is not at the
   // border and which completely contains this patch
@@ -256,9 +230,9 @@ LOD<dim>::create_patches()
 
 // previous use of the sparsity pattern: DOES NOT WORK NOW
 /*
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::check_nested_patches()
+LOD<dim, spacedim>::check_nested_patches()
 {
   pcout << "   checking nested patches";
 
@@ -320,20 +294,15 @@ LOD<dim>::check_nested_patches()
 */
 
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::output_results()
+LOD<dim, spacedim>::output_results()
 {
   TimerOutput::Scope t(computing_timer, "Output results");
 
-  // VECTOR/SCALAR problem: use "dim" / "dim-1"
-  // std::vector<std::string> solution_names(dim - 1, "LOD_solution");
-  // std::vector<std::string> exact_solution_names(dim - 1,
-  //                                               "coarse_exact_solution");
-
-  std::vector<std::string> solution_names(dim, "LOD_solution");
-  std::vector<std::string> exact_solution_names(dim, "coarse_exact_solution");
-
+  std::vector<std::string> solution_names(spacedim, "LOD_solution");
+  std::vector<std::string> exact_solution_names(spacedim,
+                                                "coarse_exact_solution");
   // std::string solution_names = "LOD_solution";
   // std::string exact_solution_names = "exact_solution";
 
@@ -345,9 +314,8 @@ LOD<dim>::output_results()
 
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     data_component_interpretation(
-      dim, DataComponentInterpretation::component_is_part_of_vector);
-  // VECTOR/SCALAR problem
-  // dim - 1, DataComponentInterpretation::component_is_scalar);
+      spacedim, DataComponentInterpretation::component_is_part_of_vector);
+  //  DataComponentInterpretation::component_is_scalar);
   DataOut<dim> data_out;
 
   // data_out.attach_dof_handler(dof_handler_coarse);
@@ -379,9 +347,9 @@ LOD<dim>::output_results()
 const unsigned int SPECIAL_NUMBER = 69;
 
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::compute_basis_function_candidates()
+LOD<dim, spacedim>::compute_basis_function_candidates()
 {
   pcout << "   computing basis functions: ";
   TimerOutput::Scope t(computing_timer, "compute basis function");
@@ -431,8 +399,7 @@ LOD<dim>::compute_basis_function_candidates()
         VectorTools::interpolate_boundary_values(
           dh_fine_patch,
           SPECIAL_NUMBER,
-          // VECTOR/SCALAR
-          Functions::ZeroFunction<dim, double>(dim),
+          Functions::ZeroFunction<dim, double>(spacedim),
           internal_boundary_constraints);
         internal_boundary_constraints.close();
       }
@@ -552,8 +519,7 @@ LOD<dim>::compute_basis_function_candidates()
       // Specialization of projection for the case where src is the P0 basis
       // function of a single cell Works only for P0 coarse elements
       const auto project_cell = [&](auto &dst, const auto &cell) {
-        AssertDimension(fe_coarse->n_dofs_per_cell(), dim);
-        // VECTOR/SCALAR problem : use dim or 1
+        AssertDimension(fe_coarse->n_dofs_per_cell(), spacedim);
         VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
         VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
         VectorType weights(fe_coarse->n_dofs_per_cell());
@@ -734,7 +700,7 @@ LOD<dim>::compute_basis_function_candidates()
       Ac_i;
               */
 
-      for (unsigned d = 0; d < dim; ++d)
+      for (unsigned d = 0; d < sapcedim; ++d)
         {
           current_patch->basis_function.push_back(candidates[d]);
           Ac_i = 0;
@@ -748,9 +714,9 @@ LOD<dim>::compute_basis_function_candidates()
   pcout << " done" << std::endl;
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
+LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 {
   current_patch.sub_tria.clear();
 
@@ -841,9 +807,9 @@ LOD<dim>::create_mesh_for_patch(Patch<dim> &current_patch)
   // current_patch.sub_tria.refine_global(par.n_subdivisions);
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::assemble_global_matrix()
+LOD<dim, spacedim>::assemble_global_matrix()
 {
   TimerOutput::Scope t(computing_timer, "assemble global matrix");
 
@@ -905,7 +871,7 @@ LOD<dim>::assemble_global_matrix()
               ->as_dof_handler_iterator(dof_handler_fine);
           iterator_to_cell_global->get_dof_indices(global_dofs);
 
-          for (unsigned d = 0; d < dim; ++d)
+          for (unsigned d = 0; d < spacedim; ++d)
             {
               iterator_to_cell_in_current_patch->get_dof_values(
                 current_patch->basis_function[d], phi_loc);
@@ -1037,12 +1003,12 @@ LOD<dim>::assemble_global_matrix()
   */
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
-  LA::MPI::SparseMatrix &    stiffness_matrix,
-  const DoFHandler<dim> &    dh,
-  AffineConstraints<double> &local_stiffnes_constraints)
+LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
+  LA::MPI::SparseMatrix /*<double>*/ &stiffness_matrix,
+  const DoFHandler<dim> &             dh,
+  AffineConstraints<double> &         local_stiffnes_constraints)
 {
   // const auto &dh = *current_patch.dh_fine;
   TimerOutput::Scope t(computing_timer,
@@ -1057,7 +1023,7 @@ LOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
   const unsigned int n_q_points    = quadrature_fine->size();
   FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
   // VECTOR / SCALAR Tensor<1,dim>
-  std::vector<Tensor<2, dim>>          grad_phi_u(dofs_per_cell);
+  std::vector<Tensor<spacedim, dim>>   grad_phi_u(dofs_per_cell);
   std::vector<double>                  div_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
   const FEValuesExtractors::Vector     displacement(0);
@@ -1107,14 +1073,14 @@ LOD<dim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
 
 
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::solve()
+LOD<dim, spacedim>::solve()
 {
   TimerOutput::Scope       t(computing_timer, "Solve");
   LA::MPI::PreconditionAMG prec_A;
-
   prec_A.initialize(global_stiffness_matrix, 1.2);
+
   const auto C = linear_operator<LA::MPI::Vector>(basis_matrix);
   // const auto AM =
   // linear_operator<LA::MPI::Vector>(premultiplied_basis_matrix);
@@ -1143,9 +1109,9 @@ LOD<dim>::solve()
   constraints.distribute(u);
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::solve_fem_problem() //_and_compare() // const
+LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 {
   TimerOutput::Scope t(computing_timer, "solve fine FEM");
 
@@ -1194,12 +1160,11 @@ LOD<dim>::solve_fem_problem() //_and_compare() // const
   // LA::MPI::Vector fem_solution(locally_owned_dofs, mpi_communicator);
 
   // assemble fine global matrix
-  const unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
-  const unsigned int n_q_points    = quadrature_fine->size();
-  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-  // VECTOR / SCALAR <1, dim>
-  std::vector<Tensor<2, dim>>          grad_phi_u(dofs_per_cell);
-  std::vector<double>                  div_phi_u(dofs_per_cell);
+  const unsigned int                 dofs_per_cell = fe_fine->n_dofs_per_cell();
+  const unsigned int                 n_q_points    = quadrature_fine->size();
+  FullMatrix<double>                 cell_matrix(dofs_per_cell, dofs_per_cell);
+  std::vector<Tensor<spacedim, dim>> grad_phi_u(dofs_per_cell);
+  std::vector<double>                div_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
   // VECTOR / SCALAR rhs is vec<vec>
   std::vector<Vector<double>> rhs_values(n_q_points, Vector<double>(dim));
@@ -1280,30 +1245,12 @@ LOD<dim>::solve_fem_problem() //_and_compare() // const
   fem_constraints.distribute(fem_solution);
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::compare_fem_lod()
+LOD<dim, spacedim>::compare_fem_lod()
 {
   computing_timer.enter_subsection("compare FEM vs LOD");
   const auto &dh = dof_handler_fine;
-  // compare
-  // 1
-  // parallel::distributed::SolutionTransfer<dim, LA::MPI::Vector> transfer(
-  // dof_handler);
-  // transfer.interpolate(fem_solution);
-  // fem_constraints.distribute(fem_solution);
-  // locally_relevant_solution = fem_solution;
-  // 2
-  // InterGridMap<DoFHandler<dim> > coarse_to_fine_map;
-  // coarse_to_fine_map.make_mapping(dof_handler, dh_fine);
-  // 3
-  // VectorTools::interpolate_to_different_mesh(coarse_to_fine_map,
-  //                                           solution,
-  //                                           constraints,
-  //                                           dst);
-  // FETools::interpolate(dof_handler_coarse, solution, dh,
-  // lod_solution);
-  // 4
 
   LA::MPI::Vector lod_solution(patches_pattern_fine.nonempty_cols(),
                                mpi_communicator);
@@ -1325,10 +1272,10 @@ LOD<dim>::compare_fem_lod()
   computing_timer.enter_subsection("fine output");
 
   // output fem solution
-  std::vector<std::string> fem_names(dim, "fem_solution");
-  std::vector<std::string> exact_solution_names(dim, "exact_solution_fine");
-  std::vector<std::string> lod_names(dim, "lod_solution_fine");
-  // VECTOR/SCALAR problem : change "dim" to "1"
+  std::vector<std::string> fem_names(spacedim, "fem_solution");
+  std::vector<std::string> exact_solution_names(spacedim,
+                                                "exact_solution_fine");
+  std::vector<std::string> lod_names(spacedim, "lod_solution_fine");
 
   auto exact_vec(fem_solution);
   VectorTools::interpolate(dh, par.exact_solution, exact_vec);
@@ -1338,9 +1285,9 @@ LOD<dim>::compare_fem_lod()
 
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     data_component_interpretation(
-      dim, DataComponentInterpretation::component_is_part_of_vector);
-  // VECTOR/SCALAR problem
-  // dim - 1, DataComponentInterpretation::component_is_scalar);
+      spacedim,
+      // DataComponentInterpretation::component_is_scalar
+      DataComponentInterpretation::component_is_part_of_vector);
   DataOut<dim> data_out;
 
   data_out.add_data_vector(dh,
@@ -1370,9 +1317,9 @@ LOD<dim>::compare_fem_lod()
   computing_timer.leave_subsection();
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::initialize_patches()
+LOD<dim, spacedim>::initialize_patches()
 {
   TimerOutput::Scope t(computing_timer, "Initialize patches");
   create_patches();
@@ -1422,9 +1369,9 @@ LOD<dim>::initialize_patches()
       */
 }
 
-template <int dim>
+template <int dim, int spacedim>
 void
-LOD<dim>::run()
+LOD<dim, spacedim>::run()
 {
   // auto i = 0;
   // while (i < 1)
@@ -1456,4 +1403,4 @@ LOD<dim>::run()
 }
 
 
-template class LOD<2>;
+template class LOD<2, 2>;

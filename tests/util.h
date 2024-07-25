@@ -329,7 +329,7 @@ public:
   template <typename Number, typename SparsityPatternType>
   void
   create_sparsity_pattern(const AffineConstraints<Number> &constraints,
-                          SparsityPatternType             &dsp) const
+                          SparsityPatternType &            dsp) const
   {
     for (unsigned int cell = 0; cell < this->n_cells(); ++cell)
       {
