@@ -64,7 +64,7 @@ main(int argc, char **argv)
   ilu.initialize(sparse_matrix);
 
   const unsigned int n_blocks        = n_dofs;
-  const unsigned int n_blocks_stride = n_blocks;
+  const unsigned int n_blocks_stride = 1;
 
   std::vector<Vector<double>> rhs(n_blocks, Vector<double>(n_dofs));
   std::vector<Vector<double>> solution(n_blocks, Vector<double>(n_dofs));
@@ -97,13 +97,19 @@ main(int argc, char **argv)
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-      mat.Multiply(false, trilinos_src, trilinos_dst);
-
       ReductionControl solver_control;
 
-      TrilinosWrappers::SolverCG solver(solver_control);
-
-      solver.solve(mat, trilinos_dst, trilinos_src, prec);
+      if (true)
+        {
+          TrilinosWrappers::SolverCG solver(solver_control);
+          solver.solve(mat, trilinos_dst, trilinos_src, prec);
+        }
+      else
+        {
+          // TrilinosWrappers::SolverDirect solver(solver_control);
+          // solver.initialize(sparse_matrix);
+          // solver.solve(mat, trilinos_dst, trilinos_src);
+        }
     }
 
   DataOutBase::VtkFlags flags;
