@@ -1,7 +1,6 @@
 #include <deal.II/base/exceptions.h>
 
 #include <LOD.h>
-#include <utilities.h>
 
 template <int dim, int spacedim>
 LOD<dim, spacedim>::LOD(const LODParameters<dim, spacedim> &par)
