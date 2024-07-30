@@ -64,10 +64,16 @@ main(int argc, char **argv)
   ilu.initialize(sparse_matrix);
 
   const unsigned int n_blocks        = n_dofs;
-  const unsigned int n_blocks_stride = 1;
+  const unsigned int n_blocks_stride = n_blocks;
 
-  std::vector<Vector<double>> rhs(n_blocks, Vector<double>(n_dofs));
-  std::vector<Vector<double>> solution(n_blocks, Vector<double>(n_dofs));
+  std::vector<Vector<double>> rhs(n_blocks);
+  std::vector<Vector<double>> solution(n_blocks);
+
+  for (unsigned int b = 0; b < n_blocks; ++b)
+    {
+      rhs[b].reinit(n_dofs);
+      solution[b].reinit(n_dofs);
+    }
 
   for (unsigned int b = 0; b < n_blocks; ++b)
     rhs[b][b] = 1.0;
@@ -76,13 +82,23 @@ main(int argc, char **argv)
     {
       const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
 
+      std::vector<double> rhs_temp(n_dofs * (bend - b));
+      std::vector<double> solution_temp(n_dofs * (bend - b));
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < n_dofs; ++j)
+          {
+            rhs_temp[i * n_dofs + j]      = rhs[i + b][j];
+            solution_temp[i * n_dofs + j] = solution[i + b][j];
+          }
+
       std::vector<double *> rhs_ptrs(bend - b);
       std::vector<double *> sultion_ptrs(bend - b);
 
       for (unsigned int i = 0; i < (bend - b); ++i)
         {
-          rhs_ptrs[i]     = rhs[i + b].begin();
-          sultion_ptrs[i] = solution[i + b].begin();
+          rhs_ptrs[i]     = &rhs_temp[i * n_dofs];      //&rhs[i + b][0];
+          sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
         }
 
       const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
@@ -99,17 +115,23 @@ main(int argc, char **argv)
 
       ReductionControl solver_control;
 
-      if (true)
+      if (false)
         {
           TrilinosWrappers::SolverCG solver(solver_control);
           solver.solve(mat, trilinos_dst, trilinos_src, prec);
         }
       else
         {
-          // TrilinosWrappers::SolverDirect solver(solver_control);
-          // solver.initialize(sparse_matrix);
-          // solver.solve(mat, trilinos_dst, trilinos_src);
+          TrilinosWrappers::SolverDirect solver(solver_control);
+          solver.initialize(sparse_matrix);
+          solver.solve(mat, trilinos_dst, trilinos_src);
         }
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < n_dofs; ++j)
+          {
+            solution[i + b][j] = solution_temp[i * n_dofs + j];
+          }
     }
 
   DataOutBase::VtkFlags flags;
