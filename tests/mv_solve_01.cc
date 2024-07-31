@@ -17,6 +17,9 @@
 
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/numerics/matrix_tools.h>
+#include <deal.II/numerics/vector_tools.h>
+
+#include "util.h"
 
 using namespace dealii;
 
@@ -42,7 +45,12 @@ main(int argc, char **argv)
   dof_handler.distribute_dofs(fe);
 
   AffineConstraints<double> constraints;
-  DoFTools::make_zero_boundary_constraints(dof_handler, constraints);
+  // DoFTools::make_zero_boundary_constraints(dof_handler, constraints); // set_zero_all not yet defined
+  VectorTools::interpolate_boundary_values(
+          dof_handler,
+          0,
+          Functions::ZeroFunction<dim, double>(1),
+          constraints);
   constraints.close();
 
   const unsigned int n_dofs = dof_handler.n_dofs();
@@ -122,7 +130,7 @@ main(int argc, char **argv)
         }
       else
         {
-          TrilinosWrappers::SolverDirect solver(solver_control);
+          TrilinosWrappers::MySolverDirect solver(solver_control);
           solver.initialize(sparse_matrix);
           solver.solve(mat, trilinos_dst, trilinos_src);
         }

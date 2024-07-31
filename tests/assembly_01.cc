@@ -110,7 +110,7 @@ main()
       for (auto entry = C.begin(row); entry != C.end(row); ++entry)
         dependencies.emplace_back(entry->column(), entry->value());
 
-      constraints_lod_fem.add_constraint(row + dof_handler_coarse.n_dofs(),
+      constraints_lod_fem.add_entries(row + dof_handler_coarse.n_dofs(),
                                          dependencies);
     }
   // TODO: use AffineConstraints::make_consistent_in_parallel()
