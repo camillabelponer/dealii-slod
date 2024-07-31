@@ -1,6 +1,7 @@
 #include <deal.II/base/exceptions.h>
 
 #include <LODscalar.h>
+// #include <../tests/util.h>
 
 template <int dim>
 LOD<dim>::LOD(const LODParameters<dim, dim> &par)
@@ -529,8 +530,8 @@ LOD<dim>::compute_basis_function_candidates()
       // we now compute c_loc_i = S^-1 P^T (P S^-1 P^T)^-1 e_i
       // where e_i is the indicator function of the patch
 
-      VectorType         P_e_i(Ndofs_fine);
-      VectorType         u_i(Ndofs_fine);
+      // VectorType         P_e_i(Ndofs_fine);
+      // VectorType         u_i(Ndofs_fine);
       VectorType         e_i(Ndofs_coarse); // reused also as temporary vector
       VectorType         triple_product_inv_e_i(Ndofs_coarse);
       VectorType         c_i(Ndofs_fine);
@@ -538,31 +539,116 @@ LOD<dim>::compute_basis_function_candidates()
       FullMatrix<double> triple_product(Ndofs_coarse);
       FullMatrix<double> A0_inv_P(Ndofs_fine, Ndofs_coarse);
 
-      for (auto coarse_cell : dh_coarse_patch.active_cell_iterators())
-        // for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+      // for (auto coarse_cell : dh_coarse_patch.active_cell_iterators())
+      //   // for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+      //   {
+      //     auto i = coarse_cell->active_cell_index();
+      //     // e_i    = 0.0;
+      //     // e_i[i] = 1.0;
+      //     P_e_i = 0.0;
+      //     u_i   = 0.0;
+
+      //     // project(P_e_i, e_i);
+      //     project_cell(P_e_i, coarse_cell);
+
+      //     // u_i = A0_inv * P_e_i;
+      //     dealii::TrilinosWrappers::SolverDirect sd(par.patch_solver_control);
+      //     sd.solve(patch_stiffness_matrix, u_i, P_e_i);
+      //     e_i = 0.0;
+      //     projectT(e_i, u_i);
+      //     for (unsigned int j = 0; j < Ndofs_coarse; j++)
+      //       {
+      //         triple_product(j, i) = e_i[j];
+      //       }
+      //     for (unsigned int j = 0; j < Ndofs_fine; j++)
+      //       {
+      //         A0_inv_P(j, i) = u_i[j];
+      //       }
+      //   }
+      //triple_product.gauss_jordan();
+
+      TrilinosWrappers::PreconditionILU ilu;
+      ilu.initialize(patch_stiffness_matrix);
+
+      const unsigned int n_blocks        = Ndofs_coarse;
+      const unsigned int n_blocks_stride = Ndofs_coarse;
+
+      std::vector<VectorType> P_e_i(n_blocks);
+      std::vector<VectorType> u_i(n_blocks);
+
+      for (unsigned int b = 0; b < n_blocks; ++b)
+    {
+      P_e_i[b].reinit(Ndofs_fine);
+      u_i[b].reinit(Ndofs_fine);
+    }
+// assign rhs
+    // for (auto coarse_cell : dh_coarse_patch.active_cell_iterators())
+    for (unsigned int i = 0; i < Ndofs_coarse; ++i) // same as b
         {
-          auto i = coarse_cell->active_cell_index();
-          // e_i    = 0.0;
-          // e_i[i] = 1.0;
-          P_e_i = 0.0;
-          u_i   = 0.0;
+          P_e_i[i] = 0.0;
+          e_i    = 0.0;
+          e_i[i] = 1.0;
 
-          // project(P_e_i, e_i);
-          project_cell(P_e_i, coarse_cell);
-
-          u_i = A0_inv * P_e_i;
-          e_i = 0.0;
-          projectT(e_i, u_i);
-          for (unsigned int j = 0; j < Ndofs_coarse; j++)
-            {
-              triple_product(j, i) = e_i[j];
-            }
-          for (unsigned int j = 0; j < Ndofs_fine; j++)
-            {
-              A0_inv_P(j, i) = u_i[j];
-            }
+          project(P_e_i[i], e_i);
         }
-      triple_product.gauss_jordan();
+// solve
+  for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
+    {
+      const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
+
+      std::vector<double> rhs_temp(Ndofs_coarse * (bend - b));
+      std::vector<double> solution_temp(Ndofs_coarse * (bend - b));
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+          {
+            rhs_temp[i * Ndofs_coarse + j]      = P_e_i[i + b][j];
+            solution_temp[i * Ndofs_coarse + j] = u_i[i + b][j];
+          }
+
+      std::vector<double *> rhs_ptrs(bend - b);
+      std::vector<double *> sultion_ptrs(bend - b);
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        {
+          rhs_ptrs[i]     = &rhs_temp[i * Ndofs_coarse];      //&rhs[i + b][0];
+          sultion_ptrs[i] = &solution_temp[i * Ndofs_coarse]; //&solution[i + b][0];
+        }
+
+      const Epetra_CrsMatrix &mat  = patch_stiffness_matrix.trilinos_matrix();
+      const Epetra_Operator  &prec = ilu.trilinos_operator();
+
+      Epetra_MultiVector trilinos_dst(View,
+                                      mat.OperatorRangeMap(),
+                                      sultion_ptrs.data(),
+                                      sultion_ptrs.size());
+      Epetra_MultiVector trilinos_src(View,
+                                      mat.OperatorDomainMap(),
+                                      rhs_ptrs.data(),
+                                      rhs_ptrs.size());
+
+      // ReductionControl solver_control;
+
+      if (false)
+        {
+          TrilinosWrappers::SolverCG solver(par.fine_solver_control);
+          solver.solve(mat, trilinos_dst, trilinos_src, prec);
+        }
+      else
+        {
+          TrilinosWrappers::MySolverDirect solver(par.fine_solver_control);
+          solver.initialize(patch_stiffness_matrix);
+          solver.solve(mat, trilinos_dst, trilinos_src);
+        }
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+          {
+            u_i[i + b][j] = solution_temp[i * Ndofs_coarse + j];
+          }
+    }
+
+      
 
       std::vector<VectorType> candidates;
       std::vector<VectorType> Palpha_i;
