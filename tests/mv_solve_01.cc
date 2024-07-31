@@ -120,6 +120,16 @@ main(int argc, char **argv)
           TrilinosWrappers::SolverCG solver(solver_control);
           solver.solve(mat, trilinos_dst, trilinos_src, prec);
         }
+      else if (true)
+        {
+          ReductionControl solver_control(100, 0.0, 1e-1);
+          TrilinosWrappers::SolverBelos<Epetra_MultiVector> solver(
+            solver_control, {}, {});
+          solver.template solve<Epetra_Operator, Epetra_Operator>(mat,
+                                                                  trilinos_dst,
+                                                                  trilinos_src,
+                                                                  prec);
+        }
       else
         {
           TrilinosWrappers::SolverDirect solver(solver_control);
