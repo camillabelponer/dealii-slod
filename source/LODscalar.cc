@@ -537,7 +537,7 @@ LOD<dim>::compute_basis_function_candidates()
       VectorType         c_i(Ndofs_fine);
       VectorType         Ac_i(Ndofs_fine);
       FullMatrix<double> triple_product(Ndofs_coarse);
-      FullMatrix<double> A0_inv_P(Ndofs_fine, Ndofs_coarse);
+      // FullMatrix<double> A0_inv_P(Ndofs_fine, Ndofs_coarse);
 
       // for (auto coarse_cell : dh_coarse_patch.active_cell_iterators())
       //   // for (unsigned int i = 0; i < Ndofs_coarse; ++i)
@@ -647,6 +647,9 @@ LOD<dim>::compute_basis_function_candidates()
             u_i[i + b][j] = solution_temp[i * Ndofs_coarse + j];
           }
     }
+
+    auto A0_inv_P = u_i;
+    
 
       
 
