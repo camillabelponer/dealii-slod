@@ -1,7 +1,7 @@
 #include <deal.II/base/exceptions.h>
 
 #include <LODscalar.h>
-// #include <../tests/util.h>
+#include <LODtools.h>
 
 template <int dim>
 LOD<dim>::LOD(const LODParameters<dim, dim> &par)
@@ -537,7 +537,7 @@ LOD<dim>::compute_basis_function_candidates()
       VectorType         c_i(Ndofs_fine);
       VectorType         Ac_i(Ndofs_fine);
       FullMatrix<double> triple_product(Ndofs_coarse);
-      // FullMatrix<double> A0_inv_P(Ndofs_fine, Ndofs_coarse);
+      FullMatrix<double> A0_inv_P(Ndofs_fine, Ndofs_coarse);
 
       // for (auto coarse_cell : dh_coarse_patch.active_cell_iterators())
       //   // for (unsigned int i = 0; i < Ndofs_coarse; ++i)
@@ -567,6 +567,7 @@ LOD<dim>::compute_basis_function_candidates()
       //   }
       //triple_product.gauss_jordan();
 
+// LU of patche stiffness, once per patch
       TrilinosWrappers::PreconditionILU ilu;
       ilu.initialize(patch_stiffness_matrix);
 
@@ -591,7 +592,7 @@ LOD<dim>::compute_basis_function_candidates()
 
           project(P_e_i[i], e_i);
         }
-// solve
+// gauss elimination
   for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
     {
       const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
@@ -648,8 +649,22 @@ LOD<dim>::compute_basis_function_candidates()
           }
     }
 
-    auto A0_inv_P = u_i;
-    
+    // we now have U = A-1 PT e_i
+    // assign ui to A0_inv_P
+    for (unsigned int i = 0; i < Ndofs_fine; ++i)
+    for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+      A0_inv_P.set(i, j, u_i[i][j]);
+
+    // and project ui to get the cols of triple_product
+    for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+    {
+      e_i = 0.0;
+      projectT(e_i, u_i[i]);
+    for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+      {
+        triple_product(j, i) = e_i[j];
+      }
+    }
 
       
 

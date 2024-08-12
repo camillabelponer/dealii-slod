@@ -44,7 +44,7 @@ subsection Problem
   subsection Solver
     subsection Coarse solver control
       set Log frequency = 1
-      set Log history   = false
+      set Log history   = true
       set Log result    = true
       set Max steps     = 10000
       set Reduction     = 1.e-2
@@ -53,11 +53,11 @@ subsection Problem
 
     subsection Fine solver control
       set Log frequency = 1
-      set Log history   = false
+      set Log history   = true
       set Log result    = true
       set Max steps     = 10000
-      set Reduction     = 1
-      set Tolerance     = 1
+      set Reduction     = 1.e-1
+      set Tolerance     = 1.e-1
     end
 
   end
