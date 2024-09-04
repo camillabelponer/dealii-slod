@@ -23,7 +23,7 @@ LOD<dim, spacedim>::print_parameters() const
   TimerOutput::Scope t(computing_timer, "printing parameters");
   if constexpr (spacedim == 1)
     pcout << "Running LOD Diffusion problem in " << dim << "D" << std::endl;
-  else // spacedim == 2
+  else // spacedim == dim (3D case not yet implemented)
     pcout << "Running LOD Elasticity problem in " << dim << "D" << std::endl;
 
   par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
@@ -37,7 +37,7 @@ LOD<dim, spacedim>::make_fe()
 {
   TimerOutput::Scope t(computing_timer, "make FE spaces");
   fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), spacedim);
-  /// fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
+  // fe_coarse = std::make_unique<FE_DGQ<dim>>(FE_DGQ<dim>(0));
   dof_handler_coarse.distribute_dofs(*fe_coarse);
 
   locally_owned_dofs = dof_handler_coarse.locally_owned_dofs();
@@ -55,7 +55,7 @@ LOD<dim, spacedim>::make_fe()
   coarse_boundary_constraints.close();
 
   fe_fine =
-    //  std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions));
+    // std::make_unique<FE_Q_iso_Q1<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions));
     std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(par.n_subdivisions),
                                     spacedim);
   dof_handler_fine.distribute_dofs(*fe_fine);
@@ -88,9 +88,6 @@ void
 LOD<dim, spacedim>::create_patches()
 {
   pcout << "   creating patches";
-
-
-
   std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
 
   // Queue for patches for which neighbours should be added
@@ -437,11 +434,21 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.enter_subsection(
         "compute basis function 3: assemble patch stiffness");
 
-      assemble_stiffness_for_patch( //*current_patch,
-        patch_stiffness_matrix,
+      MappingQ1<dim> mapping;
+
+      MatrixCreator::create_laplace_matrix<dim, dim>(
+        mapping,
         dh_fine_patch,
+        *quadrature_fine,
+        patch_stiffness_matrix,
+        nullptr,
         local_stiffnes_constraints);
-      // internal_boundary_constraints);
+
+      //  assemble_stiffness_for_patch( //*current_patch,
+      //    patch_stiffness_matrix,
+      //    dh_fine_patch,
+      //    local_stiffnes_constraints);
+      //  // internal_boundary_constraints);
       computing_timer.leave_subsection();
 
       // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
@@ -575,11 +582,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             //  SolverCG<VectorType> cg_A(par.fine_solver_control);
             // cg_A.solve(patch_stiffness_matrix, u_i, P_e_i,
             // PreconditionIdentity());
-            dealii::TrilinosWrappers::SolverDirect sd(par.patch_solver_control);
-            sd.solve(patch_stiffness_matrix, u_i, P_e_i);
-            //   SparseDirectUMFPACK A_direct;
-            //   auto u_i =  P_e_i;
-            //   A_direct.solve(patch_stiffness_matrix, u_i);
+            dealii::TrilinosWrappers::SolverDirect
+            sd(par.patch_solver_control); sd.solve(patch_stiffness_matrix,
+            u_i, P_e_i);
+            // SparseDirectUMFPACK A_direct;
+            // auto                u_i = P_e_i;
+            // A_direct.solve(patch_stiffness_matrix, u_i);
           }
 
           e_i = 0.0;
@@ -634,7 +642,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           A_inv                  = inverse_operator(A, cg_A);
           triple_product_inv_e_i = A_inv * e_i;
 
-          triple_product_inv_e_i /= h;
+          // triple_product_inv_e_i /= h;
 
           A0_inv_P.vmult(c_i, triple_product_inv_e_i);
           c_i /= c_i.l2_norm();
