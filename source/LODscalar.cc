@@ -555,7 +555,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       VectorType         triple_product_inv_e_i(Ndofs_coarse);
       VectorType         c_i(Ndofs_fine);
       VectorType         Ac_i(Ndofs_fine);
-      FullMatrix<double> triple_product(Ndofs_coarse);
+      // FullMatrix<double> 
+      LAPACKFullMatrix<double> 
+      triple_product(Ndofs_coarse, Ndofs_coarse);
       FullMatrix<double> A0_inv_P(Ndofs_fine, Ndofs_coarse);
 
       computing_timer.leave_subsection();
@@ -582,9 +584,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             //  SolverCG<VectorType> cg_A(par.fine_solver_control);
             // cg_A.solve(patch_stiffness_matrix, u_i, P_e_i,
             // PreconditionIdentity());
-            dealii::TrilinosWrappers::SolverDirect
-            sd(par.patch_solver_control); sd.solve(patch_stiffness_matrix,
-            u_i, P_e_i);
+            dealii::TrilinosWrappers::SolverDirect sd(par.patch_solver_control); 
+            sd.solve(patch_stiffness_matrix, u_i, P_e_i);
             // SparseDirectUMFPACK A_direct;
             // auto                u_i = P_e_i;
             // A_direct.solve(patch_stiffness_matrix, u_i);
@@ -636,11 +637,21 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           //            e_i,
           //            PreconditionIdentity());
 
-          const auto           A = linear_operator<VectorType>(triple_product);
-          auto                 A_inv = A;
-          SolverCG<VectorType> cg_A(par.fine_solver_control);
-          A_inv                  = inverse_operator(A, cg_A);
-          triple_product_inv_e_i = A_inv * e_i;
+// this is suppoused to be a direct solver but the matrix is full so it's not allowed
+          // dealii::TrilinosWrappers::SolverDirect sd(par.coarse_solver_control); 
+          // sd.solve(triple_product, triple_product_inv_e_i, e_i);
+
+// solving with lapack full matriz
+triple_product.compute_lu_factorization();
+          triple_product.solve(e_i);
+triple_product_inv_e_i = e_i;
+
+// version with cg: needs ful matrix not lapack
+          // const auto           PSPT = linear_operator<VectorType>(triple_product);
+          // auto                 PSPT_inv = PSPT;
+          // SolverCG<VectorType> cg(par.coarse_solver_control);
+          // PSPT_inv                  = inverse_operator(PSPT, cg);
+          // triple_product_inv_e_i = PSPT_inv * e_i;
 
           // triple_product_inv_e_i /= h;
 
