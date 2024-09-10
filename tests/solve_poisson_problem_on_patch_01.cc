@@ -109,7 +109,8 @@ main(int argc, char **argv)
   A.compress(VectorOperation::values::add);
 
   // 6) solve patch system
-  TrilinosWrappers::SolverDirect solver;
+  SolverControl sc;
+  TrilinosWrappers::SolverDirect solver(sc);
   solver.solve(A, solution, rhs);
 
   // 7) visualization on fine mesh

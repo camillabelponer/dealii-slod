@@ -176,8 +176,8 @@ main(int argc, char **argv)
       }
 
   AffineConstraints<double> constraints_lod_fem(
-    constraints_lod_fem_locally_owned_dofs,
-    constraints_lod_fem_locally_stored_constraints);
+    constraints_lod_fem_locally_owned_dofs//,constraints_lod_fem_locally_stored_constraints
+    );
   for (const auto row : locally_owned_fine_dofs) // parallel for-loop
     {
       std::vector<std::pair<types::global_dof_index, double>> dependencies;
@@ -186,7 +186,7 @@ main(int argc, char **argv)
         dependencies.emplace_back(entry->column(), entry->value());
 
       if (true || !dependencies.empty())
-        constraints_lod_fem.add_constraint(row + n_dofs_coarse, dependencies);
+        constraints_lod_fem.add_entries(row + n_dofs_coarse, dependencies);
     }
 
   constraints_lod_fem.make_consistent_in_parallel(
@@ -257,8 +257,9 @@ main(int argc, char **argv)
   // 7) solve LOD system
   LinearAlgebra::distributed::Vector<double> solution_lod;
   solution_lod.reinit(rhs_lod);
-
-  TrilinosWrappers::SolverDirect solver;
+  
+  SolverControl sc;
+  TrilinosWrappers::SolverDirect solver(sc);
   solver.solve(A_lod, solution_lod, rhs_lod);
 
   rhs_lod.print(std::cout);      // TODO
