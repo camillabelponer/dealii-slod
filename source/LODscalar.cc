@@ -345,7 +345,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "compute basis function 2:sparsity & constraints");
-      /*
+      
       {
         // constraints on the node that are on the boundary of the patch but not
         // on the boundary of the domain
@@ -359,6 +359,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         internal_boundary_constraints.close();
       }
       */
+     /*
       {
         // TODO rn special number is set to 0 to take care of all the
         // constraints at once, to change than we need to then merge the two
@@ -829,11 +830,11 @@ triple_product_inv_e_i = e_i;*/
       Vector<double> selected_basis_function;
       stabilize(selected_basis_function, candidates);
 
-      current_patch->basis_function = selected_basis_function;
+      current_patch->basis_function.push_back(selected_basis_function);
       Ac_i                          = 0;
       // Ac_i                          = A *selected_basis_function;
       patch_stiffness_matrix.vmult(Ac_i, selected_basis_function);
-      current_patch->basis_function_premultiplied = Ac_i;
+      current_patch->basis_function_premultiplied.push_back(Ac_i);
 
       dh_fine_patch.clear();
 
@@ -1247,8 +1248,6 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
   std::vector<double>                  rhs_values(n_q_points);
   // Vector<double>                  coarse_rhs_values(tria.n_active_cells());
-  Vector<double> cell_rhs(dofs_per_cell);
-  //   Vector<double>                       lod_fine_rhs_cell(dofs_per_cell);
   Vector<double> cell_rhs(dofs_per_cell);
   //   Vector<double>                       lod_fine_rhs_cell(dofs_per_cell);
 

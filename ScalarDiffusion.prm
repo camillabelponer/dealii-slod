@@ -18,7 +18,7 @@ subsection Problem
   set Output directory             = ./
   set Output name                  = test
   set oversampling                 = 4
-  set order polynomial on patch    = 1
+  set order polynomial on patch    = 2
   set Compare with fine global solution = true
   set Stabilize phi_LOD candidates = false
 
