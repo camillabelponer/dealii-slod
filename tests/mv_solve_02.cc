@@ -11,6 +11,8 @@
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/tria.h>
 
+#include <deal.II/lac/linear_operator.h>
+#include <deal.II/lac/linear_operator_tools.h>
 #include <deal.II/lac/trilinos_precondition.h>
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/lac/trilinos_sparse_matrix.h>
@@ -30,15 +32,15 @@ main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
   // setup system
-  const unsigned int dim = 2;
-  // const unsigned int fe_degree      = 2;
-  const unsigned int n_refinements  = 3;
-  const unsigned int n_subdivisions = 5;
+  const unsigned int dim            = 2;
+  const unsigned int fe_degree      = 2;
+  const unsigned int n_refinements  = 1;
+  const unsigned int n_subdivisions = 1;
 
   MappingQ1<dim> mapping;
   // FE_Q<dim>      fe(fe_degree);
   FE_Q_iso_Q1<dim> fe(n_subdivisions);
-  // QGauss<dim>      quadrature(fe_degree + 1);
+  // QGauss<dim>    quadrature(fe_degree + 1);
   QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions);
 
   Triangulation<dim> tria;
@@ -54,8 +56,6 @@ main(int argc, char **argv)
 
   const unsigned int n_dofs = dof_handler.n_dofs();
 
-  std::cout << n_dofs << std::endl;
-
   // create matrix
   TrilinosWrappers::SparsityPattern sparsity_pattern(n_dofs, n_dofs);
   DoFTools::make_sparsity_pattern(dof_handler, sparsity_pattern, constraints);
@@ -70,20 +70,31 @@ main(int argc, char **argv)
   TrilinosWrappers::PreconditionILU ilu;
   ilu.initialize(sparse_matrix);
 
-  const unsigned int n_blocks        = n_dofs;
+
+  // ndofs = Ndofs_fine
+  const unsigned int Ndofs_coarse = 4;
+
+  const unsigned int n_blocks        = Ndofs_coarse;
   const unsigned int n_blocks_stride = n_blocks;
 
-  std::vector<Vector<double>> rhs(n_blocks);
-  std::vector<Vector<double>> solution(n_blocks);
+  FullMatrix<double> rhs(n_dofs, Ndofs_coarse);
+  FullMatrix<double> solution(n_dofs, Ndofs_coarse);
+  FullMatrix<double> sol_via_inversion(n_dofs, Ndofs_coarse);
 
-  for (unsigned int b = 0; b < n_blocks; ++b)
+  for (unsigned int b = 0; b < Ndofs_coarse; ++b)
+    rhs(b, b) = 1.0;
+
+  for (unsigned int b = 0; b < Ndofs_coarse; ++b)
     {
-      rhs[b].reinit(n_dofs);
-      solution[b].reinit(n_dofs);
+      Vector<double> P_e_i(n_dofs);
+      P_e_i[b] = 1;
+      Vector<double>                         u_i(n_dofs);
+      ReductionControl                       sc;
+      dealii::TrilinosWrappers::SolverDirect sd(sc);
+      sd.solve(sparse_matrix, u_i, P_e_i);
+      for (unsigned int i = 0; i < n_dofs; ++i)
+        sol_via_inversion(i, b) = u_i[i];
     }
-
-  for (unsigned int b = 0; b < n_blocks; ++b)
-    rhs[b][b] = 1.0;
 
   for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
     {
@@ -93,10 +104,11 @@ main(int argc, char **argv)
       std::vector<double> solution_temp(n_dofs * (bend - b));
 
       for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < n_dofs; ++j)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
           {
-            rhs_temp[i * n_dofs + j]      = rhs[i + b][j];
-            solution_temp[i * n_dofs + j] = solution[i + b][j];
+            rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
+            solution_temp[i * n_dofs + j] =
+              0.0; // solution(i+b,j); //solution[i + b][j];
           }
 
       std::vector<double *> rhs_ptrs(bend - b);
@@ -135,22 +147,18 @@ main(int argc, char **argv)
         }
 
       for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < n_dofs; ++j)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
           {
-            solution[i + b][j] = solution_temp[i * n_dofs + j];
+            solution(i + b, j) = solution_temp[i * n_dofs + j];
           }
     }
 
-  DataOutBase::VtkFlags flags;
-  flags.write_higher_order_cells = true;
-
-  DataOut<dim> data_out;
-  data_out.set_flags(flags);
-  data_out.attach_dof_handler(dof_handler);
-  for (unsigned int b = 0; b < n_blocks; ++b)
-    data_out.add_data_vector(solution[b], "solution_" + std::to_string(b));
-  data_out.build_patches();
-  const std::string file_name = "solution.vtu";
-  std::ofstream     file(file_name);
-  data_out.write_vtu(file);
+  double error = 0;
+  for (unsigned int i = 0; i < n_dofs; ++i)
+    for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+      {
+        error =
+          std::max(error, std::abs(solution(i, j) - sol_via_inversion(i, j)));
+      }
+  std::cout << std::max(error, 1e-2) << std::endl;
 }

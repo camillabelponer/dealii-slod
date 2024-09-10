@@ -8,3 +8,6 @@ uncomment lines 39-42 and comment 43-45
 - mpirun
 - convergence test for elasticity case
 - nested patches are deprecated in the vector case
+
+
+to run assemly tests deal 9.6 is needed

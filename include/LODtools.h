@@ -1,5 +1,5 @@
 #ifndef dealii_lod_tools_h
-#  define dealii_lod_tools_h
+#define dealii_lod_tools_h
 
 // #include <deal.II/base/timer.h>
 //
@@ -17,6 +17,8 @@
 // #include <deal.II/grid/grid_generator.h>
 
 using namespace dealii;
+
+
 
 template <int dim>
 const Table<2, bool>
@@ -80,56 +82,56 @@ namespace dealii::TrilinosWrappers
     void
     do_solve()
     {
-    // Fetch return value of Amesos Solver functions
-    int ierr;
+      // Fetch return value of Amesos Solver functions
+      int ierr;
 
-    // First set whether we want to print the solver information to screen or
-    // not.
-    //ConditionalOStream verbose_cout(std::cout,
-    //                                additional_data.output_solver_details);
+      // First set whether we want to print the solver information to screen or
+      // not.
+      // ConditionalOStream verbose_cout(std::cout,
+      //                                additional_data.output_solver_details);
 
-    // Next allocate the Amesos solver, this is done in two steps, first we
-    // create a solver Factory and generate with that the concrete Amesos
-    // solver, if possible.
-    Amesos Factory;
+      // Next allocate the Amesos solver, this is done in two steps, first we
+      // create a solver Factory and generate with that the concrete Amesos
+      // solver, if possible.
+      Amesos Factory;
 
-    // AssertThrow(Factory.Query(additional_data.solver_type.c_str()),
-    //             ExcMessage(
-    //               std::string("You tried to select the solver type <") +
-    //               additional_data.solver_type +
-    //               "> but this solver is not supported by Trilinos either "
-    //               "because it does not exist, or because Trilinos was not "
-    //               "configured for its use."));
+      // AssertThrow(Factory.Query(additional_data.solver_type.c_str()),
+      //             ExcMessage(
+      //               std::string("You tried to select the solver type <") +
+      //               additional_data.solver_type +
+      //               "> but this solver is not supported by Trilinos either "
+      //               "because it does not exist, or because Trilinos was not "
+      //               "configured for its use."));
 
-    solver.reset(
-      Factory.Create(additional_data.solver_type.c_str(), *linear_problem));
+      solver.reset(
+        Factory.Create(additional_data.solver_type.c_str(), *linear_problem));
 
-    // verbose_
-    std::cout << "Starting symbolic factorization" << std::endl;
-    ierr = solver->SymbolicFactorization();
-    AssertThrow(ierr == 0, ExcTrilinosError(ierr));
+      // verbose_
+      // std::cout << "Starting symbolic factorization" << std::endl;
+      ierr = solver->SymbolicFactorization();
+      AssertThrow(ierr == 0, ExcTrilinosError(ierr));
 
-    // verbose_
-    std::cout << "Starting numeric factorization" << std::endl;
-    ierr = solver->NumericFactorization();
-    AssertThrow(ierr == 0, ExcTrilinosError(ierr));
+      // verbose_
+      // std::cout << "Starting numeric factorization" << std::endl;
+      ierr = solver->NumericFactorization();
+      AssertThrow(ierr == 0, ExcTrilinosError(ierr));
 
-    // verbose_
-    std::cout << "Starting solve" << std::endl;
-    ierr = solver->Solve();
-    std::cout << ierr << std::endl;
-    AssertThrow(ierr == 0, ExcTrilinosError(ierr));
-std::cout << ierr << std::endl;
-    // Finally, let the deal.II SolverControl object know what has
-    // happened. If the solve succeeded, the status of the solver control will
-    // turn into SolverControl::success.
-    solver_control.check(0, 0);
+      // verbose_
+      // std::cout << "Starting solve" << std::endl;
+      ierr = solver->Solve();
+      // std::cout << ierr << std::endl;
+      AssertThrow(ierr == 0, ExcTrilinosError(ierr));
+      // std::cout << ierr << std::endl;
+      // Finally, let the deal.II SolverControl object know what has
+      // happened. If the solve succeeded, the status of the solver control will
+      // turn into SolverControl::success.
+      solver_control.check(0, 0);
 
-    if (solver_control.last_check() != SolverControl::success)
-      AssertThrow(false,
-                  SolverControl::NoConvergence(solver_control.last_step(),
-                                               solver_control.last_value()));
-  }
+      if (solver_control.last_check() != SolverControl::success)
+        AssertThrow(false,
+                    SolverControl::NoConvergence(solver_control.last_step(),
+                                                 solver_control.last_value()));
+    }
 
     /**
      * Local dummy solver control object.
@@ -171,13 +173,13 @@ std::cout << ierr << std::endl;
     /**
      * Constructor. Takes the solver control object and creates the solver.
      */
-    MySolverDirect(SolverControl        &cn,
-                 const AdditionalData &data = AdditionalData()
-                 )
-    : additional_data(data.output_solver_details, data.solver_type)
-    , solver_control(cn)
-    , SolverDirect(cn, data)
-    {};
+    MySolverDirect(SolverControl &       cn,
+                   const AdditionalData &data = AdditionalData())
+      : SolverDirect(cn, data)
+      , solver_control(cn)
+      , additional_data(data.output_solver_details, data.solver_type)
+      // , SolverDirect(cn, data)
+      {};
 
     /**
      * Destructor.
@@ -185,14 +187,104 @@ std::cout << ierr << std::endl;
     virtual ~MySolverDirect() = default;
 
     void
-    solve(const Epetra_Operator &A, Epetra_MultiVector &x, const Epetra_MultiVector &b)
+    solve(const Epetra_Operator &   A,
+          Epetra_MultiVector &      x,
+          const Epetra_MultiVector &b)
     {
-      linear_problem = std::make_unique<Epetra_LinearProblem>(const_cast<Epetra_Operator *>(&A), &x, const_cast<Epetra_MultiVector *>(&b));
+      linear_problem = std::make_unique<Epetra_LinearProblem>(
+        const_cast<Epetra_Operator *>(&A),
+        &x,
+        const_cast<Epetra_MultiVector *>(&b));
       do_solve();
     }
-
-
   };
-};
+
+}; // namespace dealii::TrilinosWrappers
+
+
+
+FullMatrix<double>
+Gauss_elimination(FullMatrix<double>             rhs,
+                  TrilinosWrappers::SparseMatrix sparse_matrix)
+{
+  // create preconditioner
+  TrilinosWrappers::PreconditionILU ilu;
+  ilu.initialize(sparse_matrix);
+
+  Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
+  Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
+
+  const unsigned int n_dofs       = rhs.m();
+  const unsigned int Ndofs_coarse = rhs.n();
+
+  const unsigned int n_blocks        = Ndofs_coarse;
+  const unsigned int n_blocks_stride = n_blocks;
+
+  FullMatrix<double> solution(n_dofs, Ndofs_coarse);
+
+  for (unsigned int b = 0; b < Ndofs_coarse; ++b)
+    rhs(b, b) = 1.0;
+
+
+  for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
+    {
+      const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
+
+      std::vector<double> rhs_temp(n_dofs * (bend - b));
+      std::vector<double> solution_temp(n_dofs * (bend - b));
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+          {
+            rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
+            solution_temp[i * n_dofs + j] =
+              0.0; // solution(i+b,j); //solution[i + b][j];
+          }
+
+      std::vector<double *> rhs_ptrs(bend - b);
+      std::vector<double *> sultion_ptrs(bend - b);
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        {
+          rhs_ptrs[i]     = &rhs_temp[i * n_dofs];      //&rhs[i + b][0];
+          sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
+        }
+
+      const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
+      const Epetra_Operator & prec = ilu.trilinos_operator();
+
+      Epetra_MultiVector trilinos_dst(View,
+                                      mat.OperatorRangeMap(),
+                                      sultion_ptrs.data(),
+                                      sultion_ptrs.size());
+      Epetra_MultiVector trilinos_src(View,
+                                      mat.OperatorDomainMap(),
+                                      rhs_ptrs.data(),
+                                      rhs_ptrs.size());
+
+      ReductionControl solver_control;
+
+      if (false)
+        {
+          TrilinosWrappers::SolverCG solver(solver_control);
+          solver.solve(mat, trilinos_dst, trilinos_src, prec);
+        }
+      else
+        {
+          TrilinosWrappers::MySolverDirect solver(solver_control);
+          solver.initialize(sparse_matrix);
+          solver.solve(mat, trilinos_dst, trilinos_src);
+        }
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+          {
+            solution(i + b, j) = solution_temp[i * n_dofs + j];
+          }
+    }
+
+  return solution;
+}
+
 
 #endif

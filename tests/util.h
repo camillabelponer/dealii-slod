@@ -1,6 +1,6 @@
 #pragma once
 
-#  include <deal.II/base/conditional_ostream.h>
+#include <deal.II/base/conditional_ostream.h>
 
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
@@ -38,52 +38,52 @@ namespace dealii::TrilinosWrappers
     void
     do_solve()
     {
-    // Fetch return value of Amesos Solver functions
-    int ierr;
+      // Fetch return value of Amesos Solver functions
+      int ierr;
 
-    // First set whether we want to print the solver information to screen or
-    // not.
-    //ConditionalOStream verbose_cout(std::cout,
-    //                                additional_data.output_solver_details);
+      // First set whether we want to print the solver information to screen or
+      // not.
+      // ConditionalOStream verbose_cout(std::cout,
+      //                                additional_data.output_solver_details);
 
-    // Next allocate the Amesos solver, this is done in two steps, first we
-    // create a solver Factory and generate with that the concrete Amesos
-    // solver, if possible.
-    Amesos Factory;
+      // Next allocate the Amesos solver, this is done in two steps, first we
+      // create a solver Factory and generate with that the concrete Amesos
+      // solver, if possible.
+      Amesos Factory;
 
-    // AssertThrow(Factory.Query(additional_data.solver_type.c_str()),
-    //             ExcMessage(
-    //               std::string("You tried to select the solver type <") +
-    //               additional_data.solver_type +
-    //               "> but this solver is not supported by Trilinos either "
-    //               "because it does not exist, or because Trilinos was not "
-    //               "configured for its use."));
+      // AssertThrow(Factory.Query(additional_data.solver_type.c_str()),
+      //             ExcMessage(
+      //               std::string("You tried to select the solver type <") +
+      //               additional_data.solver_type +
+      //               "> but this solver is not supported by Trilinos either "
+      //               "because it does not exist, or because Trilinos was not "
+      //               "configured for its use."));
 
-    solver.reset(
-      Factory.Create(additional_data.solver_type.c_str(), *linear_problem));
+      solver.reset(
+        Factory.Create(additional_data.solver_type.c_str(), *linear_problem));
 
-    // verbose_cout << "Starting symbolic factorization" << std::endl;
-    ierr = solver->SymbolicFactorization();
-    AssertThrow(ierr == 0, ExcTrilinosError(ierr));
+      // verbose_cout << "Starting symbolic factorization" << std::endl;
+      ierr = solver->SymbolicFactorization();
+      AssertThrow(ierr == 0, ExcTrilinosError(ierr));
 
-    // verbose_cout << "Starting numeric factorization" << std::endl;
-    ierr = solver->NumericFactorization();
-    AssertThrow(ierr == 0, ExcTrilinosError(ierr));
+      // verbose_cout << "Starting numeric factorization" << std::endl;
+      ierr = solver->NumericFactorization();
+      AssertThrow(ierr == 0, ExcTrilinosError(ierr));
 
-    // verbose_cout << "Starting solve" << std::endl;
-    ierr = solver->Solve();
-    AssertThrow(ierr == 0, ExcTrilinosError(ierr));
+      // verbose_cout << "Starting solve" << std::endl;
+      ierr = solver->Solve();
+      AssertThrow(ierr == 0, ExcTrilinosError(ierr));
 
-    // Finally, let the deal.II SolverControl object know what has
-    // happened. If the solve succeeded, the status of the solver control will
-    // turn into SolverControl::success.
-    solver_control.check(0, 0);
+      // Finally, let the deal.II SolverControl object know what has
+      // happened. If the solve succeeded, the status of the solver control will
+      // turn into SolverControl::success.
+      solver_control.check(0, 0);
 
-    if (solver_control.last_check() != SolverControl::success)
-      AssertThrow(false,
-                  SolverControl::NoConvergence(solver_control.last_step(),
-                                               solver_control.last_value()));
-  }
+      if (solver_control.last_check() != SolverControl::success)
+        AssertThrow(false,
+                    SolverControl::NoConvergence(solver_control.last_step(),
+                                                 solver_control.last_value()));
+    }
 
     /**
      * Local dummy solver control object.
@@ -125,13 +125,11 @@ namespace dealii::TrilinosWrappers
     /**
      * Constructor. Takes the solver control object and creates the solver.
      */
-    MySolverDirect(SolverControl        &cn,
-                 const AdditionalData &data = AdditionalData()
-                 )
-    : solver_control(cn)
-    , additional_data(data.output_solver_details, data.solver_type)
-    , SolverDirect(cn, data)
-    {};
+    MySolverDirect(SolverControl &       cn,
+                   const AdditionalData &data = AdditionalData())
+      : SolverDirect(cn, data)
+      , solver_control(cn)
+      , additional_data(data.output_solver_details, data.solver_type){};
 
     /**
      * Destructor.
@@ -139,15 +137,18 @@ namespace dealii::TrilinosWrappers
     virtual ~MySolverDirect() = default;
 
     void
-    solve(const Epetra_Operator &A, Epetra_MultiVector &x, const Epetra_MultiVector &b)
+    solve(const Epetra_Operator &   A,
+          Epetra_MultiVector &      x,
+          const Epetra_MultiVector &b)
     {
-      linear_problem = std::make_unique<Epetra_LinearProblem>(const_cast<Epetra_Operator *>(&A), &x, const_cast<Epetra_MultiVector *>(&b));
+      linear_problem = std::make_unique<Epetra_LinearProblem>(
+        const_cast<Epetra_Operator *>(&A),
+        &x,
+        const_cast<Epetra_MultiVector *>(&b));
       do_solve();
     }
-
-
   };
-};
+}; // namespace dealii::TrilinosWrappers
 
 
 template <int dim>
@@ -410,19 +411,21 @@ public:
 
     const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
 
-    Vector<int> dofs_to_constrain(n0*n1);
-    unsigned index = 0;
+    Vector<int> dofs_to_constrain(n0 * n1);
+    unsigned    index = 0;
     for (unsigned int i = 0; i < n0; ++i)
       for (unsigned int j = 0; j < n1; ++j)
         {
           const unsigned i0 =
             i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
-          dofs_to_constrain(index)=i0;
-          index ++;
+          dofs_to_constrain(index) = i0;
+          index++;
+          //}
+          // constraints.constrain_dof_to_zero(i0);
+          // constraints.add_constraint(i0, {}, 0.0);
+          constraints.add_line(i0);
         }
-        //  constraints.constrain_dof_to_zero(i0);
-        //}
-    constraints.set_zero(dofs_to_constrain);
+    // constraints.set_zero(dofs_to_constrain);
   }
 
   unsigned int
@@ -475,7 +478,7 @@ public:
   template <typename Number, typename SparsityPatternType>
   void
   create_sparsity_pattern(const AffineConstraints<Number> &constraints,
-                          SparsityPatternType             &dsp) const
+                          SparsityPatternType &            dsp) const
   {
     for (unsigned int cell = 0; cell < this->n_cells(); ++cell)
       {
