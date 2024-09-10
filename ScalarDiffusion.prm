@@ -13,7 +13,7 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 4
+  set Number of global refinements = 3
   set Number of subdivisions       = 4
   set Output directory             = ./
   set Output name                  = test
