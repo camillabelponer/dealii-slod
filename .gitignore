@@ -14,3 +14,5 @@ output/
 *.pdf
 *.sh
 *.csv
+oldcode_untracked/
+.vscode/
