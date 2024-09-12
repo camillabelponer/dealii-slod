@@ -95,7 +95,6 @@ public:
   unsigned int n_subdivisions       = 5;
   unsigned int n_global_refinements = 2;
   unsigned int num_basis_vectors    = 1;
-  unsigned int p_order_on_patch     = 2;
   bool         solve_fine_problem   = false;
   bool         LOD_stabilization    = false;
 
@@ -133,7 +132,6 @@ LODParameters<dim, spacedim>::LODParameters()
   add_parameter("Number of subdivisions", n_subdivisions);
   add_parameter("Number of global refinements", n_global_refinements);
   add_parameter("Number of basis vectors", num_basis_vectors);
-  add_parameter("order polynomial on patch", p_order_on_patch);
   add_parameter("Compare with fine global solution", solve_fine_problem);
   add_parameter("Stabilize phi_LOD candidates", LOD_stabilization);
   this->prm.enter_subsection("Error");

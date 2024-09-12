@@ -16,3 +16,4 @@ output/
 *.csv
 oldcode_untracked/
 .vscode/
+*.prm

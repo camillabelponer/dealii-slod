@@ -13,12 +13,11 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 3
+  set Number of global refinements = 5
   set Number of subdivisions       = 4
   set Output directory             = ./
   set Output name                  = test
   set oversampling                 = 4
-  set order polynomial on patch    = 1
   set Compare with fine global solution = true
   set Stabilize phi_LOD candidates = false
 

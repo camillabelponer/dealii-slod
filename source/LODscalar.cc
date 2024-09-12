@@ -325,12 +325,21 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
 
+      // std::vector<active_cell_iterator> cell_order;
+// 
+      // for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+      // {
+      //   cell_order.push_back(cell);
+      // }
+
       // create_mesh_for_patch(*current_patch);
       dh_fine_patch.reinit(current_patch->sub_tria);
       dh_fine_patch.distribute_dofs(*fe_fine);
+      // DoFRenumbering::cell_wise(dh_fine_patch, cell_order);
 
       dh_coarse_patch.reinit(current_patch->sub_tria);
       dh_coarse_patch.distribute_dofs(*fe_coarse);
+      // DoFRenumbering::cell_wise(dh_fine_patch, cell_order);
 
       auto   Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto   Ndofs_fine   = dh_fine_patch.n_dofs();
@@ -340,7 +349,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 2: constraints");
       internal_boundary_constraints.clear();
-      DoFTools::make_zero_boundary_constraints(dh_fine_patch,
+      DoFTools::make_zero_boundary_constraints(dh_fine_patch, 0,
                                                internal_boundary_constraints);
       internal_boundary_constraints.close();
       computing_timer.leave_subsection();
@@ -356,7 +365,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           DoFTools::make_sparsity_pattern(dh_fine_patch,
                                           sparsity_pattern,
-                                          internal_boundary_constraints);
+                                          internal_boundary_constraints, true);
           patch_stiffness_matrix.clear();
           patch_stiffness_matrix.reinit(sparsity_pattern);
         }
@@ -384,7 +393,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                 cell->get_dof_indices(dofs_on_this_cell);
 
                 internal_boundary_constraints.add_entries_local_to_global(
-                  dofs_on_this_cell, sparsity_pattern, false, bool_dof_mask);
+                  dofs_on_this_cell, sparsity_pattern, true, bool_dof_mask);
               }
 
           sparsity_pattern.compress();
@@ -394,8 +403,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4: stiffness");
-      // TrilinosWrappers::SparseMatrix
-      // patch_stiffness_matrix(sparsity_pattern);
 
       // MappingQ1<dim> mapping;
 
@@ -422,7 +429,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // FETools::get_projection_matrix(*fe_fine, *fe_coarse,
       // projection_matrix);
       projection_P0_P1<dim>(projection_matrix);
-      projection_matrix *= (h * h / 4);
+      projection_matrix /= 4;
+      // projection_matrix *= (h * h / 4);
 
       // this could be done via tensor product
 
@@ -438,30 +446,30 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // valence_coarse.print(std::cout);
 
       // // define interapolation function and its transposed
-      // const auto projectT = [&](auto &dst, const auto &src) {
-      //   VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
-      //   VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
-      //   VectorType weights(fe_coarse->n_dofs_per_cell());
+      const auto projectT = [&](auto &dst, const auto &src) {
+        VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+        VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+        VectorType weights(fe_coarse->n_dofs_per_cell());
 
-      //   for (const auto &cell :
-      //   current_patch->sub_tria.active_cell_iterators())
-      //     // should be locally owned ?
-      //     {
-      //       const auto cell_coarse =
-      //         cell->as_dof_handler_iterator(dh_coarse_patch);
-      //       const auto cell_fine =
-      //       cell->as_dof_handler_iterator(dh_fine_patch);
+        for (const auto &cell :
+        current_patch->sub_tria.active_cell_iterators())
+          // should be locally owned ?
+          {
+            const auto cell_coarse =
+              cell->as_dof_handler_iterator(dh_coarse_patch);
+            const auto cell_fine =
+            cell->as_dof_handler_iterator(dh_fine_patch);
 
-      //       cell_fine->get_dof_values(src, vec_local_fine);
+            cell_fine->get_dof_values(src, vec_local_fine);
 
-      //       projection_matrix.vmult(vec_local_coarse, vec_local_fine);
+            projection_matrix.vmult(vec_local_coarse, vec_local_fine);
 
-      //       cell_coarse->get_dof_values(valence_coarse, weights);
-      //       vec_local_coarse.scale(weights);
+            cell_coarse->get_dof_values(valence_coarse, weights);
+            vec_local_coarse.scale(weights);
 
-      //       cell_coarse->distribute_local_to_global(vec_local_coarse, dst);
-      //     }
-      // };
+            cell_coarse->distribute_local_to_global(vec_local_coarse, dst);
+          }
+      };
 
       // TODO: const auto project_matrix = [&] (auto &dst, const &src) {}
 
@@ -528,10 +536,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 5a: projection");
 
-      FullMatrix<double> P(Ndofs_fine, Ndofs_coarse);
-      FullMatrix<double> Ainv_P(Ndofs_fine, Ndofs_coarse);
+      FullMatrix<double> PT(Ndofs_fine, Ndofs_coarse);
+      FullMatrix<double> Ainv_PT(Ndofs_fine, Ndofs_coarse);
 
-      P = 0.0;
+      PT = 0.0;
 
       // assign rhs
       // TODO: projection that works on matrices! so we apply it to the proj e
@@ -544,22 +552,34 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           project(P_e_i, e_i);
           for (unsigned int j = 0; j < Ndofs_fine; ++j)
-            P.set(j, i, P_e_i[j]);
+            PT.set(j, i, P_e_i[j]);
         }
+
+      // for (unsigned int i = 0; i < Ndofs_fine; ++i) // same as b
+      //   {
+      //     P_e_i    = 0.0;
+      //     e_i  = 0.0;
+      //     P_e_i[i] = 1.0;
+
+      //     projectT(e_i, P_e_i);
+      //     for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+      //       PT.set(j, i, e_i[j]);
+      //   }
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "compute basis function 5b: gauss_elimination");
         
-      Gauss_elimination(P, patch_stiffness_matrix, Ainv_P);
+      Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "compute basis function 5c: triple product inversion");
-      FullMatrix<double> PT_Ainv_P(Ndofs_coarse);
-      P.Tmmult(PT_Ainv_P, Ainv_P);
+      FullMatrix<double> P_Ainv_PT(Ndofs_coarse);
+      PT.Tmmult(P_Ainv_PT, Ainv_PT);
+      P_Ainv_PT *= (h * h); // / 4);
 
-      PT_Ainv_P.gauss_jordan();
+      P_Ainv_PT.gauss_jordan();
 
       // for (unsigned int i = 0; i < P_e_i.size(); ++i)
       //   for (unsigned int j = 0; j < u_i.size(); ++j)
@@ -589,7 +609,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           triple_product_inv_e_i = 0.0;
 
           e_i[index] = 1.0;
-          PT_Ainv_P.vmult(triple_product_inv_e_i, e_i);
+          P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
           /*
           // if triple product is UMFPACK instead of gauss jordan we do this
           triple_product.compute_lu_factorization();
@@ -597,7 +617,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           triple_product_inv_e_i = e_i;
           */
 
-          Ainv_P.vmult(c_i, triple_product_inv_e_i);
+          Ainv_PT.vmult(c_i, triple_product_inv_e_i);
           // c_i /= c_i.l2_norm();
 
           candidates.push_back(c_i);
@@ -681,12 +701,13 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       Vector<double> selected_basis_function;
       stabilize(selected_basis_function, candidates);
 
+
       Ac_i = 0;
       // Ac_i                          = A *selected_basis_function;
       patch_stiffness_matrix.vmult(Ac_i, selected_basis_function);
       current_patch->basis_function_premultiplied.push_back(Ac_i);
 
-      // selected_basis_function /= h;
+      // selected_basis_function /= (h*h/4);
       current_patch->basis_function.push_back(selected_basis_function);
 
       dh_fine_patch.clear();
@@ -963,9 +984,6 @@ LOD<dim, spacedim>::solve()
 
   system_rhs = C * fem_rhs;
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
-  // system_rhs *= ((par.oversampling - 1)*par.n_global_refinements);
-  // pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
-
 
   // Some aliases
   // auto &      u = solution;
