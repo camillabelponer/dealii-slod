@@ -421,6 +421,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         //  local_stiffnes_constraints);
         internal_boundary_constraints);
 
+      // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
+      // auto Ainv = A;
+
+      // SolverCG<VectorType> cg_A(par.fine_solver_control);
+      // Ainv = inverse_operator(A, cg_A);
+
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4b: misc");
       // create projection matrix from fine to coarse cell (DG)
@@ -429,7 +435,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // FETools::get_projection_matrix(*fe_fine, *fe_coarse,
       // projection_matrix);
       projection_P0_P1<dim>(projection_matrix);
-      projection_matrix /= 4;
+      // projection_matrix /= 4;
       // projection_matrix *= (h * h / 4);
 
       // this could be done via tensor product
@@ -523,23 +529,20 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       // we now compute c_loc_i = S^-1 P^T (P S^-1 P^T)^-1 e_i
       // where e_i is the indicator function of the patch
-      // computing_timer.enter_subsection("candidates");
+
+      computing_timer.leave_subsection();
+      computing_timer.enter_subsection("compute basis function 5a: projection");
 
       VectorType P_e_i(Ndofs_fine);
       VectorType e_i(Ndofs_coarse); // reused also as temporary vector
       VectorType triple_product_inv_e_i(Ndofs_coarse);
       VectorType c_i(Ndofs_fine);
       VectorType Ac_i(Ndofs_fine);
-      // FullMatrix<double>
-      LAPACKFullMatrix<double> triple_product(Ndofs_coarse, Ndofs_coarse);
-      FullMatrix<double>       A0_inv_P(Ndofs_fine, Ndofs_coarse);
-      computing_timer.leave_subsection();
-      computing_timer.enter_subsection("compute basis function 5a: projection");
 
       FullMatrix<double> PT(Ndofs_fine, Ndofs_coarse);
       FullMatrix<double> Ainv_PT(Ndofs_fine, Ndofs_coarse);
-
-      PT = 0.0;
+      // LAPACKFullMatrix<double> 
+      FullMatrix<double> P_Ainv_PT(Ndofs_coarse);
 
       // assign rhs
       // TODO: projection that works on matrices! so we apply it to the proj e
@@ -553,18 +556,23 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           project(P_e_i, e_i);
           for (unsigned int j = 0; j < Ndofs_fine; ++j)
             PT.set(j, i, P_e_i[j]);
+
+          // if (false)
+          // {
+          // c_i = Ainv * P_e_i;
+          // e_i = 0.0;
+          // projectT(e_i, c_i);
+          // for (unsigned int j = 0; j < Ndofs_coarse; j++)
+          //   {
+          //     P_Ainv_PT(j, i) = e_i[j];
+          //   }
+          // for (unsigned int j = 0; j < Ndofs_fine; j++)
+          //   {
+          //     Ainv_PT(j, i) = c_i[j];
+          //   }
+          // } // substituted by gauss elimination
         }
 
-      // for (unsigned int i = 0; i < Ndofs_fine; ++i) // same as b
-      //   {
-      //     P_e_i    = 0.0;
-      //     e_i  = 0.0;
-      //     P_e_i[i] = 1.0;
-
-      //     projectT(e_i, P_e_i);
-      //     for (unsigned int j = 0; j < Ndofs_coarse; ++j)
-      //       PT.set(j, i, e_i[j]);
-      //   }
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -575,9 +583,16 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "compute basis function 5c: triple product inversion");
-      FullMatrix<double> P_Ainv_PT(Ndofs_coarse);
+
+PT.print(std::cout);
+std::cout << std::endl;
+Ainv_PT.print(std::cout);
+
+std::cout << std::endl;
       PT.Tmmult(P_Ainv_PT, Ainv_PT);
-      P_Ainv_PT *= (h * h); // / 4);
+      P_Ainv_PT.print(std::cout);
+
+      // P_Ainv_PT *= (h * h); // / 4); // NOOOO      
 
       P_Ainv_PT.gauss_jordan();
 

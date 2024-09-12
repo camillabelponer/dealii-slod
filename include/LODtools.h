@@ -29,7 +29,7 @@ projection_P0_P1(FullMatrix<double> &projection_matrix)
   Assert(projection_matrix.n() != 0, ExcNotImplemented());
   Assert(dim == 2, ExcNotImplemented());
 
-  unsigned int col_index = 4;
+  unsigned int col_index = 0;
   while (col_index < 2 * dim)
     {
       projection_matrix(0, col_index) = 1.0;
@@ -232,8 +232,8 @@ namespace dealii::TrilinosWrappers
 
 
 void
-Gauss_elimination(FullMatrix<double> &            rhs,
-                  TrilinosWrappers::SparseMatrix &sparse_matrix,
+Gauss_elimination(const FullMatrix<double> &            rhs,
+                  const TrilinosWrappers::SparseMatrix &sparse_matrix,
                   FullMatrix<double> &            solution)
 {
   // create preconditioner
@@ -252,9 +252,6 @@ Gauss_elimination(FullMatrix<double> &            rhs,
 
   const unsigned int n_blocks        = Ndofs_coarse;
   const unsigned int n_blocks_stride = n_blocks;
-
-  for (unsigned int b = 0; b < Ndofs_coarse; ++b)
-    rhs(b, b) = 1.0;
 
 
   for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
@@ -293,7 +290,7 @@ Gauss_elimination(FullMatrix<double> &            rhs,
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-      ReductionControl solver_control(100, 1.e-10, 1.e-2, false, false);
+      ReductionControl solver_control(100, 1.e-10, 1.e-6, false, false);
 
       if (false)
         {

@@ -13,11 +13,11 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 5
-  set Number of subdivisions       = 4
+  set Number of global refinements = 3
+  set Number of subdivisions       = 6
   set Output directory             = ./
   set Output name                  = test
-  set oversampling                 = 4
+  set oversampling                 = 2
   set Compare with fine global solution = true
   set Stabilize phi_LOD candidates = false
 
@@ -30,13 +30,13 @@ subsection Problem
 
   subsection Exact solution
     set Function constants  = 
-    set Function expression = sin(pi * x) * sin ( pi * y)
+    set Function expression = sin(x*pi) * sin(y * pi)
     set Variable names      = x,y,t
   end
 
   subsection Right hand side
     set Function constants  = 
-    set Function expression = 2 * pi * pi * sin(pi * x) * sin ( pi * y)
+    set Function expression = 2 * pi * pi * sin(x*pi) * sin(y * pi)
     set Variable names      = x,y,t
   end
 
@@ -46,24 +46,24 @@ subsection Problem
       set Log history   = false
       set Log result    = false
       set Max steps     = 100
-      set Reduction     = 1.e-2
-      set Tolerance     = 1.e-4
+      set Reduction     = 1.e-4
+      set Tolerance     = 1.e-6
     end
 
     subsection Patch solver control
       set Log frequency = 1
       set Log history   = false
       set Log result    = false
-      set Max steps     = 100
-      set Reduction     = 1.e-2
-      set Tolerance     = 1.e-4
+      set Max steps     = 1000
+      set Reduction     = 1.e-4
+      set Tolerance     = 1.e-6
     end
 
     subsection Fine solver control
       set Log frequency = 1
       set Log history   = false
       set Log result    = false
-      set Max steps     = 100
+      set Max steps     = 1000
       set Reduction     = 1.e-2
       set Tolerance     = 1.e-4
     end
