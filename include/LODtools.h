@@ -19,6 +19,34 @@
 using namespace dealii;
 
 
+template <int dim>
+void
+projection_P0_P1(FullMatrix<double> &projection_matrix)
+{
+  unsigned int n_fine_dofs = projection_matrix.n();
+  unsigned int p           = (int)sqrt(n_fine_dofs);
+  Assert(p * p == n_fine_dofs, ExcNotImplemented());
+  Assert(projection_matrix.n() != 0, ExcNotImplemented());
+  Assert(dim == 2, ExcNotImplemented());
+
+  unsigned int col_index = 4;
+  while (col_index < 2 * dim)
+    {
+      projection_matrix(0, col_index) = 1.0;
+      col_index++;
+    }
+  while (col_index < (2 * dim * (p - 2) + 2 * dim))
+    {
+      projection_matrix(0, col_index) = 2.0;
+      col_index++;
+    }
+  while (col_index < projection_matrix.n())
+    {
+      projection_matrix(0, col_index) = 4.0;
+      col_index++;
+    }
+}
+
 
 template <int dim>
 const Table<2, bool>
@@ -203,9 +231,10 @@ namespace dealii::TrilinosWrappers
 
 
 
-FullMatrix<double>
-Gauss_elimination(FullMatrix<double>             rhs,
-                  TrilinosWrappers::SparseMatrix sparse_matrix)
+void
+Gauss_elimination(FullMatrix<double> &            rhs,
+                  TrilinosWrappers::SparseMatrix &sparse_matrix,
+                  FullMatrix<double> &            solution)
 {
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
@@ -213,14 +242,16 @@ Gauss_elimination(FullMatrix<double>             rhs,
 
   Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
   Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
+  Assert(rhs.m() == solution.m(), ExcInternalError());
+  Assert(rhs.n() == solution.n(), ExcInternalError());
+
+  solution = 0.0;
 
   const unsigned int n_dofs       = rhs.m();
   const unsigned int Ndofs_coarse = rhs.n();
 
   const unsigned int n_blocks        = Ndofs_coarse;
   const unsigned int n_blocks_stride = n_blocks;
-
-  FullMatrix<double> solution(n_dofs, Ndofs_coarse);
 
   for (unsigned int b = 0; b < Ndofs_coarse; ++b)
     rhs(b, b) = 1.0;
@@ -262,7 +293,7 @@ Gauss_elimination(FullMatrix<double>             rhs,
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-      ReductionControl solver_control;
+      ReductionControl solver_control(100, 1.e-10, 1.e-2, false, false);
 
       if (false)
         {
@@ -282,8 +313,6 @@ Gauss_elimination(FullMatrix<double>             rhs,
             solution(i + b, j) = solution_temp[i * n_dofs + j];
           }
     }
-
-  return solution;
 }
 
 

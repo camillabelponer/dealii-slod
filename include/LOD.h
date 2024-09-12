@@ -152,6 +152,9 @@ public:
   void
   run();
 
+  void
+  test();
+
 private:
   void
   make_fe();
@@ -227,53 +230,54 @@ private:
 
 
 
-  const Table<2, bool>
-  create_bool_dof_mask(const FiniteElement<dim> &fe,
-                       const Quadrature<dim> &   quadrature)
-  {
-    const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe) {
-      Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
-      MappingQ1<dim> mapping;
-      FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
+  // const Table<2, bool>
+  // create_bool_dof_mask(const FiniteElement<dim> &fe,
+  //                      const Quadrature<dim> &   quadrature)
+  // {
+  //   const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe) {
+  //     Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
+  //     MappingQ1<dim> mapping;
+  //     FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
 
-      Triangulation<dim> tria;
-      GridGenerator::hyper_cube(tria);
+  //     Triangulation<dim> tria;
+  //     GridGenerator::hyper_cube(tria);
 
-      fe_values.reinit(tria.begin());
-      for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
-        for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
-          {
-            double sum = 0;
-            for (unsigned int q = 0; q < quadrature.size(); ++q)
-              sum += fe_values.shape_value(i, q) * fe_values.shape_value(j, q);
-            if (sum != 0)
-              bool_dof_mask(i, j) = true;
-          }
+  //     fe_values.reinit(tria.begin());
+  //     for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+  //       for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
+  //         {
+  //           double sum = 0;
+  //           for (unsigned int q = 0; q < quadrature.size(); ++q)
+  //             sum += fe_values.shape_value(i, q) * fe_values.shape_value(j,
+  //             q);
+  //           if (sum != 0)
+  //             bool_dof_mask(i, j) = true;
+  //         }
 
-      return bool_dof_mask;
-    };
+  //     return bool_dof_mask;
+  //   };
 
-    Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
+  //   Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
 
-    if (fe.n_components() == 1)
-      {
-        bool_dof_mask = compute_scalar_bool_dof_mask(fe);
-      }
-    else
-      {
-        const auto scalar_bool_dof_mask =
-          compute_scalar_bool_dof_mask(fe.base_element(0));
+  //   if (fe.n_components() == 1)
+  //     {
+  //       bool_dof_mask = compute_scalar_bool_dof_mask(fe);
+  //     }
+  //   else
+  //     {
+  //       const auto scalar_bool_dof_mask =
+  //         compute_scalar_bool_dof_mask(fe.base_element(0));
 
-        for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
-          for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-            if (scalar_bool_dof_mask[fe.system_to_component_index(i).second]
-                                    [fe.system_to_component_index(j).second])
-              bool_dof_mask[i][j] = true;
-      }
+  //       for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+  //         for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+  //           if (scalar_bool_dof_mask[fe.system_to_component_index(i).second]
+  //                                   [fe.system_to_component_index(j).second])
+  //             bool_dof_mask[i][j] = true;
+  //     }
 
 
-    return bool_dof_mask;
-  }
+  //   return bool_dof_mask;
+  // }
 };
 
 
