@@ -234,7 +234,10 @@ namespace dealii::TrilinosWrappers
 void
 Gauss_elimination(const FullMatrix<double> &            rhs,
                   const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                  FullMatrix<double> &            solution)
+                  FullMatrix<double> &                  solution,
+                  double                                reduce    = 1.e-2,
+                  double                                tolerance = 1.e-10,
+                  double                                iter      = 100)
 {
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
@@ -262,10 +265,11 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
       std::vector<double> solution_temp(n_dofs * (bend - b));
 
       for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+        for (unsigned int j = 0; j < n_dofs; ++j)
           {
-            rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
-            solution_temp[i * n_dofs + j] = solution(i+b,j); //solution[i + b][j];
+            rhs_temp[i * n_dofs + j] = rhs(j, i + b); // rhs[i + b][j];
+            solution_temp[i * n_dofs + j] =
+              0.0; // solution(i+b,j); //solution[i + b][j];
           }
 
       std::vector<double *> rhs_ptrs(bend - b);
@@ -289,7 +293,7 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-      ReductionControl solver_control(100, 1.e-10, 1.e-6, false, false);
+      ReductionControl solver_control(iter, tolerance, reduce, false, false);
 
       if (false)
         {
@@ -304,11 +308,112 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
         }
 
       for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+        for (unsigned int j = 0; j < n_dofs; ++j)
           {
-            solution(i + b, j) = solution_temp[i * n_dofs + j];
+            solution(j, i + b) = solution_temp[i * n_dofs + j];
           }
     }
+}
+
+void
+Gauss_elimination_vector_vector(
+  const FullMatrix<double> &            matrix_rhs,
+  const TrilinosWrappers::SparseMatrix &sparse_matrix,
+  FullMatrix<double> &                  matrix_solution,
+  double                                reduce    = 1.e-2,
+  double                                tolerance = 1.e-10,
+  double                                iter      = 100)
+{
+  // create preconditioner
+  TrilinosWrappers::PreconditionILU ilu;
+  ilu.initialize(sparse_matrix);
+
+  Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
+  Assert(matrix_rhs.m() == sparse_matrix.m(), ExcInternalError());
+  Assert(matrix_rhs.m() == matrix_solution.m(), ExcInternalError());
+  Assert(matrix_rhs.n() == matrix_solution.n(), ExcInternalError());
+
+  const unsigned int n_dofs       = matrix_rhs.m();
+  const unsigned int Ndofs_coarse = matrix_rhs.n();
+
+  std::vector<Vector<double>> rhs(Ndofs_coarse);
+  std::vector<Vector<double>> solution(Ndofs_coarse);
+
+  for (unsigned int b = 0; b < Ndofs_coarse; ++b)
+    {
+      rhs[b].reinit(n_dofs);
+      solution[b].reinit(n_dofs);
+    }
+
+  for (unsigned int i = 0; i < n_dofs; ++i)
+    for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+      rhs[j][i] = matrix_rhs(i, j);
+
+
+  const unsigned int n_blocks        = Ndofs_coarse;
+  const unsigned int n_blocks_stride = n_blocks;
+
+
+
+  for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
+    {
+      const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
+
+      std::vector<double> rhs_temp(n_dofs * (bend - b));
+      std::vector<double> solution_temp(n_dofs * (bend - b));
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < n_dofs; ++j)
+          {
+            rhs_temp[i * n_dofs + j]      = rhs[i + b][j];
+            solution_temp[i * n_dofs + j] = solution[i + b][j];
+          }
+
+      std::vector<double *> rhs_ptrs(bend - b);
+      std::vector<double *> sultion_ptrs(bend - b);
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        {
+          rhs_ptrs[i]     = &rhs_temp[i * n_dofs];      //&rhs[i + b][0];
+          sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
+        }
+
+      const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
+      const Epetra_Operator & prec = ilu.trilinos_operator();
+
+      Epetra_MultiVector trilinos_dst(View,
+                                      mat.OperatorRangeMap(),
+                                      sultion_ptrs.data(),
+                                      sultion_ptrs.size());
+      Epetra_MultiVector trilinos_src(View,
+                                      mat.OperatorDomainMap(),
+                                      rhs_ptrs.data(),
+                                      rhs_ptrs.size());
+
+      ReductionControl solver_control(iter, tolerance, reduce, false, false);
+
+      if (false)
+        {
+          TrilinosWrappers::SolverCG solver(solver_control);
+          solver.solve(mat, trilinos_dst, trilinos_src, prec);
+        }
+      else
+        {
+          TrilinosWrappers::MySolverDirect solver(solver_control);
+          solver.initialize(sparse_matrix);
+          solver.solve(mat, trilinos_dst, trilinos_src);
+        }
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < n_dofs; ++j)
+          {
+            solution[i + b][j] = solution_temp[i * n_dofs + j];
+          }
+    }
+
+  for (unsigned int i = 0; i < n_dofs; ++i)
+    for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+      matrix_solution(i, j) = solution[j][i];
 }
 
 

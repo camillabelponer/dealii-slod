@@ -17,3 +17,5 @@ output/
 oldcode_untracked/
 .vscode/
 *.prm
+*.vtu
+*.pvd
