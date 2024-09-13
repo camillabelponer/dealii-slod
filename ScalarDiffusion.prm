@@ -13,11 +13,11 @@ end
 
 subsection Problem
   set Number of basis vectors      = 1
-  set Number of global refinements = 3
-  set Number of subdivisions       = 6
+  set Number of global refinements = 1
+  set Number of subdivisions       = 2
   set Output directory             = ./
   set Output name                  = test
-  set oversampling                 = 2
+  set oversampling                 = 1
   set Compare with fine global solution = true
   set Stabilize phi_LOD candidates = false
 

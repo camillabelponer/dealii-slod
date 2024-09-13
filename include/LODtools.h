@@ -265,8 +265,7 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
         for (unsigned int j = 0; j < Ndofs_coarse; ++j)
           {
             rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
-            solution_temp[i * n_dofs + j] =
-              0.0; // solution(i+b,j); //solution[i + b][j];
+            solution_temp[i * n_dofs + j] = solution(i+b,j); //solution[i + b][j];
           }
 
       std::vector<double *> rhs_ptrs(bend - b);
