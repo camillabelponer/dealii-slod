@@ -427,6 +427,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // SolverCG<VectorType> cg_A(par.fine_solver_control);
       // Ainv = inverse_operator(A, cg_A);
 
+
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4b: misc");
       // create projection matrix from fine to coarse cell (DG)
@@ -554,23 +555,50 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           e_i[i] = 1.0;
 
           project(P_e_i, e_i);
+          // const unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
+          // const unsigned int n_q_points = quadrature_fine->size();
+          // Vector<double> cell_rhs(dofs_per_cell);
+          // FEValues<dim> fe_values(*fe_fine,
+          //                 *quadrature_fine,
+          //                 update_values | update_gradients |
+          //                   update_quadrature_points | update_JxW_values);
+
+          // for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
+          // {
+          //   const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+          //   cell_rhs    = 0;
+          //   fe_values.reinit(cell);
+          //   for (unsigned int q = 0; q < n_q_points; ++q)
+          //   {
+          //     for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          //       {
+          //         cell_rhs(i) += fe_values.shape_value(i, q) * 1.0 * //rhs_values[q] *
+          //                        fe_values.JxW(q);
+          //       }
+          //   }
+
+          //   cell_fine->distribute_local_to_global(cell_rhs, P_e_i);
+          // }
+
           for (unsigned int j = 0; j < Ndofs_fine; ++j)
             PT.set(j, i, P_e_i[j]);
 
-          // if (false)
-          // {
+          if (true)
+          {
+            dealii::TrilinosWrappers::SolverDirect sd(par.fine_solver_control);
+            sd.solve(patch_stiffness_matrix, c_i, P_e_i);
           // c_i = Ainv * P_e_i;
-          // e_i = 0.0;
-          // projectT(e_i, c_i);
-          // for (unsigned int j = 0; j < Ndofs_coarse; j++)
-          //   {
-          //     P_Ainv_PT(j, i) = e_i[j];
-          //   }
-          // for (unsigned int j = 0; j < Ndofs_fine; j++)
-          //   {
-          //     Ainv_PT(j, i) = c_i[j];
-          //   }
-          // } // substituted by gauss elimination
+          e_i = 0.0;
+          projectT(e_i, c_i);
+          for (unsigned int j = 0; j < Ndofs_coarse; j++)
+            {
+              P_Ainv_PT(j, i) = e_i[j];
+            }
+          for (unsigned int j = 0; j < Ndofs_fine; j++)
+            {
+              Ainv_PT(j, i) = c_i[j];
+            }
+          } // substituted by gauss elimination
         }
 
 
@@ -578,7 +606,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.enter_subsection(
         "compute basis function 5b: gauss_elimination");
         
-      Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
+      // Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
