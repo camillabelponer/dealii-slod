@@ -399,22 +399,22 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4: stiffness");
 
-      MappingQ1<dim> mapping;
+      // MappingQ1<dim> mapping;
 
-      MatrixCreator::create_laplace_matrix<dim, dim>(
-        mapping,
-        dh_fine_patch,
-        *quadrature_fine,
-        patch_stiffness_matrix,
-        nullptr,
-        internal_boundary_constraints);
-
-
-      // assemble_stiffness_for_patch( // *current_patch,
-      //   patch_stiffness_matrix,
+      // MatrixCreator::create_laplace_matrix<dim, dim>(
+      //   mapping,
       //   dh_fine_patch,
-      //   //  local_stiffnes_constraints);
+      //   *quadrature_fine,
+      //   patch_stiffness_matrix,
+      //   nullptr,
       //   internal_boundary_constraints);
+
+
+      assemble_stiffness_for_patch( // *current_patch,
+        patch_stiffness_matrix,
+        dh_fine_patch,
+        //  local_stiffnes_constraints);
+        internal_boundary_constraints);
 
       // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
       // auto Ainv = A;
@@ -549,39 +549,39 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             project(P_e_i, e_i);
           else // assemble P_e_i as a fine rhs
             {
-              const unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
-              const unsigned int n_q_points    = quadrature_fine->size();
+            //   const unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
+            //   const unsigned int n_q_points    = quadrature_fine->size();
 
-              Vector<double> cell_rhs(dofs_per_cell);
-              VectorType     rhs_values(1);
+            //   Vector<double> cell_rhs(dofs_per_cell);
+            //   VectorType     rhs_values(1);
 
-              FEValues<dim> fe_values(*fe_fine,
-                                      *quadrature_fine,
-                                      update_values | update_gradients |
-                                        update_quadrature_points |
-                                        update_JxW_values);
+            //   FEValues<dim> fe_values(*fe_fine,
+            //                           *quadrature_fine,
+            //                           update_values | update_gradients |
+            //                             update_quadrature_points |
+            //                             update_JxW_values);
 
-              for (const auto &cell :
-                   current_patch->sub_tria.active_cell_iterators())
-                {
-                  const auto cell_coarse =
-                    cell->as_dof_handler_iterator(dh_coarse_patch);
+            //   for (const auto &cell :
+            //        current_patch->sub_tria.active_cell_iterators())
+            //     {
+            //       const auto cell_coarse =
+            //         cell->as_dof_handler_iterator(dh_coarse_patch);
 
-                  cell_coarse->get_dof_values(e_i, rhs_values);
-                  const auto cell_fine =
-                    cell->as_dof_handler_iterator(dh_fine_patch);
-                  cell_rhs = 0;
-                  fe_values.reinit(cell);
-                  for (unsigned int q = 0; q < n_q_points; ++q)
-                    {
-                      for (unsigned int i = 0; i < dofs_per_cell; ++i)
-                        {
-                          cell_rhs(i) += fe_values.shape_value(i, q) *
-                                         rhs_values[0] * fe_values.JxW(q);
-                        }
-                    }
-                  cell_fine->distribute_local_to_global(cell_rhs, P_e_i);
-                }
+            //       cell_coarse->get_dof_values(e_i, rhs_values);
+            //       const auto cell_fine =
+            //         cell->as_dof_handler_iterator(dh_fine_patch);
+            //       cell_rhs = 0;
+            //       fe_values.reinit(cell);
+            //       for (unsigned int q = 0; q < n_q_points; ++q)
+            //         {
+            //           for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            //             {
+            //               cell_rhs(i) += fe_values.shape_value(i, q) *
+            //                              rhs_values[0] * fe_values.JxW(q);
+            //             }
+            //         }
+            //       cell_fine->distribute_local_to_global(cell_rhs, P_e_i);
+            //     }
             }
 
           for (unsigned int j = 0; j < Ndofs_fine; ++j)
@@ -876,6 +876,11 @@ LOD<dim, spacedim>::assemble_global_matrix()
                                     patches_pattern_fine_T,
                                     mpi_communicator);
 
+  basis_matrix_transposed.reinit(patches_pattern_fine_T.nonempty_rows(),
+                                    patches_pattern_fine_T.nonempty_cols(),
+                                    patches_pattern_fine_T,
+                                    mpi_communicator);
+
   /*
   premultiplied_basis_matrix.reinit(
       patches_pattern_fine.nonempty_rows(),
@@ -885,6 +890,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
   */
   basis_matrix               = 0.0;
   premultiplied_basis_matrix = 0.0;
+  basis_matrix_transposed = 0.0;
   system_rhs.reinit(patches_pattern_fine.nonempty_rows(), mpi_communicator);
   LA::MPI::Vector rhs_values(patches_pattern_fine.nonempty_cols(),
                              mpi_communicator);
@@ -915,6 +921,13 @@ LOD<dim, spacedim>::assemble_global_matrix()
                            phi_loc.size(),
                            global_dofs.data(),
                            phi_loc.data());
+          for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
+            {
+              basis_matrix_transposed.set(global_dofs.data()[idx],
+                                             current_patch_id,
+                                             phi_loc.data()[idx]);
+            }
+          
 
           iterator_to_cell_in_current_patch->get_dof_values(
             current_patch->basis_function_premultiplied[0], phi_loc);
@@ -935,11 +948,12 @@ LOD<dim, spacedim>::assemble_global_matrix()
     }
   basis_matrix.compress(VectorOperation::insert);
   premultiplied_basis_matrix.compress(VectorOperation::insert);
+  basis_matrix_transposed.compress(VectorOperation::insert);
 
-  basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix);
+  // basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix);
 
 
-  global_stiffness_matrix.compress(VectorOperation::add);
+//  global_stiffness_matrix.compress(VectorOperation::add);
 }
 
 template <int dim, int spacedim>
@@ -1176,6 +1190,26 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   fem_solution = invSh * fem_rhs;
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
+
+  // LA::MPI::SparseMatrix A_lod_temp;
+  // LA::MPI::SparseMatrix A_lod;
+  // std::cout << "basis_matrix " << basis_matrix.m() << " " << basis_matrix.n() << std::endl;
+  // std::cout << "basis_matrix t " << basis_matrix_transposed.m() << " " << basis_matrix_transposed.n() << std::endl;
+  // std::cout << "fem_stiffness_matrix " << fem_stiffness_matrix.m() << " " << fem_stiffness_matrix.n() << std::endl;
+  // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
+  // std::cout << "A_lod_temp " << A_lod_temp.m() << " " << A_lod_temp.n() << std::endl;
+  // A_lod_temp.mmult(A_lod, basis_matrix_transposed);
+// 
+  // std::cout << "A_lod " << A_lod.m() << " " << A_lod.n() << " frobenius norm: " << A_lod.frobenius_norm() << std::endl;
+  // std::cout << "global_stiffness_matrix " << global_stiffness_matrix.m() << " " << global_stiffness_matrix.n() << " frobenius norm: " << global_stiffness_matrix.frobenius_norm() << std::endl;
+
+  // A_lod.print(std::cout);
+  // global_stiffness_matrix.print(std::cout);
+
+  LA::MPI::SparseMatrix A_lod_temp;
+  basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
+  A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
+  global_stiffness_matrix.compress(VectorOperation::add);
 }
 
 template <int dim, int spacedim>
@@ -1189,8 +1223,9 @@ LOD<dim, spacedim>::compare_fem_lod()
                                mpi_communicator);
   lod_solution = 0;
 
-  const auto C  = linear_operator<LA::MPI::Vector>(basis_matrix);
-  const auto CT = transpose_operator(C);
+  // const auto C  = linear_operator<LA::MPI::Vector>(basis_matrix);
+  // const auto CT = transpose_operator(C);
+  const auto CT  = linear_operator<LA::MPI::Vector>(basis_matrix_transposed);
   lod_solution  = CT * solution;
 
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);

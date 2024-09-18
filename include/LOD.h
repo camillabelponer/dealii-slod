@@ -203,6 +203,7 @@ private:
   AffineConstraints<double> coarse_boundary_constraints;
 
   LA::MPI::SparseMatrix basis_matrix;
+  LA::MPI::SparseMatrix basis_matrix_transposed;
   LA::MPI::SparseMatrix premultiplied_basis_matrix;
   LA::MPI::SparseMatrix global_stiffness_matrix;
   LA::MPI::Vector       solution;
