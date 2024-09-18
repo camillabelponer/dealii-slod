@@ -16,10 +16,13 @@
 #include <deal.II/lac/trilinos_sparsity_pattern.h>
 
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/matrix_tools.h>
 
 #include "util.h"
 
 using namespace dealii;
+
+unsigned int spacedim = 1;
 
 int
 main(int argc, char **argv)
@@ -29,6 +32,7 @@ main(int argc, char **argv)
   const unsigned int dim       = 1;
   const unsigned int fe_degree = 2;
   const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
+  const unsigned int n_subdivisions = 5;
   const MPI_Comm     comm      = MPI_COMM_WORLD;
 
   AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
@@ -132,7 +136,150 @@ main(int argc, char **argv)
         patch_constraints.close();
 
         Vector<double> selected_basis_function(n_dofs_patch);
-        selected_basis_function = 1.0; // (TODO: adjust for LOD)
+        // #####################################################################################
+
+        FE_Q_iso_Q1<dim>     fe_fine(n_subdivisions);
+        const QIterated<dim> quadrature_fine(QGauss<1>(2), n_subdivisions);
+        FEValues<dim>        fe_values(fe_fine,
+                          quadrature_fine,
+                          update_values | update_gradients | update_JxW_values);
+
+        AffineConstraints<double>      internal_boundary_constraints;
+
+        auto Ndofs_coarse = patch.n_cells();
+        auto Ndofs_fine   = n_dofs_patch;
+
+        TrilinosWrappers::SparsityPattern sparsity_pattern(Ndofs_fine,
+                                                           Ndofs_fine);
+
+        Table<2, bool> bool_dof_mask =
+          create_bool_dof_mask(fe_fine, quadrature_fine);
+
+        std::vector<types::global_dof_index> dofs_on_this_cell;
+
+        for (const auto &cell : dh_fine_patch.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              const unsigned int dofs_per_cell =
+                cell->get_fe().n_dofs_per_cell();
+              dofs_on_this_cell.resize(dofs_per_cell);
+              cell->get_dof_indices(dofs_on_this_cell);
+
+              internal_boundary_constraints.add_entries_local_to_global(
+                dofs_on_this_cell, sparsity_pattern, false, bool_dof_mask);
+            }
+
+        sparsity_pattern.compress();
+
+        TrilinosWrappers::SparseMatrix patch_stiffness_matrix(sparsity_pattern);
+
+        MappingQ1<dim> mapping;
+
+        MatrixCreator::create_laplace_matrix<dim, dim>(
+          mapping,
+          dh_fine_patch,
+          quadrature_fine,
+          patch_stiffness_matrix,
+          nullptr,
+          internal_boundary_constraints);
+
+        /*
+        assemble_stiffness_for_patch( // *current_patch,
+          patch_stiffness_matrix,
+          dh_fine_patch,
+          //  local_stiffnes_constraints);
+          internal_boundary_constraints);
+        */
+
+        // create projection matrix from fine to coarse cell (DG)
+        FullMatrix<double> projection_matrix(fe_fine->n_dofs_per_cell());
+        FETools::get_projection_matrix(fe_fine, FE_DGQ(0), projection_matrix);
+        // this could be done via tensor product
+
+
+        // averaging (inverse of P0 mass matrix)
+        Vector<double> valence_coarse(Ndofs_coarse);
+        Vector<double> local_identity_coarse(spacedim);
+        local_identity_coarse = 1.0;
+
+        for (const auto &cell : dh_coarse_patch.active_cell_iterators())
+          cell->distribute_local_to_global(local_identity_coarse,
+                                           valence_coarse);
+        for (auto &elem : valence_coarse)
+          elem = 1.0 / elem;
+
+        const auto project = [&](auto &dst, const auto &src) {
+          Vector<double> vec_local_coarse(fe_coarse->n_dofs_per_cell());
+          Vector<double> vec_local_fine(fe_fine->n_dofs_per_cell());
+          Vector<double> weights(fe_coarse->n_dofs_per_cell());
+
+          for (const auto &cell :
+               current_patch->sub_tria.active_cell_iterators())
+            // should be locally_owned ?
+            {
+              const auto cell_coarse =
+                cell->as_dof_handler_iterator(dh_coarse_patch);
+              const auto cell_fine =
+                cell->as_dof_handler_iterator(dh_fine_patch);
+
+              cell_coarse->get_dof_values(src, vec_local_coarse);
+
+              cell_coarse->get_dof_values(valence_coarse, weights);
+              vec_local_coarse.scale(weights);
+
+              projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+
+              cell_fine->distribute_local_to_global(vec_local_fine, dst);
+            }
+        };
+
+        // we now compute c_loc_i = S^-1 P^T (P S^-1 P^T)^-1 e_i
+        // where e_i is the indicator function of the patch
+
+        Vector<double> P_e_i(Ndofs_fine);
+        Vector<double> e_i(Ndofs_coarse); // reused also as temporary vector
+        Vector<double> triple_product_inv_e_i(Ndofs_coarse);
+
+        // FullMatrix<double>
+        LAPACKFullMatrix<double> triple_product(Ndofs_coarse, Ndofs_coarse);
+        FullMatrix<double>       A0_inv_P(Ndofs_fine, Ndofs_coarse);
+
+        FullMatrix<double> P(Ndofs_fine, Ndofs_coarse);
+        FullMatrix<double> Ainv_P(Ndofs_fine, Ndofs_coarse);
+
+        P = 0.0;
+
+        // assign rhs
+        // TODO: projection that works on matrices! so we apply it to the proj e
+        // don't need to assign one by one
+        for (unsigned int i = 0; i < Ndofs_coarse; ++i) // same as b
+          {
+            e_i    = 0.0;
+            P_e_i  = 0.0;
+            e_i[i] = 1.0;
+
+            project(P_e_i, e_i);
+            for (unsigned int j = 0; j < Ndofs_fine; ++j)
+              P.set(j, i, P_e_i[j]);
+          }
+
+        Gauss_elimination(P, patch_stiffness_matrix, Ainv_P);
+
+        FullMatrix<double> PT_Ainv_P(Ndofs_coarse);
+        P.Tmmult(PT_Ainv_P, Ainv_P);
+
+        PT_Ainv_P.gauss_jordan();
+
+        e_i                    = 0.0;
+        triple_product_inv_e_i = 0.0;
+
+        e_i[0] = 1.0;
+        PT_Ainv_P.vmult(triple_product_inv_e_i, e_i);
+
+        Ainv_P.vmult(selected_basis_function, triple_product_inv_e_i);
+        // selected_basis_function /= selected_basis_function.l2_norm();
+
+        // #####################################################################################
         patch_constraints.set_zero(selected_basis_function);
 
         for (unsigned int i = 0; i < n_dofs_patch; ++i)

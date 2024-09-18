@@ -292,6 +292,86 @@ compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
   dof_handler.renumber_dofs(result);
 }
 
+void
+Gauss_elimination(const FullMatrix<double> &            rhs,
+                  const TrilinosWrappers::SparseMatrix &sparse_matrix,
+                  FullMatrix<double> &            solution)
+{
+  // create preconditioner
+  TrilinosWrappers::PreconditionILU ilu;
+  ilu.initialize(sparse_matrix);
+
+  Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
+  Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
+  Assert(rhs.m() == solution.m(), ExcInternalError());
+  Assert(rhs.n() == solution.n(), ExcInternalError());
+
+  solution = 0.0;
+
+  const unsigned int n_dofs       = rhs.m();
+  const unsigned int Ndofs_coarse = rhs.n();
+
+  const unsigned int n_blocks        = Ndofs_coarse;
+  const unsigned int n_blocks_stride = n_blocks;
+
+
+  for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
+    {
+      const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
+
+      std::vector<double> rhs_temp(n_dofs * (bend - b));
+      std::vector<double> solution_temp(n_dofs * (bend - b));
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+          {
+            rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
+            solution_temp[i * n_dofs + j] = solution(i+b,j); //solution[i + b][j];
+          }
+
+      std::vector<double *> rhs_ptrs(bend - b);
+      std::vector<double *> sultion_ptrs(bend - b);
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        {
+          rhs_ptrs[i]     = &rhs_temp[i * n_dofs];      //&rhs[i + b][0];
+          sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
+        }
+
+      const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
+      const Epetra_Operator & prec = ilu.trilinos_operator();
+
+      Epetra_MultiVector trilinos_dst(View,
+                                      mat.OperatorRangeMap(),
+                                      sultion_ptrs.data(),
+                                      sultion_ptrs.size());
+      Epetra_MultiVector trilinos_src(View,
+                                      mat.OperatorDomainMap(),
+                                      rhs_ptrs.data(),
+                                      rhs_ptrs.size());
+
+      ReductionControl solver_control(100, 1.e-10, 1.e-6, false, false);
+
+      if (false)
+        {
+          TrilinosWrappers::SolverCG solver(solver_control);
+          solver.solve(mat, trilinos_dst, trilinos_src, prec);
+        }
+      else
+        {
+          TrilinosWrappers::MySolverDirect solver(solver_control);
+          solver.initialize(sparse_matrix);
+          solver.solve(mat, trilinos_dst, trilinos_src);
+        }
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+          {
+            solution(i + b, j) = solution_temp[i * n_dofs + j];
+          }
+    }
+}
+
 
 template <int dim>
 class Patch
@@ -499,4 +579,54 @@ private:
   std::array<unsigned int, dim> patch_size;
   std::array<unsigned int, dim> patch_subdivions_start;
   std::array<unsigned int, dim> patch_subdivions_size;
+};
+
+
+template <int dim>
+const Table<2, bool>
+create_bool_dof_mask(const FiniteElement<dim> &fe,
+                     const Quadrature<dim> &   quadrature)
+{
+  const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe) {
+    Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
+    MappingQ1<dim> mapping;
+    FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
+
+    Triangulation<dim> tria;
+    GridGenerator::hyper_cube(tria);
+
+    fe_values.reinit(tria.begin());
+    for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+      for (unsigned int j = 0; j < fe.dofs_per_cell; ++j)
+        {
+          double sum = 0;
+          for (unsigned int q = 0; q < quadrature.size(); ++q)
+            sum += fe_values.shape_value(i, q) * fe_values.shape_value(j, q);
+          if (sum != 0)
+            bool_dof_mask(i, j) = true;
+        }
+
+    return bool_dof_mask;
+  };
+
+  Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
+
+  if (fe.n_components() == 1)
+    {
+      bool_dof_mask = compute_scalar_bool_dof_mask(fe);
+    }
+  else
+    {
+      const auto scalar_bool_dof_mask =
+        compute_scalar_bool_dof_mask(fe.base_element(0));
+
+      for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+        for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+          if (scalar_bool_dof_mask[fe.system_to_component_index(i).second]
+                                  [fe.system_to_component_index(j).second])
+            bool_dof_mask[i][j] = true;
+    }
+
+
+  return bool_dof_mask;
 };

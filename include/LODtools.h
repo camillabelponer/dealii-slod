@@ -262,10 +262,10 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
       std::vector<double> solution_temp(n_dofs * (bend - b));
 
       for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+        for (unsigned int j = 0; j < n_dofs; ++j)
           {
-            rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
-            solution_temp[i * n_dofs + j] = solution(i+b,j); //solution[i + b][j];
+            rhs_temp[i * n_dofs + j] = rhs(j, i + b); // rhs[i + b][j];
+            solution_temp[i * n_dofs + j] = 0.0; //solution(i+b,j); //solution[i + b][j];
           }
 
       std::vector<double *> rhs_ptrs(bend - b);
@@ -304,9 +304,9 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
         }
 
       for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < Ndofs_coarse; ++j)
+        for (unsigned int j = 0; j < n_dofs; ++j)
           {
-            solution(i + b, j) = solution_temp[i * n_dofs + j];
+            solution(j, i + b) = solution_temp[i * n_dofs + j];
           }
     }
 }
