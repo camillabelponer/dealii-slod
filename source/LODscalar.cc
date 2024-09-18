@@ -396,25 +396,30 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           patch_stiffness_matrix.reinit(sparsity_pattern);
         }
 
+
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4: stiffness");
 
-      // MappingQ1<dim> mapping;
+      if (true)
+        {
+          MappingQ1<dim> mapping;
 
-      // MatrixCreator::create_laplace_matrix<dim, dim>(
-      //   mapping,
-      //   dh_fine_patch,
-      //   *quadrature_fine,
-      //   patch_stiffness_matrix,
-      //   nullptr,
-      //   internal_boundary_constraints);
-
-
-      assemble_stiffness_for_patch( // *current_patch,
-        patch_stiffness_matrix,
-        dh_fine_patch,
-        //  local_stiffnes_constraints);
-        internal_boundary_constraints);
+          MatrixCreator::create_laplace_matrix<dim, dim>(
+            mapping,
+            dh_fine_patch,
+            *quadrature_fine,
+            patch_stiffness_matrix,
+            nullptr,
+            internal_boundary_constraints);
+        }
+      else
+        {
+          assemble_stiffness_for_patch( // *current_patch,
+            patch_stiffness_matrix,
+            dh_fine_patch,
+            //  local_stiffnes_constraints);
+            internal_boundary_constraints);
+        }
 
       // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
       // auto Ainv = A;
