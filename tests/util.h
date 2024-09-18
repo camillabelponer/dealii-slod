@@ -295,7 +295,7 @@ compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
 void
 Gauss_elimination(const FullMatrix<double> &            rhs,
                   const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                  FullMatrix<double> &            solution)
+                  FullMatrix<double> &                  solution)
 {
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
@@ -326,7 +326,8 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
         for (unsigned int j = 0; j < Ndofs_coarse; ++j)
           {
             rhs_temp[i * n_dofs + j] = rhs(i + b, j); // rhs[i + b][j];
-            solution_temp[i * n_dofs + j] = solution(i+b,j); //solution[i + b][j];
+            solution_temp[i * n_dofs + j] =
+              solution(i + b, j); // solution[i + b][j];
           }
 
       std::vector<double *> rhs_ptrs(bend - b);

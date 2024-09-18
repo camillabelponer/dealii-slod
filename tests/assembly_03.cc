@@ -29,11 +29,11 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  const unsigned int dim       = 1;
-  const unsigned int fe_degree = 2;
-  const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
+  const unsigned int dim            = 1;
+  const unsigned int fe_degree      = 2;
+  const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
   const unsigned int n_subdivisions = 5;
-  const MPI_Comm     comm      = MPI_COMM_WORLD;
+  const MPI_Comm     comm           = MPI_COMM_WORLD;
 
   AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
 
@@ -141,10 +141,11 @@ main(int argc, char **argv)
         FE_Q_iso_Q1<dim>     fe_fine(n_subdivisions);
         const QIterated<dim> quadrature_fine(QGauss<1>(2), n_subdivisions);
         FEValues<dim>        fe_values(fe_fine,
-                          quadrature_fine,
-                          update_values | update_gradients | update_JxW_values);
+                                quadrature_fine,
+                                update_values | update_gradients |
+                                  update_JxW_values);
 
-        AffineConstraints<double>      internal_boundary_constraints;
+        AffineConstraints<double> internal_boundary_constraints;
 
         auto Ndofs_coarse = patch.n_cells();
         auto Ndofs_fine   = n_dofs_patch;
