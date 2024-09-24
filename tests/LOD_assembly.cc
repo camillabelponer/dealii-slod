@@ -130,61 +130,61 @@ main(int argc, char **argv)
                          locally_relevant_dofs);
 
   // create_patches();
-  
-    std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
 
-    // Queue for patches for which neighbours should be added
-    std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
-    size_t size_biggest_patch = 0;
-    size_t size_tiniest_patch = tria.n_active_cells();
-    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+  std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
+
+  // Queue for patches for which neighbours should be added
+  std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
+  size_t size_biggest_patch = 0;
+  size_t size_tiniest_patch = tria.n_active_cells();
+  for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+    {
+      auto cell_index = cell->active_cell_index();
       {
-        auto cell_index = cell->active_cell_index();
-        {
-          // for each cell we create its patch and add it to the global vector
-          // of patches
-          auto patch = &patches.emplace_back();
-          patch_iterators.clear();
-          patch_iterators.push_back(cell);
+        // for each cell we create its patch and add it to the global vector
+        // of patches
+        auto patch = &patches.emplace_back();
+        patch_iterators.clear();
+        patch_iterators.push_back(cell);
 
-          // The iterators for level l are in the range [l_start, l_end) of
-          // patch_iterators
-          unsigned int l_start = 0;
-          unsigned int l_end   = 1;
-          patch->cells.push_back(cell);
-          // patch->cell_indices.set_size(tria.n_active_cells());
-          patches_pattern.add(cell_index, cell_index);
-          for (unsigned int l = 1; l <= oversampling; l++)
-            {
-              for (unsigned int i = l_start; i < l_end; i++)
-                {
-                  AssertIndexRange(i, patch_iterators.size());
-                  for (auto ver : patch_iterators[i]->vertex_indices())
-                    {
-                      auto vertex = patch_iterators[i]->vertex_index(ver);
-                      for (const auto &neighbour :
-                           GridTools::find_cells_adjacent_to_vertex(
-                             dof_handler_coarse, vertex))
-                        {
-                          if (!patches_pattern.exists(
-                                cell_index, neighbour->active_cell_index()))
-                            {
-                              patch_iterators.push_back(neighbour);
-                              patches_pattern.add(
-                                cell_index, neighbour->active_cell_index());
-                              patches_pattern.add(
-                                cell_index, neighbour->active_cell_index());
-                              patch->cells.push_back(neighbour);
-                            }
-                        }
-                    }
-                }
-              l_start = l_end;
-              l_end   = patch_iterators.size();
-            }
-        }
+        // The iterators for level l are in the range [l_start, l_end) of
+        // patch_iterators
+        unsigned int l_start = 0;
+        unsigned int l_end   = 1;
+        patch->cells.push_back(cell);
+        // patch->cell_indices.set_size(tria.n_active_cells());
+        patches_pattern.add(cell_index, cell_index);
+        for (unsigned int l = 1; l <= oversampling; l++)
+          {
+            for (unsigned int i = l_start; i < l_end; i++)
+              {
+                AssertIndexRange(i, patch_iterators.size());
+                for (auto ver : patch_iterators[i]->vertex_indices())
+                  {
+                    auto vertex = patch_iterators[i]->vertex_index(ver);
+                    for (const auto &neighbour :
+                         GridTools::find_cells_adjacent_to_vertex(
+                           dof_handler_coarse, vertex))
+                      {
+                        if (!patches_pattern.exists(
+                              cell_index, neighbour->active_cell_index()))
+                          {
+                            patch_iterators.push_back(neighbour);
+                            patches_pattern.add(cell_index,
+                                                neighbour->active_cell_index());
+                            patches_pattern.add(cell_index,
+                                                neighbour->active_cell_index());
+                            patch->cells.push_back(neighbour);
+                          }
+                      }
+                  }
+              }
+            l_start = l_end;
+            l_end   = patch_iterators.size();
+          }
       }
-  
+    }
+
 
 
   for (auto &current_patch : patches)

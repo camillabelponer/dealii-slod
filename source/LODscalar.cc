@@ -318,6 +318,22 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // the patch that's not on the boundary of the domain now special number is
   // set to zero so they are treated as one together
 
+  Table<2, bool> bool_dof_mask =
+    create_bool_dof_mask(*fe_fine, *quadrature_fine);
+
+  // we are assuming mesh to be created as hyper_cube l 83
+  double H = 1 / 2^(par.n_global_refinements); // dh_fine_patch.begin_active()->minimum_vertex_distance();
+  double h = H / (par.n_subdivisions);
+
+  // create projection matrix from fine to coarse cell (DG)
+  FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
+                                       fe_fine->n_dofs_per_cell());
+  // FETools::get_projection_matrix(*fe_fine, *fe_coarse,
+  // projection_matrix);
+  projection_P0_P1<dim>(projection_matrix);
+  projection_matrix *= (h * h / 4);
+  // this could be done via tensor product
+
   for (auto current_patch_id : locally_owned_patches)
     {
       computing_timer.enter_subsection("compute basis function 1: setup");
@@ -336,8 +352,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       auto   Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto   Ndofs_fine   = dh_fine_patch.n_dofs();
-      double H = dh_fine_patch.begin_active()->minimum_vertex_distance();
-      double h = H / (par.n_subdivisions);
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 2: constraints");
@@ -371,11 +385,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // considers bool_dof_mask for FE_Q_iso_Q1
           // it can be slower for small par.n_subdivisions or small
           // par.oversampling
+
           TrilinosWrappers::SparsityPattern sparsity_pattern(Ndofs_fine,
                                                              Ndofs_fine);
-
-          Table<2, bool> bool_dof_mask =
-            create_bool_dof_mask(*fe_fine, *quadrature_fine);
 
           std::vector<types::global_dof_index> dofs_on_this_cell;
 
@@ -399,6 +411,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4: stiffness");
+
 
       if (true)
         {
@@ -430,15 +443,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 4b: misc");
-      // create projection matrix from fine to coarse cell (DG)
-      FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
-                                           fe_fine->n_dofs_per_cell());
-      // FETools::get_projection_matrix(*fe_fine, *fe_coarse,
-      // projection_matrix);
-      projection_P0_P1<dim>(projection_matrix);
-      projection_matrix *= (h * h / 4);
-
-      // this could be done via tensor product
 
       // averaging (inverse of P0 mass matrix)
       VectorType valence_coarse(Ndofs_coarse);
@@ -653,12 +657,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           e_i[index] = 1.0;
           P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
-          /*
-          // if triple product is UMFPACK instead of gauss jordan we do this
-          triple_product.compute_lu_factorization();
-          triple_product.solve(e_i);
-          triple_product_inv_e_i = e_i;
-          */
+
+          // // if triple product is UMFPACK instead of gauss jordan we do this
+          // triple_product.compute_lu_factorization();
+          // triple_product.solve(e_i);
+          // triple_product_inv_e_i = e_i;
+
 
           Ainv_PT.vmult(c_i, triple_product_inv_e_i);
           c_i /= c_i.l2_norm();
@@ -1041,7 +1045,7 @@ LOD<dim, spacedim>::solve()
   // const auto &f = system_rhs;
 
   // dealii::TrilinosWrappers::SolverDirect sd(par.coarse_solver_control);
-  // sd.solve(global_stiffness_matrix, u, f);
+  // sd.solve(global_stiffness_matrix, solution, system_rhs);
 
   solution = invA * system_rhs;
   pcout << "   size of u " << solution.size() << std::endl;
