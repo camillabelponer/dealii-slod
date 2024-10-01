@@ -93,6 +93,8 @@ LOD<dim, spacedim>::make_fe()
     connected_fine_cell_dofs.push_back(col_i);
   } // do this with indexset instead ?
 
+  // quadrature_dofs_map = create_quadrature_dofs_map(*fe_fine, *quadrature_fine);
+
 }
 
 template <int dim, int spacedim>
@@ -1015,16 +1017,19 @@ LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
         fe_values.reinit(cell);
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
+            std::vector<unsigned int> non_zero_dofs;
             for (unsigned int k = 0; k < dofs_per_cell; ++k)
               {
                 grad_phi_u[k] = fe_values.shape_grad(k, q);
+                if (grad_phi_u[k].norm() != 0)
+                  non_zero_dofs.push_back(k);
               }
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            // for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            for (auto i : non_zero_dofs)
               {
                 
                 for (auto j : connected_fine_cell_dofs[i])
-                //for (unsigned int j = 0; j < dofs_per_cell; ++j) // just loop pver quadrature nodes(e.g neigh)
-                //   if (bool_dof_mask(i,j))
+                // for (unsigned int j = 0; j < dofs_per_cell; ++j) // just loop pver quadrature nodes(e.g neigh)
                   {
                     cell_matrix(i, j) +=
                       scalar_product(grad_phi_u[i], grad_phi_u[j]) *
@@ -1032,7 +1037,6 @@ LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
                   }
               }
           }
-
 
         cell->get_dof_indices(local_dof_indices);
         local_stiffnes_constraints.distribute_local_to_global(cell_matrix,

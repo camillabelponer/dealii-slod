@@ -19,3 +19,4 @@ oldcode_untracked/
 *.prm
 *.vtu
 *.pvd
+prm/
