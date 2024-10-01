@@ -413,7 +413,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.enter_subsection("compute basis function 4: stiffness");
 
 
-      if (true)
+      if (false)
         {
           MappingQ1<dim> mapping;
 
@@ -974,35 +974,61 @@ LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
   FEValues<dim> fe_values(*fe_fine,
                           *quadrature_fine,
                           update_values | update_gradients |
-                            update_quadrature_points | update_JxW_values);
+                          /*  update_quadrature_points | */ update_JxW_values);
 
   const unsigned int                 dofs_per_cell = fe_fine->n_dofs_per_cell();
-  const unsigned int                 n_q_points    = quadrature_fine->size();
+  // const unsigned int                 n_q_points    = quadrature_fine->size();
   FullMatrix<double>                 cell_matrix(dofs_per_cell, dofs_per_cell);
-  std::vector<Tensor<spacedim, dim>> grad_phi_u(dofs_per_cell);
+  //std::vector<Tensor<spacedim, dim>> grad_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+
+  const auto lexicographic_to_hierarchic_numbering =
+      FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
 
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
       {
         cell_matrix = 0;
         fe_values.reinit(cell);
-        for (unsigned int q = 0; q < n_q_points; ++q)
-          {
-            for (unsigned int k = 0; k < dofs_per_cell; ++k)
-              {
-                grad_phi_u[k] = fe_values.shape_grad(k, q);
-              }
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
-              {
-                for (unsigned int j = 0; j < dofs_per_cell; ++j)
-                  {
-                    cell_matrix(i, j) +=
-                      scalar_product(grad_phi_u[i], grad_phi_u[j]) *
-                      fe_values.JxW(q);
-                  }
-              }
-          }
+        // for (unsigned int q = 0; q < n_q_points; ++q)
+        //   {
+        //     for (unsigned int k = 0; k < dofs_per_cell; ++k)
+        //       {
+        //         grad_phi_u[k] = fe_values.shape_grad(k, q);
+        //       }
+        //     for (unsigned int i = 0; i < dofs_per_cell; ++i)
+        //       {
+        //         for (unsigned int j = 0; j < dofs_per_cell; ++j)
+        //           {
+        //             cell_matrix(i, j) +=
+        //               scalar_product(grad_phi_u[i], grad_phi_u[j]) *
+        //               fe_values.JxW(q);
+        //           }
+        //       }
+        //   }
+        for (unsigned int c_1 = 0; c_1 < par.n_subdivisions; ++c_1)
+          for (unsigned int c_0 = 0; c_0 < par.n_subdivisions; ++c_0)
+            for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+              for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                  for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                    for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                      for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                        {
+                          const unsigned int q_index =
+                            (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * par.n_subdivisions);
+                          const unsigned int i =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + i_0) + (c_1 + i_1) * (par.n_subdivisions + 1)];
+                          const unsigned int j =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + j_0) + (c_1 + j_1) * (par.n_subdivisions + 1)];
+
+                          cell_matrix(i, j) +=
+                            (fe_values.shape_grad(i, q_index) *
+                             fe_values.shape_grad(j, q_index) *
+                             fe_values.JxW(q_index));
+                        }
 
 
         cell->get_dof_indices(local_dof_indices);
@@ -1107,7 +1133,10 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   Vector<double> cell_rhs(dofs_per_cell);
   //   Vector<double>                       lod_fine_rhs_cell(dofs_per_cell);
 
-  /*
+  const auto lexicographic_to_hierarchic_numbering =
+      FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
+
+  
   for (const auto &cell : dh.active_cell_iterators())
     {
       if (cell->is_locally_owned())
@@ -1120,6 +1149,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
           // double cell_value = 0.0;
           // par.rhs.value_list(cell->barycenter(), cell_value);
           // coarse_rhs_values[cell->active_cell_index()] = cell_value;
+          /*
           for (unsigned int q = 0; q < n_q_points; ++q)
             {
               for (unsigned int k = 0; k < dofs_per_cell; ++k)
@@ -1144,6 +1174,39 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
                                  fe_values.JxW(q);
                 }
             }
+          */
+          for (unsigned int c_1 = 0; c_1 < par.n_subdivisions; ++c_1)
+          for (unsigned int c_0 = 0; c_0 < par.n_subdivisions; ++c_0)
+            for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+              for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+              {
+                const unsigned int q_index =
+                            (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * par.n_subdivisions);
+
+                for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                  for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                  {
+                    const unsigned int i =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + i_0) + (c_1 + i_1) * (par.n_subdivisions + 1)];
+
+                    for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                      for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                        {
+                          const unsigned int j =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + j_0) + (c_1 + j_1) * (par.n_subdivisions + 1)];
+
+                          cell_matrix(i, j) +=
+                            (fe_values.shape_grad(i, q_index) *
+                             fe_values.shape_grad(j, q_index) *
+                             fe_values.JxW(q_index));
+                        }
+                    cell_rhs(i) += fe_values.shape_value(i, q_index) * rhs_values[q_index] *
+                                 fe_values.JxW(q_index);
+                  }
+              }
+
 
           cell->get_dof_indices(local_dof_indices);
           fem_constraints.distribute_local_to_global(cell_matrix,
@@ -1163,20 +1226,20 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
     }
   fem_stiffness_matrix.compress(VectorOperation::add);
   fem_rhs.compress(VectorOperation::add);
-  */
-  MappingQ1<dim> mapping;
-  Vector<double> fem_rhs_temp(fem_rhs.size());
-  MatrixCreator::create_laplace_matrix<dim, dim>(
-    mapping,
-    dh,
-    *quadrature_fine,
-    fem_stiffness_matrix,
-    par.rhs,
-    // Functions::ZeroFunction<dim, double>(spacedim),
-    fem_rhs_temp,
-    nullptr,
-    fem_constraints);
-  fem_rhs = fem_rhs_temp;
+  
+  // MappingQ1<dim> mapping;
+  // Vector<double> fem_rhs_temp(fem_rhs.size());
+  // MatrixCreator::create_laplace_matrix<dim, dim>(
+  //   mapping,
+  //   dh,
+  //   *quadrature_fine,
+  //   fem_stiffness_matrix,
+  //   par.rhs,
+  //   // Functions::ZeroFunction<dim, double>(spacedim),
+  //   fem_rhs_temp,
+  //   nullptr,
+  //   fem_constraints);
+  // fem_rhs = fem_rhs_temp;
 
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;
 
