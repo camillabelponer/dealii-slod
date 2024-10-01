@@ -158,8 +158,6 @@ LOD<dim, spacedim>::create_patches()
                             patch_iterators.push_back(neighbour);
                             patches_pattern.add(cell_index,
                                                 neighbour->active_cell_index());
-                            patches_pattern.add(cell_index,
-                                                neighbour->active_cell_index());
                             auto cell_fine = neighbour->as_dof_handler_iterator(
                               dof_handler_fine);
                             cell_fine->get_dof_indices(fine_dofs);
@@ -1140,7 +1138,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   Vector<double> cell_rhs(dofs_per_cell);
   //   Vector<double>                       lod_fine_rhs_cell(dofs_per_cell);
 
-  /*
+  
   for (const auto &cell : dh.active_cell_iterators())
     {
       if (cell->is_locally_owned())
@@ -1196,7 +1194,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
     }
   fem_stiffness_matrix.compress(VectorOperation::add);
   fem_rhs.compress(VectorOperation::add);
-  */
+  /*
   MappingQ1<dim> mapping;
   Vector<double> fem_rhs_temp(fem_rhs.size());
   MatrixCreator::create_laplace_matrix<dim, dim>(
@@ -1210,7 +1208,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
     nullptr,
     fem_constraints);
   fem_rhs = fem_rhs_temp;
-
+*/
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;
 
   // solve
