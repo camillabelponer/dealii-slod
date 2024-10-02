@@ -136,8 +136,6 @@ LOD<dim, spacedim>::create_patches()
                             patch_iterators.push_back(neighbour);
                             patches_pattern.add(cell_index,
                                                 neighbour->active_cell_index());
-                            patches_pattern.add(cell_index,
-                                                neighbour->active_cell_index());
                             auto cell_fine = neighbour->as_dof_handler_iterator(
                               dof_handler_fine);
                             cell_fine->get_dof_indices(fine_dofs);
@@ -302,7 +300,7 @@ void
 LOD<dim, spacedim>::compute_basis_function_candidates()
 {
   // TimerOutput::Scope t(computing_timer, "compute basis function");
-
+  computing_timer.enter_subsection("compute basis function 0");
   DoFHandler<dim> dh_coarse_patch;
   DoFHandler<dim> dh_fine_patch;
 
@@ -319,7 +317,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // set to zero so they are treated as one together
 
   Table<2, bool> bool_dof_mask =
-    create_bool_dof_mask(*fe_fine, *quadrature_fine);
+    create_bool_dof_mask_Q_iso_Q1(*fe_fine, *quadrature_fine, par.n_subdivisions);
 
   // we are assuming mesh to be created as hyper_cube l 83
   double H = 1 / 2^(par.n_global_refinements); // dh_fine_patch.begin_active()->minimum_vertex_distance();
@@ -333,10 +331,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   projection_P0_P1<dim>(projection_matrix);
   projection_matrix *= (h * h / 4);
   // this could be done via tensor product
-
+  computing_timer.leave_subsection();
   for (auto current_patch_id : locally_owned_patches)
     {
-      computing_timer.enter_subsection("compute basis function 1: setup");
+      computing_timer.enter_subsection("compute basis function 1: patch setup");
 
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
@@ -350,8 +348,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       dh_coarse_patch.distribute_dofs(*fe_coarse);
       // DoFRenumbering::cell_wise(dh_fine_patch, cell_order);
 
-      auto   Ndofs_coarse = dh_coarse_patch.n_dofs();
-      auto   Ndofs_fine   = dh_fine_patch.n_dofs();
+      auto Ndofs_coarse = dh_coarse_patch.n_dofs();
+      auto Ndofs_fine   = dh_fine_patch.n_dofs();
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("compute basis function 2: constraints");
@@ -971,19 +969,20 @@ LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
   TimerOutput::Scope t(computing_timer,
                        "compute basis functions: Assemble patch stiffness");
   stiffness_matrix = 0;
-  FEValues<dim> fe_values(*fe_fine,
-                          *quadrature_fine,
-                          update_values | update_gradients |
-                          /*  update_quadrature_points | */ update_JxW_values);
+  FEValues<dim> fe_values(
+    *fe_fine,
+    *quadrature_fine,
+    update_values | update_gradients |
+      /*  update_quadrature_points | */ update_JxW_values);
 
-  const unsigned int                 dofs_per_cell = fe_fine->n_dofs_per_cell();
+  const unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
   // const unsigned int                 n_q_points    = quadrature_fine->size();
-  FullMatrix<double>                 cell_matrix(dofs_per_cell, dofs_per_cell);
-  //std::vector<Tensor<spacedim, dim>> grad_phi_u(dofs_per_cell);
+  FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+  // std::vector<Tensor<spacedim, dim>> grad_phi_u(dofs_per_cell);
   std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
   const auto lexicographic_to_hierarchic_numbering =
-      FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
+    FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
 
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
@@ -1016,13 +1015,16 @@ LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
                       for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
                         {
                           const unsigned int q_index =
-                            (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * par.n_subdivisions);
+                            (c_0 * 2 + q_0) +
+                            (c_1 * 2 + q_1) * (2 * par.n_subdivisions);
                           const unsigned int i =
                             lexicographic_to_hierarchic_numbering
-                              [(c_0 + i_0) + (c_1 + i_1) * (par.n_subdivisions + 1)];
+                              [(c_0 + i_0) +
+                               (c_1 + i_1) * (par.n_subdivisions + 1)];
                           const unsigned int j =
                             lexicographic_to_hierarchic_numbering
-                              [(c_0 + j_0) + (c_1 + j_1) * (par.n_subdivisions + 1)];
+                              [(c_0 + j_0) +
+                               (c_1 + j_1) * (par.n_subdivisions + 1)];
 
                           cell_matrix(i, j) +=
                             (fe_values.shape_grad(i, q_index) *
@@ -1134,9 +1136,9 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   //   Vector<double>                       lod_fine_rhs_cell(dofs_per_cell);
 
   const auto lexicographic_to_hierarchic_numbering =
-      FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
+    FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
 
-  
+
   for (const auto &cell : dh.active_cell_iterators())
     {
       if (cell->is_locally_owned())
@@ -1176,36 +1178,40 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
             }
           */
           for (unsigned int c_1 = 0; c_1 < par.n_subdivisions; ++c_1)
-          for (unsigned int c_0 = 0; c_0 < par.n_subdivisions; ++c_0)
-            for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
-              for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
-              {
-                const unsigned int q_index =
-                            (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * par.n_subdivisions);
-
-                for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
-                  for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+            for (unsigned int c_0 = 0; c_0 < par.n_subdivisions; ++c_0)
+              for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
                   {
-                    const unsigned int i =
-                            lexicographic_to_hierarchic_numbering
-                              [(c_0 + i_0) + (c_1 + i_1) * (par.n_subdivisions + 1)];
+                    const unsigned int q_index =
+                      (c_0 * 2 + q_0) +
+                      (c_1 * 2 + q_1) * (2 * par.n_subdivisions);
 
-                    for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
-                      for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                    for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                      for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
                         {
-                          const unsigned int j =
+                          const unsigned int i =
                             lexicographic_to_hierarchic_numbering
-                              [(c_0 + j_0) + (c_1 + j_1) * (par.n_subdivisions + 1)];
+                              [(c_0 + i_0) +
+                               (c_1 + i_1) * (par.n_subdivisions + 1)];
 
-                          cell_matrix(i, j) +=
-                            (fe_values.shape_grad(i, q_index) *
-                             fe_values.shape_grad(j, q_index) *
-                             fe_values.JxW(q_index));
+                          for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                            for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                              {
+                                const unsigned int j =
+                                  lexicographic_to_hierarchic_numbering
+                                    [(c_0 + j_0) +
+                                     (c_1 + j_1) * (par.n_subdivisions + 1)];
+
+                                cell_matrix(i, j) +=
+                                  (fe_values.shape_grad(i, q_index) *
+                                   fe_values.shape_grad(j, q_index) *
+                                   fe_values.JxW(q_index));
+                              }
+                          cell_rhs(i) += fe_values.shape_value(i, q_index) *
+                                         rhs_values[q_index] *
+                                         fe_values.JxW(q_index);
                         }
-                    cell_rhs(i) += fe_values.shape_value(i, q_index) * rhs_values[q_index] *
-                                 fe_values.JxW(q_index);
                   }
-              }
 
 
           cell->get_dof_indices(local_dof_indices);
@@ -1226,7 +1232,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
     }
   fem_stiffness_matrix.compress(VectorOperation::add);
   fem_rhs.compress(VectorOperation::add);
-  
+
   // MappingQ1<dim> mapping;
   // Vector<double> fem_rhs_temp(fem_rhs.size());
   // MatrixCreator::create_laplace_matrix<dim, dim>(
@@ -1246,16 +1252,20 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   // solve
   LA::MPI::PreconditionAMG prec_Sh;
   prec_Sh.initialize(fem_stiffness_matrix, 1.2);
+  //
+  // const auto Sh    = linear_operator<LA::MPI::Vector>(fem_stiffness_matrix);
+  // auto       invSh = Sh;
+  //
+  // const auto amg = linear_operator(Sh, prec_Sh);
+  //
+  // SolverCG<LA::MPI::Vector> cg_stiffness(par.fine_solver_control);
+  // invSh = inverse_operator(Sh, cg_stiffness, amg);
+  //
+  // fem_solution = invSh * fem_rhs;
 
-  const auto Sh    = linear_operator<LA::MPI::Vector>(fem_stiffness_matrix);
-  auto       invSh = Sh;
+  SolverCG<LA::MPI::Vector> solver(par.fine_solver_control);
+  solver.solve(fem_stiffness_matrix, fem_solution, fem_rhs, prec_Sh);
 
-  const auto amg = linear_operator(Sh, prec_Sh);
-
-  SolverCG<LA::MPI::Vector> cg_stiffness(par.fine_solver_control);
-  invSh = inverse_operator(Sh, cg_stiffness, amg);
-
-  fem_solution = invSh * fem_rhs;
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
 
