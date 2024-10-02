@@ -702,8 +702,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                Vector<double> &                   dst,
                                const std::vector<Vector<double>> &candidates) {
         unsigned int N_other_phis = candidates.size() - 1;
-        if (N_other_phis > 0 &&
-            (N_other_phis > current_patch->contained_patches))
+        if (N_other_phis > 0 
+            // && (N_other_phis > current_patch->contained_patches)
+            )
           {
             FullMatrix<double> B(Ndofs_fine, N_other_phis);
 
@@ -727,34 +728,26 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             LAPACKFullMatrix<double> SVD(N_other_phis, N_other_phis);
             SVD = BTB;
             SVD.compute_inverse_svd();
-            // for (unsigned int k = 0; k < current_patch->contained_patches; ++k)
-            //   {
-            //     SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
-            //   }
-            // SVD.grow_or_shrink(N_other_phis);
-
-            // FullMatrix<double> Matrix_rhs(SVD.m(),Ndofs_coarse - 1);
-            // LAPACKFullMatrix<double> Blapack(Ndofs_fine, Ndofs_coarse - 1);
-            // Blapack = B;
-            // VectorType
-            // SVD.mTmult(Matrix_rhs, Blapack);
-            // Matrix_rhs.vmult(d_i, B_0);
+            
             VectorType BTB_0(N_other_phis);
             B.Tvmult(BTB_0, B_0);
-            // BTB_0.grow_or_shrink(considered_candidates);
-            // while (something less value)
-            {
-              // SVD.vmult(d_i, BTB_0);
-              // change something//
-            }
 
             unsigned int considered_candidates = SVD.m();
-            Assert((N_other_phis - current_patch->contained_patches == SVD.n()),
-                   ExcInternalError());
-            Assert(considered_candidates == SVD.n(), ExcInternalError());
+            // Assert((N_other_phis - current_patch->contained_patches == SVD.n()),
+            //        ExcInternalError());
+            // Assert(considered_candidates == SVD.n(), ExcInternalError());
 
             VectorType d_i(considered_candidates);
             d_i = 0;
+            
+            while (d_i.linfty_norm() < 0.5 && considered_candidates > 1)
+            {
+              SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
+              considered_candidates = SVD.m();
+              d_i.reinit(considered_candidates);
+              BTB_0.grow_or_shrink(BTB_0.size() - 1);
+              SVD.vmult(d_i, BTB_0);
+            }
 
             dst = candidates[0];
             for (unsigned int index = 0; index < considered_candidates; ++index)
