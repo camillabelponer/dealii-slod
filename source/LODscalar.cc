@@ -120,6 +120,8 @@ LOD<dim, spacedim>::create_patches()
   std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
   size_t size_biggest_patch = 0;
   size_t size_tiniest_patch = tria.n_active_cells();
+  if (false)
+  {
   for (const auto &cell : dof_handler_coarse.active_cell_iterators())
     {
       auto cell_index = cell->active_cell_index();
@@ -175,6 +177,80 @@ LOD<dim, spacedim>::create_patches()
         size_tiniest_patch = std::min(size_tiniest_patch, patch->cells.size());
       }
     }
+  }
+  else
+  {
+
+    double H = pow(0.5, par.n_global_refinements);
+    unsigned int N_cells_per_line = (int)1/H;
+    std::vector<typename DoFHandler<dim>::active_cell_iterator> ordered_cells;
+    ordered_cells.resize(tria.n_active_cells());
+    std::vector<std::vector<unsigned int>> cells_in_patch;
+    cells_in_patch.resize(tria.n_active_cells());
+
+    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+    {
+      const double x = cell->barycenter()(0);
+      const double y = cell->barycenter()(1);
+
+      // const unsigned int x_i = (int)floor(x/H);
+      // const unsigned int y_i = (int)floor(y/H);
+      const unsigned int vector_cell_index = (int)floor(x/H) + N_cells_per_line*(int)floor(y/H);
+
+      //const unsigned int vector_cell_index = coordinates_to_index(x, y);
+
+      // std::cout << cell->barycenter() //<< " " << (int)floor(x/H) << " " << (int)floor(y/H) << " resulting index " << cell_index << std::endl;
+      ordered_cells[vector_cell_index] = cell;
+
+      std::vector<unsigned int> connected_indeces;
+      // connected_indeces.push_back(vector_cell_index);
+
+      for(int l_row = -par.oversampling; l_row <= static_cast<int>(par.oversampling); ++l_row)
+      {
+        double x_j = x + l_row * H;
+        if (x_j > 0 && x_j < 1) // domain borders
+        {
+          for(int l_col = -par.oversampling; l_col <= static_cast<int>(par.oversampling); ++l_col)
+          {
+            const double y_j = y + l_col * H;
+            if (y_j > 0 && y_j < 1)
+            {
+              const unsigned int vector_cell_index_j = (int)floor(x_j/H) + N_cells_per_line*(int)floor(y_j/H);
+              connected_indeces.push_back(vector_cell_index_j);
+            }
+
+          }
+        }
+      }
+
+      cells_in_patch[vector_cell_index] = connected_indeces;
+    }
+
+    // now looping and creating the patches
+    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+    {
+      const auto vector_cell_index = (int)floor(cell->barycenter()(0)/H) + N_cells_per_line*(int)floor(cell->barycenter()(1)/H);
+      auto cell_index = cell->active_cell_index();
+      {
+
+        auto patch = &patches.emplace_back();
+
+        // patch->cells.push_back(cell);
+        // patches_pattern.add(cell_index, cell_index);
+        for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
+          {
+            auto & cell_to_add = ordered_cells[neighbour_ordered_index];
+            patch->cells.push_back(cell_to_add);
+            patches_pattern.add(cell_index, cell_to_add->active_cell_index());
+            auto cell_fine = cell_to_add->as_dof_handler_iterator(
+                              dof_handler_fine);
+            cell_fine->get_dof_indices(fine_dofs);
+            patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
+          }
+      }
+    }
+    }
+
 
   DynamicSparsityPattern global_sparsity_pattern;
   global_sparsity_pattern.compute_mmult_pattern(patches_pattern,
