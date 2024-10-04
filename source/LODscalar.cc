@@ -342,7 +342,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   //   create_bool_dof_mask(*fe_fine, *quadrature_fine);
 
   // we are assuming mesh to be created as hyper_cube l 83
-  double H = 1 / 2^(par.n_global_refinements); // dh_fine_patch.begin_active()->minimum_vertex_distance();
+  double H = pow(0.5, par.n_global_refinements);; // dh_fine_patch.begin_active()->minimum_vertex_distance();
   double h = H / (par.n_subdivisions);
 
   // create projection matrix from fine to coarse cell (DG)
