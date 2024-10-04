@@ -73,6 +73,28 @@ LOD<dim, spacedim>::make_fe()
   patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
                               dof_handler_fine.n_dofs(),
                               locally_relevant_dofs);
+
+  //Table<2, bool> 
+  bool_dof_mask =
+    create_bool_dof_mask(*fe_fine, *quadrature_fine);
+  // MPI: instead of having every processor compute it we could just comunicate it
+
+  unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
+  for (unsigned int i = 0; i < dofs_per_cell; ++i)
+  {
+    std::vector<unsigned int> col_i;
+    for (unsigned int j = 0; j < dofs_per_cell; ++j)
+    {
+      if (bool_dof_mask(i,j))
+      {
+        col_i.push_back(j);
+      }
+    }
+    connected_fine_cell_dofs.push_back(col_i);
+  } // do this with indexset instead ?
+
+  // quadrature_dofs_map = create_quadrature_dofs_map(*fe_fine, *quadrature_fine);
+
 }
 
 template <int dim, int spacedim>
@@ -705,18 +727,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             LAPACKFullMatrix<double> SVD(N_other_phis, N_other_phis);
             SVD = BTB;
             SVD.compute_inverse_svd();
-            for (unsigned int k = 0; k < current_patch->contained_patches; ++k)
-              {
-                SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
-              }
+            // for (unsigned int k = 0; k < current_patch->contained_patches; ++k)
+            //   {
+            //     SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
+            //   }
             // SVD.grow_or_shrink(N_other_phis);
-            unsigned int considered_candidates = SVD.m();
-            Assert((N_other_phis - current_patch->contained_patches == SVD.n()),
-                   ExcInternalError());
-            Assert(considered_candidates == SVD.n(), ExcInternalError());
-
-            VectorType d_i(considered_candidates);
-            d_i = 0;
 
             // FullMatrix<double> Matrix_rhs(SVD.m(),Ndofs_coarse - 1);
             // LAPACKFullMatrix<double> Blapack(Ndofs_fine, Ndofs_coarse - 1);
@@ -726,8 +741,20 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             // Matrix_rhs.vmult(d_i, B_0);
             VectorType BTB_0(N_other_phis);
             B.Tvmult(BTB_0, B_0);
-            BTB_0.grow_or_shrink(considered_candidates);
-            SVD.vmult(d_i, BTB_0);
+            // BTB_0.grow_or_shrink(considered_candidates);
+            // while (something less value)
+            {
+              // SVD.vmult(d_i, BTB_0);
+              // change something//
+            }
+
+            unsigned int considered_candidates = SVD.m();
+            Assert((N_other_phis - current_patch->contained_patches == SVD.n()),
+                   ExcInternalError());
+            Assert(considered_candidates == SVD.n(), ExcInternalError());
+
+            VectorType d_i(considered_candidates);
+            d_i = 0;
 
             dst = candidates[0];
             for (unsigned int index = 0; index < considered_candidates; ++index)
@@ -860,10 +887,11 @@ LOD<dim, spacedim>::assemble_global_matrix()
   // auto     lod = dh_fine_current_patch.locally_owned_dofs();
   // TODO: for mpi should not allocate all cols and rows->create partitioning
   // like we do for global_stiffness_matrix.reinit(..)
-  basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
-                      patches_pattern_fine.nonempty_cols(),
-                      patches_pattern_fine,
-                      mpi_communicator);
+  
+  // basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
+  //                     patches_pattern_fine.nonempty_cols(),
+  //                     patches_pattern_fine,
+  //                     mpi_communicator);
 
   // if we don't want to use the operator to compute the global_stiffnes matrix
   // as a multiplication then we need the transpose of the patches_pattern_fine
@@ -891,7 +919,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
       patches_pattern_fine,
       mpi_communicator);
   */
-  basis_matrix               = 0.0;
+  // basis_matrix               = 0.0;
   premultiplied_basis_matrix = 0.0;
   basis_matrix_transposed    = 0.0;
   system_rhs.reinit(patches_pattern_fine.nonempty_rows(), mpi_communicator);
@@ -920,10 +948,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
           iterator_to_cell_in_current_patch->get_dof_values(
             current_patch->basis_function[0], phi_loc);
           AssertDimension(global_dofs.size(), phi_loc.size());
-          basis_matrix.set(current_patch_id,
-                           phi_loc.size(),
-                           global_dofs.data(),
-                           phi_loc.data());
+          // basis_matrix.set(current_patch_id,
+          //                  phi_loc.size(),
+          //                  global_dofs.data(),
+          //                  phi_loc.data());
           for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
             {
               basis_matrix_transposed.set(global_dofs.data()[idx],
@@ -949,12 +977,11 @@ LOD<dim, spacedim>::assemble_global_matrix()
             }
         }
     }
-  basis_matrix.compress(VectorOperation::insert);
+  // basis_matrix.compress(VectorOperation::insert);
   premultiplied_basis_matrix.compress(VectorOperation::insert);
   basis_matrix_transposed.compress(VectorOperation::insert);
 
   // basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix);
-
 
   //  global_stiffness_matrix.compress(VectorOperation::add);
 }
@@ -1032,7 +1059,6 @@ LOD<dim, spacedim>::assemble_stiffness_for_patch( // Patch<dim> & current_patch,
                              fe_values.JxW(q_index));
                         }
 
-
         cell->get_dof_indices(local_dof_indices);
         local_stiffnes_constraints.distribute_local_to_global(cell_matrix,
                                                               local_dof_indices,
@@ -1051,8 +1077,8 @@ LOD<dim, spacedim>::solve()
   LA::MPI::PreconditionAMG prec_A;
   prec_A.initialize(global_stiffness_matrix, 1.2);
 
-  const auto C = linear_operator<LA::MPI::Vector>(basis_matrix);
-
+  const auto CT = linear_operator<LA::MPI::Vector>(basis_matrix_transposed);
+  const auto C = transpose_operator(CT);
   // const auto AM =
   // linear_operator<LA::MPI::Vector>(premultiplied_basis_matrix);
   // const auto AMT = transpose_operator(AM);
@@ -1290,8 +1316,10 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
   // global_stiffness_matrix.print(std::cout);
 
   LA::MPI::SparseMatrix A_lod_temp;
-  basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
-  A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
+  fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
+  basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
+  // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
+  // A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
   global_stiffness_matrix.compress(VectorOperation::add);
 }
 

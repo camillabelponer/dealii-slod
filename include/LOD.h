@@ -226,6 +226,11 @@ private:
   IndexSet locally_owned_patches;
   IndexSet locally_owned_dofs;
   IndexSet locally_relevant_dofs;
+
+  Table<2, bool> bool_dof_mask;
+
+  std::vector<std::vector<unsigned int>> connected_fine_cell_dofs;
+  std::vector<std::vector<unsigned int>> quadrature_dofs_map;
 };
 
 

@@ -174,6 +174,34 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
   return bool_dof_mask;
 };
 
+template <int dim>
+std::vector<std::vector<unsigned int>>
+create_quadrature_dofs_map(const FiniteElement<dim> &fe,
+                     const Quadrature<dim> &   quadrature)
+{
+    std::vector<std::vector<unsigned int>> map;
+
+    MappingQ1<dim> mapping;
+    FEValues<dim>  fe_values(mapping, fe, quadrature, update_values | update_gradients);
+
+    Triangulation<dim> tria;
+    GridGenerator::hyper_cube(tria);
+
+    fe_values.reinit(tria.begin());
+    for (unsigned int q = 0; q < quadrature.size(); ++q)
+    {
+      std::vector<unsigned int> dofs_of_q;
+      for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+        {
+          if (fe_values.shape_grad(i, q).norm() != 0)
+            dofs_of_q.push_back(i);
+        }
+      map.push_back(dofs_of_q);
+    }
+
+  return map;
+};
+
 
 namespace dealii::TrilinosWrappers
 {
