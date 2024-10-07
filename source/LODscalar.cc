@@ -120,136 +120,66 @@ LOD<dim, spacedim>::create_patches()
   std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
   size_t size_biggest_patch = 0;
   size_t size_tiniest_patch = tria.n_active_cells();
-  if (false)
-  {
-  for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    {
-      auto cell_index = cell->active_cell_index();
-      {
-        // for each cell we create its patch and add it to the global vector
-        // of patches
-        auto patch = &patches.emplace_back();
-        patch_iterators.clear();
-        patch_iterators.push_back(cell);
 
-        // The iterators for level l are in the range [l_start, l_end) of
-        // patch_iterators
-        unsigned int l_start = 0;
-        unsigned int l_end   = 1;
-        patch->cells.push_back(cell);
-        // patch->cell_indices.set_size(tria.n_active_cells());
-        patches_pattern.add(cell_index, cell_index);
-        auto cell_fine = cell->as_dof_handler_iterator(dof_handler_fine);
-        cell_fine->get_dof_indices(fine_dofs);
-        patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
-        for (unsigned int l = 1; l <= par.oversampling; l++)
+      for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+        {
+          auto cell_index = cell->active_cell_index();
           {
-            for (unsigned int i = l_start; i < l_end; i++)
+            // for each cell we create its patch and add it to the global vector
+            // of patches
+            auto patch = &patches.emplace_back();
+            patch_iterators.clear();
+            patch_iterators.push_back(cell);
+
+            // The iterators for level l are in the range [l_start, l_end) of
+            // patch_iterators
+            unsigned int l_start = 0;
+            unsigned int l_end   = 1;
+            patch->cells.push_back(cell);
+            // patch->cell_indices.set_size(tria.n_active_cells());
+            patches_pattern.add(cell_index, cell_index);
+            auto cell_fine = cell->as_dof_handler_iterator(dof_handler_fine);
+            cell_fine->get_dof_indices(fine_dofs);
+            patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
+            for (unsigned int l = 1; l <= par.oversampling; l++)
               {
-                AssertIndexRange(i, patch_iterators.size());
-                for (auto ver : patch_iterators[i]->vertex_indices())
+                for (unsigned int i = l_start; i < l_end; i++)
                   {
-                    auto vertex = patch_iterators[i]->vertex_index(ver);
-                    for (const auto &neighbour :
-                         GridTools::find_cells_adjacent_to_vertex(
-                           dof_handler_coarse, vertex))
+                    AssertIndexRange(i, patch_iterators.size());
+                    for (auto ver : patch_iterators[i]->vertex_indices())
                       {
-                        if (!patches_pattern.exists(
-                              cell_index, neighbour->active_cell_index()))
+                        auto vertex = patch_iterators[i]->vertex_index(ver);
+                        for (const auto &neighbour :
+                             GridTools::find_cells_adjacent_to_vertex(
+                               dof_handler_coarse, vertex))
                           {
-                            patch_iterators.push_back(neighbour);
-                            patches_pattern.add(cell_index,
-                                                neighbour->active_cell_index());
-                            auto cell_fine = neighbour->as_dof_handler_iterator(
-                              dof_handler_fine);
-                            cell_fine->get_dof_indices(fine_dofs);
-                            patches_pattern_fine.add_row_entries(cell_index,
-                                                                 fine_dofs);
-                            patch->cells.push_back(neighbour);
+                            if (!patches_pattern.exists(
+                                  cell_index, neighbour->active_cell_index()))
+                              {
+                                patch_iterators.push_back(neighbour);
+                                patches_pattern.add(
+                                  cell_index, neighbour->active_cell_index());
+                                auto cell_fine =
+                                  neighbour->as_dof_handler_iterator(
+                                    dof_handler_fine);
+                                cell_fine->get_dof_indices(fine_dofs);
+                                patches_pattern_fine.add_row_entries(cell_index,
+                                                                     fine_dofs);
+                                patch->cells.push_back(neighbour);
+                              }
                           }
                       }
                   }
+                l_start = l_end;
+                l_end   = patch_iterators.size();
               }
-            l_start = l_end;
-            l_end   = patch_iterators.size();
-          }
-        size_biggest_patch = std::max(size_biggest_patch, patch->cells.size());
-        size_tiniest_patch = std::min(size_tiniest_patch, patch->cells.size());
-      }
-    }
-  }
-  else
-  {
-
-    double H = pow(0.5, par.n_global_refinements);
-    unsigned int N_cells_per_line = (int)1/H;
-    std::vector<typename DoFHandler<dim>::active_cell_iterator> ordered_cells;
-    ordered_cells.resize(tria.n_active_cells());
-    std::vector<std::vector<unsigned int>> cells_in_patch;
-    cells_in_patch.resize(tria.n_active_cells());
-
-    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    {
-      const double x = cell->barycenter()(0);
-      const double y = cell->barycenter()(1);
-
-      // const unsigned int x_i = (int)floor(x/H);
-      // const unsigned int y_i = (int)floor(y/H);
-      const unsigned int vector_cell_index = (int)floor(x/H) + N_cells_per_line*(int)floor(y/H);
-
-      //const unsigned int vector_cell_index = coordinates_to_index(x, y);
-
-      // std::cout << cell->barycenter() //<< " " << (int)floor(x/H) << " " << (int)floor(y/H) << " resulting index " << cell_index << std::endl;
-      ordered_cells[vector_cell_index] = cell;
-
-      std::vector<unsigned int> connected_indeces;
-      // connected_indeces.push_back(vector_cell_index);
-
-      for(int l_row = -par.oversampling; l_row <= static_cast<int>(par.oversampling); ++l_row)
-      {
-        double x_j = x + l_row * H;
-        if (x_j > 0 && x_j < 1) // domain borders
-        {
-          for(int l_col = -par.oversampling; l_col <= static_cast<int>(par.oversampling); ++l_col)
-          {
-            const double y_j = y + l_col * H;
-            if (y_j > 0 && y_j < 1)
-            {
-              const unsigned int vector_cell_index_j = (int)floor(x_j/H) + N_cells_per_line*(int)floor(y_j/H);
-              connected_indeces.push_back(vector_cell_index_j);
-            }
-
+            size_biggest_patch =
+              std::max(size_biggest_patch, patch->cells.size());
+            size_tiniest_patch =
+              std::min(size_tiniest_patch, patch->cells.size());
           }
         }
-      }
-
-      cells_in_patch[vector_cell_index] = connected_indeces;
-    }
-
-    // now looping and creating the patches
-    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    {
-      const auto vector_cell_index = (int)floor(cell->barycenter()(0)/H) + N_cells_per_line*(int)floor(cell->barycenter()(1)/H);
-      auto cell_index = cell->active_cell_index();
-      {
-
-        auto patch = &patches.emplace_back();
-
-        // patch->cells.push_back(cell);
-        // patches_pattern.add(cell_index, cell_index);
-        for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
-          {
-            auto & cell_to_add = ordered_cells[neighbour_ordered_index];
-            patch->cells.push_back(cell_to_add);
-            patches_pattern.add(cell_index, cell_to_add->active_cell_index());
-            auto cell_fine = cell_to_add->as_dof_handler_iterator(
-                              dof_handler_fine);
-            cell_fine->get_dof_indices(fine_dofs);
-            patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
-          }
-      }
-    }
-    }
+    
 
 
   DynamicSparsityPattern global_sparsity_pattern;
@@ -406,8 +336,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
   // need reinit in loop
   // LA::MPI::SparseMatrix
+  // SparseMatrix<double>
   TrilinosWrappers::SparseMatrix patch_stiffness_matrix;
-  AffineConstraints<double>      internal_boundary_constraints;
+  AffineConstraints<double> internal_boundary_constraints;
   // AffineConstraints<double> local_stiffnes_constraints;
 
   // TODO: use internal and local constraints to take care fo the boundary of
@@ -415,17 +346,18 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // set to zero so they are treated as one together
 
   Table<2, bool> bool_dof_mask =
-    create_bool_dof_mask_Q_iso_Q1(*fe_fine, *quadrature_fine, par.n_subdivisions);
+    create_bool_dof_mask_Q_iso_Q1(*fe_fine,
+                                  *quadrature_fine,
+                                  par.n_subdivisions);
 
   // we are assuming mesh to be created as hyper_cube l 83
-  double H = pow(0.5, par.n_global_refinements);; // dh_fine_patch.begin_active()->minimum_vertex_distance();
+  double H = pow(0.5, par.n_global_refinements); 
   double h = H / (par.n_subdivisions);
 
   // create projection matrix from fine to coarse cell (DG)
   FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
                                        fe_fine->n_dofs_per_cell());
-  // FETools::get_projection_matrix(*fe_fine, *fe_coarse,
-  // projection_matrix);
+  // FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   projection_P0_P1<dim>(projection_matrix);
   projection_matrix *= (h * h / 4);
   // this could be done via tensor product
@@ -459,18 +391,20 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "compute basis function 3: sparsity pattern");
+      SparsityPattern sparsity_pattern(Ndofs_fine, Ndofs_fine);
 
       if (false)
         {
           // option 2
           IndexSet relevant_dofs;
-          DoFTools::extract_locally_active_dofs(dh_fine_patch, relevant_dofs);
-          DynamicSparsityPattern sparsity_pattern(relevant_dofs);
+          DoFTools::extract_locally_active_dofs(dh_fine_patch,relevant_dofs); 
+          DynamicSparsityPattern
+          sparsity_pattern(relevant_dofs);
 
           DoFTools::make_sparsity_pattern(dh_fine_patch,
                                           sparsity_pattern,
                                           internal_boundary_constraints,
-                                          true);
+                                          false);
           patch_stiffness_matrix.clear();
           patch_stiffness_matrix.reinit(sparsity_pattern);
         }
@@ -482,8 +416,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // it can be slower for small par.n_subdivisions or small
           // par.oversampling
 
-          TrilinosWrappers::SparsityPattern sparsity_pattern(Ndofs_fine,
-                                                             Ndofs_fine);
+          // TrilinosWrappers::
+          // SparsityPattern sparsity_pattern(Ndofs_fine, Ndofs_fine);
 
           std::vector<types::global_dof_index> dofs_on_this_cell;
 
@@ -496,7 +430,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                 cell->get_dof_indices(dofs_on_this_cell);
 
                 internal_boundary_constraints.add_entries_local_to_global(
-                  dofs_on_this_cell, sparsity_pattern, true, bool_dof_mask);
+                  dofs_on_this_cell,
+                  sparsity_pattern,
+                  true,
+                  bool_dof_mask); // keep constrained entries must be true
               }
 
           sparsity_pattern.compress();
@@ -529,7 +466,18 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             //  local_stiffnes_constraints);
             internal_boundary_constraints);
         }
+      //         patch_stiffness_matrix.print(std::cout);
+      //         std::map<types::global_dof_index, double> boundary_values;
+      //     VectorTools::interpolate_boundary_values(dh_fine_patch,
+      //                                              0,
+      //                                              Functions::ZeroFunction<dim,
+      //                                              double>(spacedim),
+      //                                              boundary_values);
+      //         Vector<double> temp(patch_stiffness_matrix.m());
+      //         MatrixTools::apply_boundary_values 	(boundary_values,
+      // patch_stiffness_matrix, temp, temp, true);
 
+      //         patch_stiffness_matrix.print(std::cout);
       // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
       // auto Ainv = A;
 
@@ -770,7 +718,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           unsigned int       considered_candidates = Ndofs_coarse - 1;
           const unsigned int N_boundary_dofs       = boundary_dofs.size();
-          ;
 
           FullMatrix<double>       S_boundary(N_boundary_dofs, Ndofs_fine);
           FullMatrix<double>       PT_boundary(N_boundary_dofs, Ndofs_coarse);
@@ -780,7 +727,65 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           FullMatrix<double>       BDTBD(Ndofs_coarse, Ndofs_coarse);
           LAPACKFullMatrix<double> SVD(Ndofs_coarse, Ndofs_coarse);
 
-          S_boundary.extract_submatrix_from(patch_stiffness_matrix,
+
+          TrilinosWrappers::SparseMatrix patch_stiffness_matrix_2;
+          patch_stiffness_matrix_2.reinit(sparsity_pattern);
+
+          {
+            //  TimerOutput::Scope t(computing_timer,
+            //            "compute basis functions: Assemble patch stiffness");
+            patch_stiffness_matrix_2 = 0;
+            FEValues<dim> fe_values(
+              *fe_fine,
+              *quadrature_fine,
+              update_values | update_gradients |
+                /*  update_quadrature_points | */ update_JxW_values);
+
+            const unsigned int dofs_per_cell = fe_fine->n_dofs_per_cell();
+            const unsigned int boundary_dofs_per_cell =
+              4 * par.n_subdivisions; // we know they are the first because of
+                                      // hierarchical numbering
+            const unsigned int n_q_points = quadrature_fine->size();
+            FullMatrix<double> cell_matrix(boundary_dofs_per_cell,
+                                           dofs_per_cell);
+            // std::vector<Tensor<spacedim, dim>> grad_phi_u(dofs_per_cell);
+            std::vector<types::global_dof_index> local_dof_indices(
+              dofs_per_cell);
+
+
+            for (const auto &cell : dh_fine_patch.active_cell_iterators())
+              if (cell->is_locally_owned() && cell->at_boundary())
+                {
+                  cell_matrix = 0;
+                  fe_values.reinit(cell);
+                  for (unsigned int q = 0; q < n_q_points; ++q)
+                    {
+                      for (unsigned int i = 0; i < boundary_dofs_per_cell; ++i)
+                        {
+                          for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                            {
+                              cell_matrix(i, j) +=
+                                scalar_product(fe_values.shape_grad(i, q),
+                                               fe_values.shape_grad(j, q)) *
+                                fe_values.JxW(q);
+                            }
+                        }
+                    }
+
+
+                  cell->get_dof_indices(local_dof_indices);
+
+                  // for (const unsigned int i : fe_values.dof_indices())
+                  for (unsigned int i = 0; i < boundary_dofs_per_cell; ++i)
+                    for (const unsigned int j : fe_values.dof_indices())
+                      patch_stiffness_matrix_2.add(local_dof_indices[i],
+                                                   local_dof_indices[j],
+                                                   cell_matrix(i, j));
+                }
+            patch_stiffness_matrix_2.compress(VectorOperation::add);
+          }
+
+          S_boundary.extract_submatrix_from(patch_stiffness_matrix_2,
                                             boundary_dofs,
                                             all_dofs_fine);
           PT_boundary.extract_submatrix_from(PT,
@@ -792,17 +797,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           PT_boundary.mmult(BD, P_Ainv_PT, true);
           BD.Tmmult(BDTBD, BD);
 
-          SVD.copy_from(BDTBD);
-
-          SVD.remove_row_and_column(0, 0);
-
-          // VectorType B_d0(N_boundary_dofs);
           VectorType DeT(Ndofs_coarse);
           e_i    = 0.0;
           e_i[0] = 1.0;
           P_Ainv_PT.vmult(DeT, e_i);
-          // S_boundary.vmult(B_d0, DeT);
-          // PT_boundary.vmult(B_d0, e_i, true);
 
           VectorType                B_d0(N_boundary_dofs);
           std::vector<unsigned int> boundary_dofs_fine(all_dofs_fine.begin(),
@@ -812,8 +810,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           for (unsigned int i = 0; i < considered_candidates; ++i)
             other_phi.push_back(i + 1);
           B.extract_submatrix_from(B_full, boundary_dofs_fine, other_phi);
+          for (auto i : boundary_dofs_fine)
+            B_d0[i] = B_full(i, 0);
 
-          SVD.compute_inverse_svd();
           VectorType d_i(considered_candidates);
           VectorType BDTBD0(considered_candidates);
           d_i    = 0;
@@ -822,10 +821,15 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           FullMatrix<double> newBD(N_boundary_dofs, considered_candidates);
 
           newBD.extract_submatrix_from(BD, boundary_dofs_fine, other_phi);
+
           newBD.Tvmult(BDTBD0, B_d0);
+
+          SVD.copy_from(BDTBD);
+          SVD.remove_row_and_column(0, 0);
+          SVD.compute_inverse_svd();
           SVD.vmult(d_i, BDTBD0);
 
-          while (d_i.linfty_norm() < 0.5 && considered_candidates > 2)
+          while (d_i.linfty_norm() < 0.5 && considered_candidates >= 2)
             {
               SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
               considered_candidates = SVD.m();
@@ -837,9 +841,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               SVD.vmult(d_i, BDTBD0);
             }
 
+
           c_i = DeT;
           d_i *= -1;
-          for (unsigned int index = 0; index < considered_candidates; ++index)
+          for (unsigned int index = 1; index < considered_candidates; ++index)
             {
               e_i        = 0.0;
               e_i[index] = 1.0;
@@ -850,6 +855,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             }
 
           Ainv_PT.vmult(selected_basis_function, c_i);
+          selected_basis_function /= selected_basis_function.l2_norm();
         }
 
       current_patch->basis_function.push_back(selected_basis_function);
