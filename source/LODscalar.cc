@@ -668,7 +668,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       Vector<double>          selected_basis_function(Ndofs_fine);
 
 
-      // if (!par.LOD_stabilization)
+      if (!par.LOD_stabilization)
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: non stabilizaziona & assignemnt");
@@ -686,11 +686,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // selected_basis_function /= selected_basis_function.l2_norm();
 
           // selected_basis_function = c_i;
-          std::cout << "LOD candidate" << std::endl;
-          selected_basis_function.print(std::cout);
+          // std::cout << "LOD candidate" << std::endl;
+          // selected_basis_function.print(std::cout);
           computing_timer.leave_subsection();
         }
-      // else // SLOD
+      else // SLOD
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: stabilizaziona & assignemnt: setup");
@@ -831,8 +831,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           c_i = DeT;
           d_i *= -1;
 
-          std::cout << "coefficients d_i" << std::endl;
-          d_i.print(std::cout);
+          // std::cout << "coefficients d_i" << std::endl;
+          // d_i.print(std::cout);
           for (unsigned int index = 1; index < considered_candidates; ++index)
             {
               e_i        = 0.0;
@@ -847,8 +847,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           // selected_basis_function /= selected_basis_function.l2_norm();
 
-          std::cout << "SLOD candidate" << std::endl;
-          selected_basis_function.print(std::cout);
+          // std::cout << "SLOD candidate" << std::endl;
+          // selected_basis_function.print(std::cout);
           computing_timer.leave_subsection();
         }
 
