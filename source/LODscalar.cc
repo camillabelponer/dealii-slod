@@ -846,8 +846,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           AssertDimension(U.m(), SVD.n());
           AssertDimension(U.m(), considered_candidates);
 
-
-
           bool corrected = false;
 
           for (int i = (considered_candidates - 1); i >= 0; --i)
@@ -872,6 +870,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
               d_i += correction;
             }
+            if (corrected)
+              std::cout << d_i.linfty_norm() << std::endl;
 
           c_i = DeT;
 
