@@ -74,10 +74,9 @@ LOD<dim, spacedim>::make_fe()
                               dof_handler_fine.n_dofs(),
                               locally_relevant_dofs);
 
-  bool_dof_mask =
-    create_bool_dof_mask_Q_iso_Q1(*fe_fine,
-                                  *quadrature_fine,
-                                  par.n_subdivisions);
+  bool_dof_mask = create_bool_dof_mask_Q_iso_Q1(*fe_fine,
+                                                *quadrature_fine,
+                                                par.n_subdivisions);
   // MPI: instead of having every processor compute it we could just comunicate
   // it
 }
@@ -99,7 +98,7 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::create_patches()
 {
-  TimerOutput::Scope t(computing_timer, "1: Create Patches");
+  TimerOutput::Scope        t(computing_timer, "1: Create Patches");
   std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
 
   // Queue for patches for which neighbours should be added
@@ -323,6 +322,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // SparseMatrix<double>
   TrilinosWrappers::SparseMatrix patch_stiffness_matrix;
   AffineConstraints<double>      internal_boundary_constraints;
+  AffineConstraints<double>      empty_boundary_constraints;
+  empty_boundary_constraints.close();
   // AffineConstraints<double> local_stiffnes_constraints;
 
   // TODO: use internal and local constraints to take care fo the boundary of
@@ -341,14 +342,15 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // create projection matrix from fine to coarse cell (DG)
   FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
                                        fe_fine->n_dofs_per_cell());
-  // FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
+  //FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   projection_P0_P1<dim>(projection_matrix);
   projection_matrix *= (h * h / 4);
   // this could be done via tensor product
   computing_timer.leave_subsection();
   for (auto current_patch_id : locally_owned_patches)
     {
-      computing_timer.enter_subsection("2: compute basis function 1: patch setup");
+      computing_timer.enter_subsection(
+        "2: compute basis function 1: patch setup");
 
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
@@ -366,7 +368,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
 
       computing_timer.leave_subsection();
-      computing_timer.enter_subsection("2: compute basis function 2: constraints");
+      computing_timer.enter_subsection(
+        "2: compute basis function 2: constraints");
       internal_boundary_constraints.clear();
       DoFTools::make_zero_boundary_constraints(dh_fine_patch,
                                                0,
@@ -400,16 +403,17 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // par.oversampling
 
           // TrilinosWrappers::
-          //SparsityPattern patch_sparsity_pattern(Ndofs_fine, Ndofs_fine);
+          // SparsityPattern patch_sparsity_pattern(Ndofs_fine, Ndofs_fine);
 
-          std::vector<types::global_dof_index> dofs_on_this_cell;
+          std::vector<types::global_dof_index> dofs_on_this_cell(
+            fe_fine->n_dofs_per_cell());
 
           for (const auto &cell : dh_fine_patch.active_cell_iterators())
             if (cell->is_locally_owned())
               {
-                const unsigned int dofs_per_cell =
-                  cell->get_fe().n_dofs_per_cell();
-                dofs_on_this_cell.resize(dofs_per_cell);
+                // const unsigned int dofs_per_cell =
+                //   cell->get_fe().n_dofs_per_cell();
+                // dofs_on_this_cell.resize(dofs_per_cell);
                 cell->get_dof_indices(dofs_on_this_cell);
 
                 internal_boundary_constraints.add_entries_local_to_global(
@@ -426,7 +430,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
 
       computing_timer.leave_subsection();
-      computing_timer.enter_subsection("2: compute basis function 4: stiffness");
+      computing_timer.enter_subsection(
+        "2: compute basis function 4: stiffness");
 
 
       if (false)
@@ -444,11 +449,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       else
         {
           LA::MPI::Vector dummy;
-          assemble_stiffness(
-            patch_stiffness_matrix,
-            dummy,
-            dh_fine_patch,
-            internal_boundary_constraints);
+          assemble_stiffness(patch_stiffness_matrix,
+                             dummy,
+                             dh_fine_patch,
+                             internal_boundary_constraints);
         }
       //         patch_stiffness_matrix.print(std::cout);
       //         std::map<types::global_dof_index, double> boundary_values;
@@ -559,7 +563,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // where e_i is the indicator function of the patch
 
       computing_timer.leave_subsection();
-      computing_timer.enter_subsection("2: compute basis function 5a: projection");
+      computing_timer.enter_subsection(
+        "2: compute basis function 5a: projection");
 
       VectorType P_e_i(Ndofs_fine);
       VectorType e_i(Ndofs_coarse); // reused also as temporary vector
@@ -683,7 +688,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
 
           Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
-          // selected_basis_function /= selected_basis_function.l2_norm();
+          selected_basis_function /= selected_basis_function.l2_norm();
 
           // selected_basis_function = c_i;
           // std::cout << "LOD candidate" << std::endl;
@@ -693,34 +698,44 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       else // SLOD
         {
           computing_timer.enter_subsection(
-            "2: compute basis function 7: stabilizaziona & assignemnt: setup");
+            "2: compute basis function 7: stabilizazion: setup");
           IndexSet boundary_dofs_set =
             DoFTools::extract_boundary_dofs(dh_fine_patch);
-          std::vector<unsigned int> boundary_dofs;
-          boundary_dofs_set.fill_index_vector(boundary_dofs);
+
+          std::vector<unsigned int> boundary_dofs_fine;
+          boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+
+          std::vector<unsigned int> internal_dofs_fine;
           std::vector<unsigned int> all_dofs_fine;
           // TODO : change, this is ugly
           for (unsigned int i = 0; i < Ndofs_fine; ++i)
-            all_dofs_fine.push_back(i);
+            {
+              all_dofs_fine.push_back(i);
+              if (!boundary_dofs_set.is_element(i))
+                internal_dofs_fine.push_back(i);
+            }
           std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
                                                     all_dofs_fine.begin() +
                                                       Ndofs_coarse);
 
           unsigned int       considered_candidates = Ndofs_coarse - 1;
-          const unsigned int N_boundary_dofs       = boundary_dofs.size();
+          const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+          const unsigned int N_internal_dofs       = internal_dofs_fine.size();
 
-          FullMatrix<double> S_boundary(N_boundary_dofs, Ndofs_fine);
-          // SparseMatrix<double>     S_boundary(sparsity_pattern);
-          FullMatrix<double>       PT_boundary(N_boundary_dofs, Ndofs_coarse);
-          FullMatrix<double>       BD(N_boundary_dofs, Ndofs_coarse);
-          FullMatrix<double>       B_full(N_boundary_dofs, Ndofs_coarse);
-          FullMatrix<double>       B(N_boundary_dofs, considered_candidates);
-          FullMatrix<double>       BDTBD(Ndofs_coarse, Ndofs_coarse);
-          LAPACKFullMatrix<double> SVD(Ndofs_coarse, Ndofs_coarse);
+          FullMatrix<double> S_boundary(N_boundary_dofs, N_internal_dofs);
+          FullMatrix<double> PT_boundary(N_boundary_dofs, Ndofs_coarse);
+          FullMatrix<double> BD(N_boundary_dofs, Ndofs_coarse);
+          FullMatrix<double> B_full(N_boundary_dofs, Ndofs_coarse);
+          // FullMatrix<double>       B(N_boundary_dofs, considered_candidates);
+          // FullMatrix<double>       BDTBD(Ndofs_coarse, Ndofs_coarse);
+          FullMatrix<double>       BDTBD(considered_candidates,
+                                   considered_candidates);
+          LAPACKFullMatrix<double> SVD(considered_candidates,
+                                       considered_candidates);
 
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
-            "2: compute basis function 7b: non stabilizaziona & assignemnt:stiffness_assembly");
+            "2: compute basis function 7b: stabilizazion:stiffness_assembly");
           TrilinosWrappers::SparseMatrix patch_stiffness_matrix_2;
           patch_stiffness_matrix_2.reinit(patch_sparsity_pattern);
           AffineConstraints<double> empty_constraint;
@@ -734,34 +749,57 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
-            "2: ompute basis function 7b: non stabilizaziona & assignemnt: extraction and othersetup");
+            "2: ompute basis function 7b: stabilizazion: extraction and othersetup");
           S_boundary.extract_submatrix_from(patch_stiffness_matrix_2,
-                                            boundary_dofs,
-                                            all_dofs_fine);
+                                            boundary_dofs_fine,
+                                            internal_dofs_fine);
+          // all_dofs_fine);
+          //   if (false) // use sparse amtrix // mmutl does not work for spase
+          //   with two full ones
+          //   {
+          //   SparsityPattern sp;
+          //   sp.copy_from(S_boundary);
+          //   SparseMatrix<double> S_boundary_sparse;
+          //   S_boundary_sparse.reinit(sp);
+          //   S_boundary_sparse.copy_from(S_boundary);
+
+          //   S_boundary_sparse.mmult(B_full, Ainv_PT);
+          // }
+          // else
+
+          FullMatrix<double> Ainv_PT_s(N_internal_dofs, Ndofs_coarse);
+          Ainv_PT_s.extract_submatrix_from(Ainv_PT,
+                                           internal_dofs_fine,
+                                           all_dofs_coarse);
+          S_boundary.mmult(B_full, Ainv_PT_s);
           PT_boundary.extract_submatrix_from(PT,
-                                             boundary_dofs,
+                                             boundary_dofs_fine,
                                              all_dofs_coarse);
-          PT_boundary *= -1;
-          S_boundary.mmult(B_full, Ainv_PT);
+          // PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
+
           PT_boundary.mmult(BD, P_Ainv_PT, true);
-          BD.Tmmult(BDTBD, BD);
+
+          // BD.Tmmult(BDTBD, BD);
 
           VectorType DeT(Ndofs_coarse);
           e_i    = 0.0;
           e_i[0] = 1.0;
           P_Ainv_PT.vmult(DeT, e_i);
 
-          VectorType                B_d0(N_boundary_dofs);
-          std::vector<unsigned int> boundary_dofs_fine(all_dofs_fine.begin(),
-                                                       all_dofs_fine.begin() +
-                                                         N_boundary_dofs);
+          VectorType B_d0(N_boundary_dofs);
+
           std::vector<unsigned int> other_phi;
           for (unsigned int i = 0; i < considered_candidates; ++i)
             other_phi.push_back(i + 1);
-          B.extract_submatrix_from(B_full, boundary_dofs_fine, other_phi);
-          for (auto i : boundary_dofs_fine)
-            B_d0[i] = B_full(i, 0);
+
+          std::vector<unsigned int> temp;
+          for (unsigned int i = 0; i < N_boundary_dofs; ++i)
+            {
+              B_d0[i] = B_full(i, 0); // BD(i, 0);
+              temp.push_back(i);
+            }
+          // B.extract_submatrix_from(B_full, temp, other_phi);
 
           VectorType d_i(considered_candidates);
           VectorType BDTBD0(considered_candidates);
@@ -770,20 +808,35 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           FullMatrix<double> newBD(N_boundary_dofs, considered_candidates);
 
-          newBD.extract_submatrix_from(BD, boundary_dofs_fine, other_phi);
+          newBD.extract_submatrix_from(BD, temp, other_phi);
+
+          newBD.Tmmult(BDTBD, newBD);
 
           newBD.Tvmult(BDTBD0, B_d0);
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
-            "compute basis function 7c: non stabilizaziona & assignemnt:correction and svd");
+            "compute basis function 7c: stabilizazion:correction and svd");
           SVD.copy_from(BDTBD);
-          SVD.remove_row_and_column(0, 0);
-          SVD.compute_inverse_svd();
-          SVD.vmult(d_i, BDTBD0);
 
-          // SVD.compute_eigenvalues(true, true);
+          // SVD.compute_inverse_svd();
+          SVD.compute_svd();
+
+          Assert(SVD.m() == considered_candidates, ExcNotImplemented());
+          Assert(SVD.n() == considered_candidates, ExcNotImplemented());
+
           auto U  = SVD.get_svd_u();
           auto Vt = SVD.get_svd_vt();
+          FullMatrix<double> Sigma_minus1(considered_candidates);
+          for (unsigned int i = 0; i < considered_candidates; ++i)
+            Sigma_minus1(i,i) = (1/SVD.singular_value(i));
+
+          //SVD.vmult(d_i, BDTBD0); // not sure if this is working after compute_inverse_svd, so we compute_svd and do it manually
+          VectorType tt(considered_candidates);
+          VectorType tt1(considered_candidates);
+          U.Tvmult(tt, BDTBD0);
+          Sigma_minus1.vmult(tt1, tt);
+          Vt.Tvmult(d_i, tt1);
+          d_i *= -1;
 
           AssertDimension(SVD.m(), SVD.n());
           AssertDimension(U.m(), U.n());
@@ -793,50 +846,38 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           AssertDimension(U.m(), considered_candidates);
 
 
-          for (unsigned int i = SVD.m(); i > 0; --i)
+
+          bool corrected = false;
+
+          for (int i = (considered_candidates - 1); i >= 0; --i)
             {
               if (d_i.linfty_norm() < 0.5)
                 break;
-
+              corrected = true;
               VectorType u(considered_candidates);
               VectorType v(considered_candidates);
-              for (auto j : all_dofs_coarse)
+              // for (auto j : all_dofs_coarse)
+              for (unsigned int j = 0; j < considered_candidates; ++j)
                 {
-                  u[j] = U(j, i);
-                  v[j] = Vt(i, j); // ??
+                  u[j] = U(i, j);
+                  v[j] = Vt(j, i); // ??
                 }
               FullMatrix<double> vuT(considered_candidates,
                                      considered_candidates);
               vuT.outer_product(v, u);
               VectorType correction(d_i.size());
               vuT.vmult(correction, BDTBD0);
-              correction /= SVD.singular_value(i);
+              correction *= Sigma_minus1(i,i); //SVD.singular_value(i);
 
               d_i += correction;
             }
 
-          // while (d_i.linfty_norm() < 0.5 && considered_candidates >= 2)
-          //   {
-          //     SVD.remove_row_and_column(SVD.m() - 1, SVD.n() - 1);
-          //     considered_candidates = SVD.m();
-          //     d_i.reinit(considered_candidates);
-          //     BDTBD0.grow_or_shrink(BDTBD0.size() - 1);
-
-          //     d_i = 0;
-
-          //     SVD.vmult(d_i, BDTBD0);
-          //   }
-
-
           c_i = DeT;
-          d_i *= -1;
 
-          // std::cout << "coefficients d_i" << std::endl;
-          // d_i.print(std::cout);
-          for (unsigned int index = 1; index < considered_candidates; ++index)
+          for (unsigned int index = 0; index < considered_candidates; ++index)
             {
-              e_i        = 0.0;
-              e_i[index] = 1.0;
+              e_i            = 0.0;
+              e_i[index + 1] = 1.0;
 
               P_Ainv_PT.vmult(DeT, e_i);
 
@@ -845,7 +886,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           Ainv_PT.vmult(selected_basis_function, c_i);
 
-          // selected_basis_function /= selected_basis_function.l2_norm();
+          selected_basis_function /= selected_basis_function.l2_norm();
 
           // std::cout << "SLOD candidate" << std::endl;
           // selected_basis_function.print(std::cout);
@@ -1199,7 +1240,7 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 {
-  TimerOutput::Scope t(computing_timer, "4: Solve fine FEM");
+  TimerOutput::Scope t(computing_timer, "4: assemble & Solve fine FEM");
 
   const auto &dh = dof_handler_fine;
 
@@ -1209,52 +1250,55 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 
   // create sparsity pattern fr global fine matrix
   AffineConstraints<double> fem_constraints(locally_relevant_dofs);
-  // DoFTools::make_hanging_node_constraints(dh, fem_constraints); // not needed with global refinemnt
+  // DoFTools::make_hanging_node_constraints(dh, fem_constraints); // not needed
+  // with global refinemnt
   VectorTools::interpolate_boundary_values(dh, 0, par.bc, fem_constraints);
   fem_constraints.close();
 
-    LA::MPI::SparseMatrix fem_stiffness_matrix;
+  LA::MPI::SparseMatrix fem_stiffness_matrix;
 
   if (true)
-  {
-  DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
-  DoFTools::make_sparsity_pattern(dh, sparsity_pattern, fem_constraints, false);
-  SparsityTools::distribute_sparsity_pattern(sparsity_pattern,
-                                             locally_owned_dofs,
-                                             mpi_communicator,
-                                             locally_relevant_dofs);
+    {
+      DynamicSparsityPattern sparsity_pattern(locally_relevant_dofs);
+      DoFTools::make_sparsity_pattern(dh,
+                                      sparsity_pattern,
+                                      fem_constraints,
+                                      false);
+      SparsityTools::distribute_sparsity_pattern(sparsity_pattern,
+                                                 locally_owned_dofs,
+                                                 mpi_communicator,
+                                                 locally_relevant_dofs);
 
 
 
-  fem_stiffness_matrix.reinit(locally_owned_dofs,
-                              locally_owned_dofs,
-                              sparsity_pattern,
-                              mpi_communicator);
-  }
+      fem_stiffness_matrix.reinit(locally_owned_dofs,
+                                  locally_owned_dofs,
+                                  sparsity_pattern,
+                                  mpi_communicator);
+    }
   else
-  {
-    SparsityPattern sparsity_pattern(dh.n_dofs(), dh.n_dofs());
+    {
+      SparsityPattern sparsity_pattern(dh.n_dofs(), dh.n_dofs());
 
-          std::vector<types::global_dof_index> dofs_on_this_cell;
+      std::vector<types::global_dof_index> dofs_on_this_cell;
 
-          for (const auto &cell : dh.active_cell_iterators())
-            if (cell->is_locally_owned())
-              {
-                const unsigned int dofs_per_cell =
-                  cell->get_fe().n_dofs_per_cell();
-                dofs_on_this_cell.resize(dofs_per_cell);
-                cell->get_dof_indices(dofs_on_this_cell);
+      for (const auto &cell : dh.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            const unsigned int dofs_per_cell = cell->get_fe().n_dofs_per_cell();
+            dofs_on_this_cell.resize(dofs_per_cell);
+            cell->get_dof_indices(dofs_on_this_cell);
 
-                fem_constraints.add_entries_local_to_global(
-                  dofs_on_this_cell,
-                  sparsity_pattern,
-                  true,
-                  bool_dof_mask); // keep constrained entries must be true
-              }
+            fem_constraints.add_entries_local_to_global(
+              dofs_on_this_cell,
+              sparsity_pattern,
+              true,
+              bool_dof_mask); // keep constrained entries must be true
+          }
 
-          sparsity_pattern.compress();
-          fem_stiffness_matrix.reinit(sparsity_pattern);
-  }
+      sparsity_pattern.compress();
+      fem_stiffness_matrix.reinit(sparsity_pattern);
+    }
   fem_rhs.reinit(locally_owned_dofs, mpi_communicator);
   fem_solution.reinit(locally_owned_dofs, mpi_communicator);
 
@@ -1489,7 +1533,10 @@ LOD<dim, spacedim>::run()
       // par.convergence_table_LOD.output_table(pcout.get_stream());
       // pcout << "FEM vs exact solution (fine mesh)" << std::endl;
       // par.convergence_table_FEM.output_table(pcout.get_stream());
-      pcout << "LOD vs FEM (fine mesh)" << std::endl;
+      if (!par.LOD_stabilization)
+        pcout << "LOD vs FEM (fine mesh)" << std::endl;
+      else
+        pcout << "SLOD vs FEM (fine mesh)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());
     }
 }
