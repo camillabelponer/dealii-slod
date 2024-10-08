@@ -796,7 +796,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           std::vector<unsigned int> temp;
           for (unsigned int i = 0; i < N_boundary_dofs; ++i)
             {
-              B_d0[i] = B_full(i, 0); // BD(i, 0);
+              B_d0[i] = BD(i, 0);// B_full(i, 0); // BD(i, 0);
               temp.push_back(i);
             }
           // B.extract_submatrix_from(B_full, temp, other_phi);
