@@ -103,54 +103,57 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
                               const Quadrature<dim> &   quadrature,
                               unsigned int              n_subdivisions)
 {
-  const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe, const auto n_subdivisions) {
-    Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
-    MappingQ1<dim> mapping;
-    FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
+  const auto compute_scalar_bool_dof_mask =
+    [&quadrature](const auto &fe, const auto n_subdivisions) {
+      Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
+      MappingQ1<dim> mapping;
+      FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
 
-    Triangulation<dim> tria;
-    GridGenerator::hyper_cube(tria);
+      Triangulation<dim> tria;
+      GridGenerator::hyper_cube(tria);
 
-    fe_values.reinit(tria.begin());
+      fe_values.reinit(tria.begin());
 
-    const auto lexicographic_to_hierarchic_numbering =
-    FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
+      const auto lexicographic_to_hierarchic_numbering =
+        FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
 
-    for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
-      for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
+      for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
+        for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
 
-        for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
-          for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
-            {
-              const unsigned int i =
-                lexicographic_to_hierarchic_numbering[(c_0 + i_0) +
-                                                      (c_1 + i_1) *
-                                                        (n_subdivisions + 1)];
+          for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+            for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+              {
+                const unsigned int i =
+                  lexicographic_to_hierarchic_numbering[(c_0 + i_0) +
+                                                        (c_1 + i_1) *
+                                                          (n_subdivisions + 1)];
 
-              for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
-                for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
-                  {
-                    const unsigned int j = lexicographic_to_hierarchic_numbering
-                      [(c_0 + j_0) + (c_1 + j_1) * (n_subdivisions + 1)];
+                for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                  for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                    {
+                      const unsigned int j =
+                        lexicographic_to_hierarchic_numbering
+                          [(c_0 + j_0) + (c_1 + j_1) * (n_subdivisions + 1)];
 
-                    double sum = 0;
+                      double sum = 0;
 
-                    for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
-                      for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
-                        {
-                          const unsigned int q_index =
-                            (c_0 * 2 + q_0) +
-                            (c_1 * 2 + q_1) * (2 * n_subdivisions);
+                      for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                        for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                          {
+                            const unsigned int q_index =
+                              (c_0 * 2 + q_0) +
+                              (c_1 * 2 + q_1) * (2 * n_subdivisions);
 
-                          sum += fe_values.shape_value(i, q_index) * fe_values.shape_value(j, q_index);
-                        }
-                    if (sum != 0)
-                      bool_dof_mask(i, j) = true;
-                  }
-            }
+                            sum += fe_values.shape_value(i, q_index) *
+                                   fe_values.shape_value(j, q_index);
+                          }
+                      if (sum != 0)
+                        bool_dof_mask(i, j) = true;
+                    }
+              }
 
-    return bool_dof_mask;
-  };
+      return bool_dof_mask;
+    };
 
   Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
 
@@ -177,18 +180,21 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
 template <int dim>
 std::vector<std::vector<unsigned int>>
 create_quadrature_dofs_map(const FiniteElement<dim> &fe,
-                     const Quadrature<dim> &   quadrature)
+                           const Quadrature<dim> &   quadrature)
 {
-    std::vector<std::vector<unsigned int>> map;
+  std::vector<std::vector<unsigned int>> map;
 
-    MappingQ1<dim> mapping;
-    FEValues<dim>  fe_values(mapping, fe, quadrature, update_values | update_gradients);
+  MappingQ1<dim> mapping;
+  FEValues<dim>  fe_values(mapping,
+                          fe,
+                          quadrature,
+                          update_values | update_gradients);
 
-    Triangulation<dim> tria;
-    GridGenerator::hyper_cube(tria);
+  Triangulation<dim> tria;
+  GridGenerator::hyper_cube(tria);
 
-    fe_values.reinit(tria.begin());
-    for (unsigned int q = 0; q < quadrature.size(); ++q)
+  fe_values.reinit(tria.begin());
+  for (unsigned int q = 0; q < quadrature.size(); ++q)
     {
       std::vector<unsigned int> dofs_of_q;
       for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
@@ -201,6 +207,29 @@ create_quadrature_dofs_map(const FiniteElement<dim> &fe,
 
   return map;
 };
+
+template <int dim>
+void
+extend_vector_to_boundary_values(Vector<double> &        vector_in,
+                                 const DoFHandler<dim> & dh,
+                                 Vector<double> &        vector_out)
+{
+  IndexSet boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
+
+  AssertDimension(boundary_dofs_set.n_elements(), vector_in.size());
+
+  unsigned int in_index = 0;
+  for (unsigned int out_index = 0; out_index < vector_out.size(); ++out_index)
+    {
+      if (boundary_dofs_set.is_element(out_index))
+        {
+          vector_out[out_index] = vector_in[in_index];
+          in_index++;
+        }
+      else
+        vector_out[out_index] = 0.0;
+    }
+}
 
 
 namespace dealii::TrilinosWrappers

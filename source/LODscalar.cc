@@ -342,7 +342,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // create projection matrix from fine to coarse cell (DG)
   FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
                                        fe_fine->n_dofs_per_cell());
-  //FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
+  // FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   projection_P0_P1<dim>(projection_matrix);
   projection_matrix *= (h * h / 4);
   // this could be done via tensor product
@@ -767,11 +767,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // }
           // else
 
-          FullMatrix<double> Ainv_PT_s(N_internal_dofs, Ndofs_coarse);
-          Ainv_PT_s.extract_submatrix_from(Ainv_PT,
-                                           internal_dofs_fine,
-                                           all_dofs_coarse);
-          S_boundary.mmult(B_full, Ainv_PT_s);
+          FullMatrix<double> Ainv_PT_restricted(N_internal_dofs, Ndofs_coarse);
+          Ainv_PT_restricted.extract_submatrix_from(Ainv_PT,
+                                                    internal_dofs_fine,
+                                                    all_dofs_coarse);
+          S_boundary.mmult(B_full, Ainv_PT_restricted);
           PT_boundary.extract_submatrix_from(PT,
                                              boundary_dofs_fine,
                                              all_dofs_coarse);
@@ -824,13 +824,14 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           Assert(SVD.m() == considered_candidates, ExcNotImplemented());
           Assert(SVD.n() == considered_candidates, ExcNotImplemented());
 
-          auto U  = SVD.get_svd_u();
-          auto Vt = SVD.get_svd_vt();
+          auto               U  = SVD.get_svd_u();
+          auto               Vt = SVD.get_svd_vt();
           FullMatrix<double> Sigma_minus1(considered_candidates);
           for (unsigned int i = 0; i < considered_candidates; ++i)
-            Sigma_minus1(i,i) = (1/SVD.singular_value(i));
+            Sigma_minus1(i, i) = (1 / SVD.singular_value(i));
 
-          //SVD.vmult(d_i, BDTBD0); // not sure if this is working after compute_inverse_svd, so we compute_svd and do it manually
+          // SVD.vmult(d_i, BDTBD0); // not sure if this is working after
+          // compute_inverse_svd, so we compute_svd and do it manually
           VectorType tt(considered_candidates);
           VectorType tt1(considered_candidates);
           U.Tvmult(tt, BDTBD0);
@@ -867,7 +868,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               vuT.outer_product(v, u);
               VectorType correction(d_i.size());
               vuT.vmult(correction, BDTBD0);
-              correction *= Sigma_minus1(i,i); //SVD.singular_value(i);
+              correction *= Sigma_minus1(i, i); // SVD.singular_value(i);
 
               d_i += correction;
             }
