@@ -196,14 +196,9 @@ LOD<dim, spacedim>::create_patches()
       // const unsigned int x_i = (int)floor(x/H);
       // const unsigned int y_i = (int)floor(y/H);
       const unsigned int vector_cell_index = (int)floor(x/H) + N_cells_per_line*(int)floor(y/H);
-
-      //const unsigned int vector_cell_index = coordinates_to_index(x, y);
-
-      // std::cout << cell->barycenter() //<< " " << (int)floor(x/H) << " " << (int)floor(y/H) << " resulting index " << cell_index << std::endl;
       ordered_cells[vector_cell_index] = cell;
 
       std::vector<unsigned int> connected_indeces;
-      // connected_indeces.push_back(vector_cell_index);
 
       for(int l_row = -par.oversampling; l_row <= static_cast<int>(par.oversampling); ++l_row)
       {
@@ -235,8 +230,7 @@ LOD<dim, spacedim>::create_patches()
 
         auto patch = &patches.emplace_back();
 
-        // patch->cells.push_back(cell);
-        // patches_pattern.add(cell_index, cell_index);
+
         for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
           {
             auto & cell_to_add = ordered_cells[neighbour_ordered_index];
@@ -247,6 +241,9 @@ LOD<dim, spacedim>::create_patches()
             cell_fine->get_dof_indices(fine_dofs);
             patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
           }
+
+      size_biggest_patch = std::max(size_biggest_patch, patch->cells.size());
+      size_tiniest_patch = std::min(size_tiniest_patch, patch->cells.size());
       }
     }
     }

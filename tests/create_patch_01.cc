@@ -95,7 +95,7 @@ main(int argc, char **argv)
 
   // create_patches();
 
-  if (true) // 71.54s for ref 5 oversampling 4 (if printing with first option)
+  if (false) // 71.54s for ref 5 oversampling 4 (if printing with first option)
   {
       // Queue for patches for which neighbours should be added
 
@@ -204,7 +204,7 @@ main(int argc, char **argv)
 
         auto patch = &patches.emplace_back();
 
-        patch->cells.push_back(cell);
+        //patch->cells.push_back(cell);
         patches_pattern.add(cell_index, cell_index);
         for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
           {
@@ -216,7 +216,7 @@ main(int argc, char **argv)
 
   }
 
-if(true) // option 1
+if(false) // option 1
     {
       std::cout << "printing the sparsity pattern: [global_cell_id] = (#){cells}"
            << std::endl;
@@ -234,18 +234,13 @@ if(true) // option 1
           std::cout << "}" << std::endl;
         }
     }
-    else // option 2
+    else // option 2 // does not work because thery are differently ordered
     {
-    std::cout << "printing the vector cells: [patch index] = {cells coords}"<< std::endl;
+    std::cout << "printing the vector cells: [patch index] = {# cells}"<< std::endl;
 for (unsigned int i = 0; i < patches.size(); ++i)
         {
           auto & patch = patches[i];
-          std::cout << "- " << i << ": {";
-          for (unsigned int j = 0; j < patch.cells.size(); j++)
-            {
-              std::cout << "(" << patch.cells[j]->barycenter() << ") ";
-            }
-          std::cout << "}" << std::endl;
+          std::cout << "- " << i << ": {" << patch.cells.size() << "}" << std::endl;
         }
 
     }
