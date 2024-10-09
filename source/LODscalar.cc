@@ -163,7 +163,6 @@ LOD<dim, spacedim>::create_patches()
     }
 
 
-
   DynamicSparsityPattern global_sparsity_pattern;
   global_sparsity_pattern.compute_mmult_pattern(patches_pattern,
                                                 patches_pattern);
@@ -775,7 +774,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           PT_boundary.extract_submatrix_from(PT,
                                              boundary_dofs_fine,
                                              all_dofs_coarse);
-          // PT_boundary *= -1;
+          PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
 
           PT_boundary.mmult(BD, P_Ainv_PT, true);
@@ -830,13 +829,13 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           for (unsigned int i = 0; i < considered_candidates; ++i)
             Sigma_minus1(i, i) = (1 / SVD.singular_value(i));
 
-          SVD.vmult(d_i, BDTBD0); // not sure if this is working after
+          // SVD.vmult(d_i, BDTBD0); // not sure if this is working after
           // compute_inverse_svd, so we compute_svd and do it manually
-          // VectorType tt(considered_candidates);
-          // VectorType tt1(considered_candidates);
-          // U.Tvmult(tt, BDTBD0);
-          // Sigma_minus1.vmult(tt1, tt);
-          // Vt.Tvmult(d_i, tt1);
+          VectorType tt(considered_candidates);
+          VectorType tt1(considered_candidates);
+          U.Tvmult(tt, BDTBD0);
+          Sigma_minus1.vmult(tt1, tt);
+          Vt.Tvmult(d_i, tt1);
           d_i *= -1;
 
           AssertDimension(SVD.m(), SVD.n());
@@ -866,8 +865,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               vuT.outer_product(v, u);
               VectorType correction(d_i.size());
               vuT.vmult(correction, BDTBD0);
-              correction *= // Sigma_minus1(i, i); // 
-              SVD.singular_value(i);
+              correction *= Sigma_minus1(i, i); // 
+              // SVD.singular_value(i);
 
               d_i += correction;
             }
@@ -1541,6 +1540,7 @@ LOD<dim, spacedim>::run()
         pcout << "SLOD vs FEM (fine mesh)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());
     }
+    
 }
 
 
