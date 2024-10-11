@@ -20,3 +20,7 @@ oldcode_untracked/
 *.vtu
 *.pvd
 prm/
+*/.project
+*/.cproject
+.project
+.cproject

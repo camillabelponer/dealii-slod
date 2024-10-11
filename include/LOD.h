@@ -189,10 +189,10 @@ private:
   void
   check_nested_patches(); // AFTER PATCHES ARE CREATED
   void
-  assemble_stiffness_for_patch(
-    LA::MPI::SparseMatrix /*<double>*/ &stiffness_matrix,
-    const DoFHandler<dim> &             dh,
-    AffineConstraints<double> &         local_stiffnes_constraints);
+  assemble_stiffness(LA::MPI::SparseMatrix /*<double>*/ &stiffness_matrix,
+                     LA::MPI::Vector &                   rhs,
+                     const DoFHandler<dim> &             dh,
+                     AffineConstraints<double> &         stiffnes_constraints);
 
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
