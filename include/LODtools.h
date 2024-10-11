@@ -210,18 +210,18 @@ create_quadrature_dofs_map(const FiniteElement<dim> &fe,
 
 template <int dim>
 void
-extend_vector_to_boundary_values(Vector<double> &        vector_in,
-                                 const DoFHandler<dim> & dh,
-                                 Vector<double> &        vector_out)
+extend_vector_to_boundary_values(Vector<double> &       vector_in,
+                                 const DoFHandler<dim> &dh,
+                                 Vector<double> &       vector_out)
 {
   AssertDimension(dh.n_dofs(), vector_out.size());
 
   if (vector_in.size() == vector_out.size())
-  {
-    vector_out = vector_in;
-    return;
-  }
-  
+    {
+      vector_out = vector_in;
+      return;
+    }
+
   IndexSet boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
 
   AssertDimension(boundary_dofs_set.n_elements(), vector_in.size());

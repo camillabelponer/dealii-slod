@@ -162,7 +162,6 @@ LOD<dim, spacedim>::create_patches()
       }
     }
 
-
   DynamicSparsityPattern global_sparsity_pattern;
   global_sparsity_pattern.compute_mmult_pattern(patches_pattern,
                                                 patches_pattern);
@@ -320,6 +319,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // LA::MPI::SparseMatrix
   // SparseMatrix<double>
   TrilinosWrappers::SparseMatrix patch_stiffness_matrix;
+  TrilinosWrappers::SparseMatrix unconstrained_patch_stiffness_matrix;
   AffineConstraints<double>      internal_boundary_constraints;
   AffineConstraints<double>      empty_boundary_constraints;
   empty_boundary_constraints.close();
@@ -365,6 +365,29 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       auto Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
+
+      IndexSet boundary_dofs_set =
+        DoFTools::extract_boundary_dofs(dh_fine_patch);
+
+      std::vector<unsigned int> boundary_dofs_fine;
+      boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+
+      std::vector<unsigned int> internal_dofs_fine;
+      std::vector<unsigned int> all_dofs_fine;
+      // TODO : change, this is ugly
+      for (unsigned int i = 0; i < Ndofs_fine; ++i)
+        {
+          all_dofs_fine.push_back(i);
+          if (!boundary_dofs_set.is_element(i))
+            internal_dofs_fine.push_back(i);
+        }
+      std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
+                                                all_dofs_fine.begin() +
+                                                  Ndofs_coarse);
+
+      unsigned int       considered_candidates = Ndofs_coarse - 1;
+      const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+      const unsigned int N_internal_dofs       = internal_dofs_fine.size();
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -453,16 +476,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                              dh_fine_patch,
                              internal_boundary_constraints);
         }
-      //         patch_stiffness_matrix.print(std::cout);
-      //         std::map<types::global_dof_index, double> boundary_values;
-      //     VectorTools::interpolate_boundary_values(dh_fine_patch,
-      //                                              0,
-      //                                              Functions::ZeroFunction<dim,
-      //                                              double>(spacedim),
-      //                                              boundary_values);
-      //         Vector<double> temp(patch_stiffness_matrix.m());
-      //         MatrixTools::apply_boundary_values 	(boundary_values,
-      // patch_stiffness_matrix, temp, temp, true);
 
       //         patch_stiffness_matrix.print(std::cout);
       // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
@@ -646,7 +659,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             } // substituted by gauss elimination
         }
 
-
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5b: gauss_elimination");
@@ -679,7 +691,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // if we are not stabilizing then we only take the first candiadates
           // 0 is the index of the central cell
           // (this is also the central dof because we use P0 elements)
-          // c_i                    = 0.0;
+
           e_i                    = 0.0;
           triple_product_inv_e_i = 0.0;
 
@@ -689,37 +701,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
           selected_basis_function /= selected_basis_function.l2_norm();
 
-          // selected_basis_function = c_i;
-          // std::cout << "LOD candidate" << std::endl;
-          // selected_basis_function.print(std::cout);
           computing_timer.leave_subsection();
         }
       else // SLOD
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: stabilizazion: setup");
-          IndexSet boundary_dofs_set =
-            DoFTools::extract_boundary_dofs(dh_fine_patch);
-
-          std::vector<unsigned int> boundary_dofs_fine;
-          boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
-
-          std::vector<unsigned int> internal_dofs_fine;
-          std::vector<unsigned int> all_dofs_fine;
-          // TODO : change, this is ugly
-          for (unsigned int i = 0; i < Ndofs_fine; ++i)
-            {
-              all_dofs_fine.push_back(i);
-              if (!boundary_dofs_set.is_element(i))
-                internal_dofs_fine.push_back(i);
-            }
-          std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
-                                                    all_dofs_fine.begin() +
-                                                      Ndofs_coarse);
-
-          unsigned int       considered_candidates = Ndofs_coarse - 1;
-          const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
-          const unsigned int N_internal_dofs       = internal_dofs_fine.size();
 
           FullMatrix<double> S_boundary(N_boundary_dofs, N_internal_dofs);
           FullMatrix<double> PT_boundary(N_boundary_dofs, Ndofs_coarse);
@@ -735,23 +722,23 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
             "2: compute basis function 7b: stabilizazion:stiffness_assembly");
-          TrilinosWrappers::SparseMatrix patch_stiffness_matrix_2;
-          patch_stiffness_matrix_2.reinit(patch_sparsity_pattern);
+          unconstrained_patch_stiffness_matrix.clear();
+          unconstrained_patch_stiffness_matrix.reinit(patch_sparsity_pattern);
           AffineConstraints<double> empty_constraint;
           empty_constraint.close();
           LA::MPI::Vector dummy;
-          assemble_stiffness( // *current_patch,
-            patch_stiffness_matrix_2,
-            dummy,
-            dh_fine_patch,
-            empty_constraint);
+          assemble_stiffness(unconstrained_patch_stiffness_matrix,
+                             dummy,
+                             dh_fine_patch,
+                             empty_constraint);
 
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
             "2: ompute basis function 7b: stabilizazion: extraction and othersetup");
-          S_boundary.extract_submatrix_from(patch_stiffness_matrix_2,
-                                            boundary_dofs_fine,
-                                            internal_dofs_fine);
+          S_boundary.extract_submatrix_from(
+            unconstrained_patch_stiffness_matrix,
+            boundary_dofs_fine,
+            internal_dofs_fine);
           // all_dofs_fine);
           //   if (false) // use sparse amtrix // mmutl does not work for spase
           //   with two full ones
@@ -795,7 +782,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           std::vector<unsigned int> temp;
           for (unsigned int i = 0; i < N_boundary_dofs; ++i)
             {
-              B_d0[i] = BD(i, 0);// B_full(i, 0); // BD(i, 0);
+              B_d0[i] = BD(i, 0); // B_full(i, 0); // BD(i, 0);
               temp.push_back(i);
             }
           // B.extract_submatrix_from(B_full, temp, other_phi);
@@ -815,28 +802,34 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
             "compute basis function 7c: stabilizazion:correction and svd");
+
           SVD.copy_from(BDTBD);
 
-          // SVD.compute_inverse_svd();
-          SVD.compute_svd();
-
-          Assert(SVD.m() == considered_candidates, ExcNotImplemented());
-          Assert(SVD.n() == considered_candidates, ExcNotImplemented());
-
-          auto               U  = SVD.get_svd_u();
-          auto               Vt = SVD.get_svd_vt();
-          FullMatrix<double> Sigma_minus1(considered_candidates);
-          for (unsigned int i = 0; i < considered_candidates; ++i)
-            Sigma_minus1(i, i) = (1 / SVD.singular_value(i));
-
-          // SVD.vmult(d_i, BDTBD0); // not sure if this is working after
-          // compute_inverse_svd, so we compute_svd and do it manually
-          VectorType tt(considered_candidates);
-          VectorType tt1(considered_candidates);
-          U.Tvmult(tt, BDTBD0);
-          Sigma_minus1.vmult(tt1, tt);
-          Vt.Tvmult(d_i, tt1);
+          SVD.compute_inverse_svd(); // stores U V as normal, but
+                                     // 1/singular_value_i
+          d_i = 0.0;
+          SVD.vmult(d_i, BDTBD0);
           d_i *= -1;
+
+          // {
+          //           SVD.compute_svd();
+          //           auto               U  = SVD.get_svd_u();
+          //           auto               Vt = SVD.get_svd_vt();
+          //           FullMatrix<double> Sigma_minus1(considered_candidates);
+          //           for (unsigned int i = 0; i < considered_candidates; ++i)
+          //             Sigma_minus1(i, i) = (1 /
+          //             SVD_manual.singular_value(i));
+          //           d_i = 0;
+          //           VectorType tt(considered_candidates);
+          //           VectorType tt1(considered_candidates);
+          //           U.Tvmult(tt, BDTBD0);
+          //           Sigma_minus1.vmult(tt1, tt);
+          //           Vt.Tvmult(d_i, tt1);
+          //           d_i *=-1;
+          // } // equivalent to previous (same d_i as output)
+
+          auto U  = SVD.get_svd_u();
+          auto Vt = SVD.get_svd_vt();
 
           AssertDimension(SVD.m(), SVD.n());
           AssertDimension(U.m(), U.n());
@@ -852,26 +845,24 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               if (d_i.linfty_norm() < 0.5)
                 break;
               corrected = true;
-              VectorType u(considered_candidates);
+              VectorType uT(considered_candidates);
               VectorType v(considered_candidates);
               // for (auto j : all_dofs_coarse)
               for (unsigned int j = 0; j < considered_candidates; ++j)
                 {
-                  u[j] = U(i, j);
-                  v[j] = Vt(j, i); // ??
+                  uT[j] = U(j, i);
+                  v[j]  = Vt(i, j);
                 }
               FullMatrix<double> vuT(considered_candidates,
                                      considered_candidates);
-              vuT.outer_product(v, u);
+              vuT.outer_product(v, uT);
               VectorType correction(d_i.size());
               vuT.vmult(correction, BDTBD0);
-              correction *= Sigma_minus1(i, i); // 
-              // SVD.singular_value(i);
+              correction *= // Sigma_minus1(i, i); //
+                SVD.singular_value(i);
 
               d_i += correction;
             }
-            // if (corrected)
-            //   std::cout << d_i.linfty_norm() << std::endl;
 
           c_i = DeT;
 
@@ -1540,7 +1531,6 @@ LOD<dim, spacedim>::run()
         pcout << "SLOD vs FEM (fine mesh)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());
     }
-    
 }
 
 
