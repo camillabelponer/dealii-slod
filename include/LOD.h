@@ -79,7 +79,6 @@ public:
   std::vector<Vector<double>> basis_function;
   std::vector<Vector<double>> basis_function_premultiplied;
   unsigned int                contained_patches = 0;
-  unsigned int                patch_id;
 };
 
 

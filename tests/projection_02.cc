@@ -43,6 +43,43 @@ public:
 };
 
 
+template <int dim>
+void
+test()
+{
+  Triangulation<dim> square;
+
+  GridGenerator::hyper_cube(square);
+  square.refine_global(par.n_global_refinements);
+
+  FE_DGQ<dim>      fe1(0);
+  FE_Q_iso_Q1<dim> fe2(par.n_subdivisions);
+
+  DoFHandler<dim> dof_handler_1(square);
+  DoFHandler<dim> dof_handler_2(square);
+
+  dof_handler_1.distribute_dofs(fe1);
+  dof_handler_2.distribute_dofs(fe2);
+
+  std::cout << "number active cells: " << square.n_active_cells() << std::endl;
+
+  std::cout << "P0 number dofs per cell: " << fe1.n_dofs_per_cell()
+            << std::endl;
+  std::cout << "Q_iso number dofs per cell: " << fe2.n_dofs_per_cell()
+            << std::endl;
+
+  FullMatrix<double> projection_matrix(fe1.n_dofs_per_cell(),
+                                       fe2.n_dofs_per_cell());
+  FETools::get_projection_matrix(fe2, fe1, projection_matrix);
+
+  projection_matrix.print(std::cout);
+
+  projection_matrix = 0.0;
+  projection_P0_P1<dim>(projection_matrix);
+  projection_matrix.print(std::cout);
+}
+
+
 int
 main(int argc, char **argv)
 {

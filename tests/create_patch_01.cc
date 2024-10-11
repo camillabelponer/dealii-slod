@@ -20,10 +20,10 @@
 using namespace dealii;
 
 
-const unsigned int dim      = 2;
-const unsigned int spacedim = 1;
-unsigned int                     oversampling         = 4;
-unsigned int                     n_global_refinements = 5;
+const unsigned int dim                  = 2;
+const unsigned int spacedim             = 1;
+unsigned int       oversampling         = 4;
+unsigned int       n_global_refinements = 5;
 
 template <int dim>
 class MyPatch
@@ -45,15 +45,14 @@ public:
 unsigned int
 coordinates_to_index(double x, double y)
 {
-  double H = pow(0.5, n_global_refinements);
-  unsigned int N_cells_per_line = (int)1/H;
+  double       H                = pow(0.5, n_global_refinements);
+  unsigned int N_cells_per_line = (int)1 / H;
 
 
-      const unsigned int x_i = (int)floor(x/H);
-      const unsigned int y_i = (int)floor(y/H);
+  const unsigned int x_i = (int)floor(x / H);
+  const unsigned int y_i = (int)floor(y / H);
 
-  return x_i + N_cells_per_line*y_i;
-
+  return x_i + N_cells_per_line * y_i;
 }
 
 
@@ -96,137 +95,149 @@ main(int argc, char **argv)
   // create_patches();
 
   if (false) // 71.54s for ref 5 oversampling 4 (if printing with first option)
-  {
+    {
       // Queue for patches for which neighbours should be added
 
-      std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
-  for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    {
-      auto cell_index = cell->active_cell_index();
-      {
-        // for each cell we create its patch and add it to the global vector
-        // of patches
-        auto patch = &patches.emplace_back();
-        patch_iterators.clear();
-        patch_iterators.push_back(cell);
-
-        // The iterators for level l are in the range [l_start, l_end) of
-        // patch_iterators
-        unsigned int l_start = 0;
-        unsigned int l_end   = 1;
-        patch->cells.push_back(cell);
-        // patch->cell_indices.set_size(tria.n_active_cells());
-        patches_pattern.add(cell_index, cell_index);
-        for (unsigned int l = 1; l <= oversampling; l++)
+      std::vector<typename DoFHandler<dim>::active_cell_iterator>
+        patch_iterators;
+      for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+        {
+          auto cell_index = cell->active_cell_index();
           {
-            for (unsigned int i = l_start; i < l_end; i++)
+            // for each cell we create its patch and add it to the global vector
+            // of patches
+            auto patch = &patches.emplace_back();
+            patch_iterators.clear();
+            patch_iterators.push_back(cell);
+
+            // The iterators for level l are in the range [l_start, l_end) of
+            // patch_iterators
+            unsigned int l_start = 0;
+            unsigned int l_end   = 1;
+            patch->cells.push_back(cell);
+            // patch->cell_indices.set_size(tria.n_active_cells());
+            patches_pattern.add(cell_index, cell_index);
+            for (unsigned int l = 1; l <= oversampling; l++)
               {
-                AssertIndexRange(i, patch_iterators.size());
-                for (auto ver : patch_iterators[i]->vertex_indices())
+                for (unsigned int i = l_start; i < l_end; i++)
                   {
-                    auto vertex = patch_iterators[i]->vertex_index(ver);
-                    for (const auto &neighbour :
-                         GridTools::find_cells_adjacent_to_vertex(
-                           dof_handler_coarse, vertex))
+                    AssertIndexRange(i, patch_iterators.size());
+                    for (auto ver : patch_iterators[i]->vertex_indices())
                       {
-                        if (!patches_pattern.exists(
-                              cell_index, neighbour->active_cell_index()))
+                        auto vertex = patch_iterators[i]->vertex_index(ver);
+                        for (const auto &neighbour :
+                             GridTools::find_cells_adjacent_to_vertex(
+                               dof_handler_coarse, vertex))
                           {
-                            patch_iterators.push_back(neighbour);
-                            patches_pattern.add(cell_index,
-                                                neighbour->active_cell_index());
-                            patch->cells.push_back(neighbour);
+                            if (!patches_pattern.exists(
+                                  cell_index, neighbour->active_cell_index()))
+                              {
+                                patch_iterators.push_back(neighbour);
+                                patches_pattern.add(
+                                  cell_index, neighbour->active_cell_index());
+                                patch->cells.push_back(neighbour);
+                              }
                           }
                       }
                   }
+                l_start = l_end;
+                l_end   = patch_iterators.size();
               }
-            l_start = l_end;
-            l_end   = patch_iterators.size();
-          }
-      }
-    }
-  }
-  else // 10.97s for ref 5 oversampling 4 (if printing with first option)
-  {
-    // looping over all the cells once and storing them ordered
-
-    double H = pow(0.5, n_global_refinements);
-    unsigned int N_cells_per_line = (int)1/H;
-    std::vector<typename DoFHandler<dim>::active_cell_iterator> ordered_cells;
-    ordered_cells.resize(tria.n_active_cells());
-    std::vector<std::vector<unsigned int>> cells_in_patch;
-    cells_in_patch.resize(tria.n_active_cells());
-
-    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    {
-      const double x = cell->barycenter()(0);
-      const double y = cell->barycenter()(1);
-
-      // const unsigned int x_i = (int)floor(x/H);
-      // const unsigned int y_i = (int)floor(y/H);
-      const unsigned int vector_cell_index = (int)floor(x/H) + N_cells_per_line*(int)floor(y/H);
-
-      //const unsigned int vector_cell_index = coordinates_to_index(x, y);
-
-      // std::cout << cell->barycenter() //<< " " << (int)floor(x/H) << " " << (int)floor(y/H) << " resulting index " << cell_index << std::endl;
-      ordered_cells[vector_cell_index] = cell;
-
-      std::vector<unsigned int> connected_indeces;
-      // connected_indeces.push_back(vector_cell_index);
-
-      for(int l_row = -oversampling; l_row <= static_cast<int>(oversampling); ++l_row)
-      {
-        double x_j = x + l_row * H;
-        if (x_j > 0 && x_j < 1) // domain borders
-        {
-          for(int l_col = -oversampling; l_col <= static_cast<int>(oversampling); ++l_col)
-          {
-            const double y_j = y + l_col * H;
-            if (y_j > 0 && y_j < 1)
-            {
-              const unsigned int vector_cell_index_j = (int)floor(x_j/H) + N_cells_per_line*(int)floor(y_j/H);
-              connected_indeces.push_back(vector_cell_index_j);
-            }
-
           }
         }
-      }
-
-      cells_in_patch[vector_cell_index] = connected_indeces;
     }
-
-    // now looping and creating the patches
-    for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+  else // 10.97s for ref 5 oversampling 4 (if printing with first option)
     {
-      const auto vector_cell_index = coordinates_to_index(cell->barycenter()(0), cell->barycenter()(1));
-      auto cell_index = cell->active_cell_index();
-      {
+      // looping over all the cells once and storing them ordered
 
-        auto patch = &patches.emplace_back();
+      double       H                = pow(0.5, n_global_refinements);
+      unsigned int N_cells_per_line = (int)1 / H;
+      std::vector<typename DoFHandler<dim>::active_cell_iterator> ordered_cells;
+      ordered_cells.resize(tria.n_active_cells());
+      std::vector<std::vector<unsigned int>> cells_in_patch;
+      cells_in_patch.resize(tria.n_active_cells());
 
-        //patch->cells.push_back(cell);
-        patches_pattern.add(cell_index, cell_index);
-        for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
+      for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+        {
+          const double x = cell->barycenter()(0);
+          const double y = cell->barycenter()(1);
+
+          // const unsigned int x_i = (int)floor(x/H);
+          // const unsigned int y_i = (int)floor(y/H);
+          const unsigned int vector_cell_index =
+            (int)floor(x / H) + N_cells_per_line * (int)floor(y / H);
+
+          // const unsigned int vector_cell_index = coordinates_to_index(x, y);
+
+          // std::cout << cell->barycenter() //<< " " << (int)floor(x/H) << " "
+          // << (int)floor(y/H) << " resulting index " << cell_index <<
+          // std::endl;
+          ordered_cells[vector_cell_index] = cell;
+
+          std::vector<unsigned int> connected_indeces;
+          // connected_indeces.push_back(vector_cell_index);
+
+          for (int l_row = -oversampling;
+               l_row <= static_cast<int>(oversampling);
+               ++l_row)
+            {
+              double x_j = x + l_row * H;
+              if (x_j > 0 && x_j < 1) // domain borders
+                {
+                  for (int l_col = -oversampling;
+                       l_col <= static_cast<int>(oversampling);
+                       ++l_col)
+                    {
+                      const double y_j = y + l_col * H;
+                      if (y_j > 0 && y_j < 1)
+                        {
+                          const unsigned int vector_cell_index_j =
+                            (int)floor(x_j / H) +
+                            N_cells_per_line * (int)floor(y_j / H);
+                          connected_indeces.push_back(vector_cell_index_j);
+                        }
+                    }
+                }
+            }
+
+          cells_in_patch[vector_cell_index] = connected_indeces;
+        }
+
+      // now looping and creating the patches
+      for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+        {
+          const auto vector_cell_index =
+            coordinates_to_index(cell->barycenter()(0), cell->barycenter()(1));
+          auto cell_index = cell->active_cell_index();
           {
-            patches_pattern.add(cell_index, ordered_cells[neighbour_ordered_index]->active_cell_index());
-            patch->cells.push_back(ordered_cells[neighbour_ordered_index]);
+            auto patch = &patches.emplace_back();
+
+            // patch->cells.push_back(cell);
+            patches_pattern.add(cell_index, cell_index);
+            for (auto neighbour_ordered_index :
+                 cells_in_patch[vector_cell_index])
+              {
+                patches_pattern.add(
+                  cell_index,
+                  ordered_cells[neighbour_ordered_index]->active_cell_index());
+                patch->cells.push_back(ordered_cells[neighbour_ordered_index]);
+              }
           }
-      }
+        }
     }
 
-  }
-
-if(false) // option 1
+  if (false) // option 1
     {
-      std::cout << "printing the sparsity pattern: [global_cell_id] = (#){cells}"
-           << std::endl;
+      std::cout
+        << "printing the sparsity pattern: [global_cell_id] = (#){cells}"
+        << std::endl;
       // for (unsigned int cell = 0; cell < tria.n_active_cells(); ++cell)
       for (const auto &cell_it : tria.active_cell_iterators())
         {
           auto cell = cell_it->active_cell_index();
-          std::cout << "- cell " << cell << " (baricenter " <<
-          cell_it->barycenter()
-               << ") is connected to patches/cells: {";
+          std::cout << "- cell " << cell << " (baricenter "
+                    << cell_it->barycenter()
+                    << ") is connected to patches/cells: {";
           for (unsigned int j = 0; j < patches_pattern.row_length(cell); j++)
             {
               std::cout << patches_pattern.column_number(cell, j) << " ";
@@ -234,16 +245,15 @@ if(false) // option 1
           std::cout << "}" << std::endl;
         }
     }
-    else // option 2 // does not work because thery are differently ordered
+  else // option 2 // does not work because thery are differently ordered
     {
-    std::cout << "printing the vector cells: [patch index] = {# cells}"<< std::endl;
-for (unsigned int i = 0; i < patches.size(); ++i)
+      std::cout << "printing the vector cells: [patch index] = {# cells}"
+                << std::endl;
+      for (unsigned int i = 0; i < patches.size(); ++i)
         {
-          auto & patch = patches[i];
-          std::cout << "- " << i << ": {" << patch.cells.size() << "}" << std::endl;
+          auto &patch = patches[i];
+          std::cout << "- " << i << ": {" << patch.cells.size() << "}"
+                    << std::endl;
         }
-
     }
-
-
 }
