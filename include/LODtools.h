@@ -210,26 +210,22 @@ create_quadrature_dofs_map(const FiniteElement<dim> &fe,
 
 template <int dim>
 void
-extend_vector_to_boundary_values(Vector<double> &       vector_in,
+extend_vector_to_boundary_values(const Vector<double> & vector_in,
                                  const DoFHandler<dim> &dh,
                                  Vector<double> &       vector_out)
 {
-  AssertDimension(dh.n_dofs(), vector_out.size());
+  Assert(dh.n_dofs() == vector_out.size(), ExcNotImplemented());
 
-  if (vector_in.size() == vector_out.size())
-    {
-      vector_out = vector_in;
-      return;
-    }
+  IndexSet     boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
+  unsigned int N_internal_dofs   = dh.n_dofs() - boundary_dofs_set.n_elements();
 
-  IndexSet boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
-
-  AssertDimension(boundary_dofs_set.n_elements(), vector_in.size());
+  Assert(N_internal_dofs == vector_in.size(), ExcNotImplemented());
+  Assert(N_internal_dofs < dh.n_dofs(), ExcNotImplemented());
 
   unsigned int in_index = 0;
   for (unsigned int out_index = 0; out_index < vector_out.size(); ++out_index)
     {
-      if (boundary_dofs_set.is_element(out_index))
+      if (!boundary_dofs_set.is_element(out_index))
         {
           vector_out[out_index] = vector_in[in_index];
           in_index++;
@@ -374,13 +370,17 @@ namespace dealii::TrilinosWrappers
 
 
 void
-Gauss_elimination(const FullMatrix<double> &            rhs,
-                  const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                  FullMatrix<double> &                  solution,
-                  double                                reduce    = 1.e-2,
-                  double                                tolerance = 1.e-10,
-                  double                                iter      = 100)
+Gauss_elimination(const FullMatrix<double> &rhs,
+                  const // TrilinosWrappers::SparseMatrix
+                  SparseMatrix<double> &sparse_matrix_origin,
+                  FullMatrix<double> &  solution,
+                  double                reduce    = 1.e-2,
+                  double                tolerance = 1.e-10,
+                  double                iter      = 100)
 {
+  TrilinosWrappers::SparseMatrix sparse_matrix;
+  sparse_matrix.reinit(sparse_matrix_origin);
+
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
   ilu.initialize(sparse_matrix);
