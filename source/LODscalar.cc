@@ -418,7 +418,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 3: sparsity pattern");
-      SparsityPattern patch_sparsity_pattern(Ndofs_fine, Ndofs_fine);
+      DynamicSparsityPattern patch_sparsity_pattern(Ndofs_fine);
 
       if (false)
         {
@@ -1299,8 +1299,8 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 {
-  TimerOutput::Scope t(computing_timer, "4: assemble & Solve fine FEM");
-
+  // TimerOutput::Scope t(computing_timer, "4: assemble & Solve fine FEM");
+computing_timer.enter_subsection("4: assemble & Solve fine FEM");
   const auto &dh = dof_handler_fine;
 
   auto     locally_owned_dofs = dh.locally_owned_dofs();
@@ -1337,7 +1337,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
     }
   else
     {
-      SparsityPattern sparsity_pattern(dh.n_dofs(), dh.n_dofs());
+      DynamicSparsityPattern sparsity_pattern;
 
       std::vector<types::global_dof_index> dofs_on_this_cell;
 
@@ -1366,6 +1366,16 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
                                             mpi_communicator);
 
   assemble_stiffness(fem_stiffness_matrix, fem_rhs, dh, fem_constraints);
+//   IndexSet boundary_dofs_set =
+//         DoFTools::extract_boundary_dofs(dh);
+//   std::vector<unsigned int> boundary_dofs_fine;
+//       boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+
+//       const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+//       FullMatrix<double> A_boundary(N_boundary_dofs, N_boundary_dofs);
+// A_boundary.extract_submatrix_from(fem_stiffness_matrix, boundary_dofs_fine, boundary_dofs_fine);
+// A_boundary.print(std::cout);
+
 
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;
 
@@ -1388,6 +1398,9 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
+    computing_timer.leave_subsection();
+  computing_timer.enter_subsection("4: solve LOD w extraction");
+
 
   // LA::MPI::SparseMatrix A_lod_temp;
   // LA::MPI::SparseMatrix A_lod;
@@ -1408,13 +1421,77 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 
   // A_lod.print(std::cout);
   // global_stiffness_matrix.print(std::cout);
+      auto Ndofs_coarse = tria.n_active_cells();
+      auto Ndofs_fine   = dh.n_dofs();
 
-  LA::MPI::SparseMatrix A_lod_temp;
-  fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
-  basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
+  IndexSet boundary_dofs_set =
+        DoFTools::extract_boundary_dofs(dh);
+
+      std::vector<unsigned int> boundary_dofs_fine;
+      boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+
+      std::vector<unsigned int> internal_dofs_fine;
+      std::vector<unsigned int> all_dofs_fine;
+      // TODO : change, this is ugly
+      for (unsigned int i = 0; i < Ndofs_fine; ++i)
+        {
+          all_dofs_fine.push_back(i);
+          if (!boundary_dofs_set.is_element(i))
+            internal_dofs_fine.push_back(i);
+        }
+      std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
+                                                all_dofs_fine.begin() +
+                                                  Ndofs_coarse);
+
+      const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+      const unsigned int N_internal_dofs       = internal_dofs_fine.size();
+
+  // LA::MPI::SparseMatrix A_lod_temp;
+  
+  FullMatrix<double> BMT(N_internal_dofs, Ndofs_coarse);
+  FullMatrix<double> FEMA(N_internal_dofs, N_internal_dofs);
+  FullMatrix<double> ALT(N_internal_dofs, Ndofs_coarse);
+  FullMatrix<double> GSM(Ndofs_coarse, Ndofs_coarse);
+FEMA.extract_submatrix_from(fem_stiffness_matrix, internal_dofs_fine, internal_dofs_fine);
+BMT.extract_submatrix_from(basis_matrix_transposed, internal_dofs_fine, all_dofs_coarse);
+FEMA.mmult(ALT, BMT);
+BMT.Tmmult(GSM, ALT);
+
+// Vector<double> SR
+Vector<double> FR(N_internal_dofs);
+Vector<double> SR(Ndofs_coarse);
+Vector<double> SS(Ndofs_coarse);
+Assert(fem_rhs.size() == Ndofs_fine, ExcNotImplemented());
+unsigned int id = 0;
+for (unsigned int i = 0; i < Ndofs_fine; ++i)
+{
+  if (!boundary_dofs_set.is_element(i))
+  {
+    FR[id] = fem_rhs(i);
+    id++;
+  }
+}
+
+SolverCG<Vector<double>> sd(par.coarse_solver_control);
+sd.solve(GSM,SS, SR, PreconditionIdentity());
+
+
+  Vector<double> lod_solution(Ndofs_fine);
+  Vector<double> FS(fem_solution);
+Vector<double> LS(N_internal_dofs);
+BMT.vmult(LS, SS);
+extend_vector_to_boundary_values(LS, dh, lod_solution);
+
+  par.convergence_table_compare.difference(dh, FS, lod_solution);
+
+  // fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
+  // basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
   // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
   // A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
-  global_stiffness_matrix.compress(VectorOperation::add);
+  //global_stiffness_matrix.compress(VectorOperation::add);
+
+    computing_timer.leave_subsection();
+
 }
 
 template <int dim, int spacedim>
@@ -1579,6 +1656,7 @@ LOD<dim, spacedim>::run()
   compute_basis_function_candidates();
   assemble_global_matrix();
   solve_fem_problem();
+  /*
   solve();
   compare_fem_lod();
 
@@ -1586,6 +1664,7 @@ LOD<dim, spacedim>::run()
   // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
   //                                             par.exact_solution);
+  */
   if (pcout.is_active())
     {
       // pcout << "LOD vs exact solution (fine mesh)" << std::endl;
@@ -1598,6 +1677,7 @@ LOD<dim, spacedim>::run()
         pcout << "SLOD vs FEM (fine mesh)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());
     }
+
 }
 
 
