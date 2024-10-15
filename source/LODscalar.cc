@@ -126,6 +126,7 @@ LOD<dim, spacedim>::create_patches()
 
       std::vector<unsigned int> connected_indeces;
       connected_indeces.push_back(vector_cell_index);
+    
       for (int l_row = -par.oversampling;
            l_row <= static_cast<int>(par.oversampling);
            ++l_row)
@@ -152,7 +153,7 @@ LOD<dim, spacedim>::create_patches()
 
       cells_in_patch[vector_cell_index] = connected_indeces;
     }
-
+    
   // now looping and creating the patches
   for (const auto &cell : dof_handler_coarse.active_cell_iterators())
     {
@@ -719,7 +720,7 @@ computing_timer.leave_subsection();
       PT_internal.Tmmult(P_Ainv_PT, Ainv_PT);
 
       // P_tilda is actually P/ H^dim
-      P_Ainv_PT /= (H * H); // H^dim
+      P_Ainv_PT /= (H * H); // H^
 
       P_Ainv_PT.gauss_jordan();
 
@@ -730,6 +731,15 @@ computing_timer.leave_subsection();
       VectorType              Pa_i(Ndofs_fine);
       Vector<double>          selected_basis_function(Ndofs_fine);
       Vector<double>          internal_selected_basis_function(N_internal_dofs);
+
+      // FullMatrix<double> ID(Ndofs_coarse);
+      // FullMatrix<double> temp(N_internal_dofs, Ndofs_coarse);
+      // Ainv_PT.mmult(temp, P_Ainv_PT);
+      // PT_internal.Tmmult(ID, temp);
+
+      // ID /= (H*H);
+
+      // ID.print_formatted(std::cout);
 
 
       if (!par.LOD_stabilization)
@@ -748,8 +758,8 @@ computing_timer.leave_subsection();
 
           Ainv_PT.vmult(internal_selected_basis_function,
                         triple_product_inv_e_i);
-          internal_selected_basis_function /=
-            internal_selected_basis_function.l2_norm();
+          // internal_selected_basis_function /=
+          //   internal_selected_basis_function.l2_norm();
 
           computing_timer.leave_subsection();
         }
@@ -928,8 +938,8 @@ computing_timer.leave_subsection();
 
           Ainv_PT.vmult(internal_selected_basis_function, c_i);
 
-          internal_selected_basis_function /=
-            internal_selected_basis_function.l2_norm();
+          // internal_selected_basis_function /=
+          //   internal_selected_basis_function.l2_norm();
 
           computing_timer.leave_subsection();
         }
@@ -1070,10 +1080,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
   // TODO: for mpi should not allocate all cols and rows->create partitioning
   // like we do for global_stiffness_matrix.reinit(..)
 
-  // basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
-  //                     patches_pattern_fine.nonempty_cols(),
-  //                     patches_pattern_fine,
-  //                     mpi_communicator);
+  basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
+                      patches_pattern_fine.nonempty_cols(),
+                      patches_pattern_fine,
+                      mpi_communicator);
 
   // if we don't want to use the operator to compute the global_stiffnes matrix
   // as a multiplication then we need the transpose of the patches_pattern_fine
@@ -1101,9 +1111,11 @@ LOD<dim, spacedim>::assemble_global_matrix()
       patches_pattern_fine,
       mpi_communicator);
   */
-  // basis_matrix               = 0.0;
+  basis_matrix               = 0.0;
   premultiplied_basis_matrix = 0.0;
   basis_matrix_transposed    = 0.0;
+
+
   system_rhs.reinit(patches_pattern_fine.nonempty_rows(), mpi_communicator);
   LA::MPI::Vector rhs_values(patches_pattern_fine.nonempty_cols(),
                              mpi_communicator);
@@ -1130,10 +1142,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
           iterator_to_cell_in_current_patch->get_dof_values(
             current_patch->basis_function[0], phi_loc);
           AssertDimension(global_dofs.size(), phi_loc.size());
-          // basis_matrix.set(current_patch_id,
-          //                  phi_loc.size(),
-          //                  global_dofs.data(),
-          //                  phi_loc.data());
+          basis_matrix.set(current_patch_id,
+                           phi_loc.size(),
+                           global_dofs.data(),
+                           phi_loc.data());
           for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
             {
               basis_matrix_transposed.set(global_dofs.data()[idx],
@@ -1159,7 +1171,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
             }
         }
     }
-  // basis_matrix.compress(VectorOperation::insert);
+  basis_matrix.compress(VectorOperation::insert);
   premultiplied_basis_matrix.compress(VectorOperation::insert);
   basis_matrix_transposed.compress(VectorOperation::insert);
 
@@ -1421,6 +1433,8 @@ computing_timer.enter_subsection("4: assemble & Solve fine FEM");
 
   // A_lod.print(std::cout);
   // global_stiffness_matrix.print(std::cout);
+
+  /*
       auto Ndofs_coarse = tria.n_active_cells();
       auto Ndofs_fine   = dh.n_dofs();
 
@@ -1446,7 +1460,6 @@ computing_timer.enter_subsection("4: assemble & Solve fine FEM");
       const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
       const unsigned int N_internal_dofs       = internal_dofs_fine.size();
 
-  // LA::MPI::SparseMatrix A_lod_temp;
   
   FullMatrix<double> BMT(N_internal_dofs, Ndofs_coarse);
   FullMatrix<double> FEMA(N_internal_dofs, N_internal_dofs);
@@ -1483,14 +1496,115 @@ BMT.vmult(LS, SS);
 extend_vector_to_boundary_values(LS, dh, lod_solution);
 
   par.convergence_table_compare.difference(dh, FS, lod_solution);
-
-  // fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
-  // basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
+*/
+      LA::MPI::SparseMatrix A_lod_temp;
+  fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
+  basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
   // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
   // A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
-  //global_stiffness_matrix.compress(VectorOperation::add);
+  global_stiffness_matrix.compress(VectorOperation::add);
 
     computing_timer.leave_subsection();
+
+    auto Ndofs_coarse = tria.n_active_cells();
+    auto Ndofs_fine   = dh.n_dofs();
+
+      double H = pow(0.5, par.n_global_refinements);
+  double h = H / (par.n_subdivisions);
+
+  FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
+                                       fe_fine->n_dofs_per_cell());
+  projection_P0_P1<dim>(projection_matrix);
+  projection_matrix *= (h * h / 4);
+       FullMatrix<double> PT(Ndofs_fine, Ndofs_coarse);
+        FullMatrix<double> is_id(Ndofs_coarse, Ndofs_coarse);
+
+Vector<double> valence_coarse(Ndofs_coarse);
+      Vector<double> local_identity_coarse(fe_coarse->n_dofs_per_cell());
+      local_identity_coarse = 1.0;
+
+      for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+        cell->distribute_local_to_global(local_identity_coarse, valence_coarse);
+      for (auto &elem : valence_coarse)
+        elem = 1.0 / elem;
+
+  const auto project = [&](auto &dst, const auto &src) {
+        Vector<double> vec_local_coarse(fe_coarse->n_dofs_per_cell());
+        Vector<double> vec_local_fine(fe_fine->n_dofs_per_cell());
+        Vector<double> weights(fe_coarse->n_dofs_per_cell());
+
+        for (const auto &cell : tria.active_cell_iterators())
+          // should be locally_owned ?
+          {
+            const auto cell_coarse =
+              cell->as_dof_handler_iterator(dof_handler_coarse);
+            const auto cell_fine = cell->as_dof_handler_iterator(dof_handler_fine);
+
+            cell_coarse->get_dof_values(src, vec_local_coarse);
+
+            cell_coarse->get_dof_values(valence_coarse, weights);
+            vec_local_coarse.scale(weights);
+
+            projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+
+            cell_fine->distribute_local_to_global(vec_local_fine, dst);
+          }
+      };
+Vector<double> P_e_i(Ndofs_fine);
+      Vector<double> e_i(Ndofs_coarse);
+  for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+        {
+          e_i    = 0.0;
+          P_e_i  = 0.0;
+          e_i[i] = 1.0;
+
+            project(P_e_i, e_i);
+
+          for (unsigned int j = 0; j < Ndofs_fine; ++j)
+            PT.set(j, i, P_e_i[j]);
+        }
+
+DynamicSparsityPattern identity(patches_pattern_fine.nonempty_rows());
+  for (unsigned int i = 0; i < patches_pattern_fine.n_rows(); ++i)
+    identity.add(i, i);
+  DynamicSparsityPattern patches_pattern_fine_T;
+  patches_pattern_fine_T.compute_Tmmult_pattern(patches_pattern_fine, identity);
+
+IndexSet boundary_dofs_set =
+        DoFTools::extract_boundary_dofs(dh);
+
+      std::vector<unsigned int> boundary_dofs_fine;
+      boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+
+      std::vector<unsigned int> internal_dofs_fine;
+      std::vector<unsigned int> all_dofs_fine;
+      // TODO : change, this is ugly
+      for (unsigned int i = 0; i < Ndofs_fine; ++i)
+        {
+          all_dofs_fine.push_back(i);
+          if (!boundary_dofs_set.is_element(i))
+            internal_dofs_fine.push_back(i);
+        }
+      std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
+                                                all_dofs_fine.begin() +
+                                                  Ndofs_coarse);
+
+            const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+      const unsigned int N_internal_dofs       = internal_dofs_fine.size();
+
+                                                  
+
+      FullMatrix<double> PT_int(N_internal_dofs, Ndofs_coarse);
+      PT_int.extract_submatrix_from(PT, internal_dofs_fine, all_dofs_coarse);
+   //    PT_int.print(std::cout);
+// std::cout << "here" << std::endl;
+FullMatrix<double> BMT(N_internal_dofs, Ndofs_coarse);
+BMT.extract_submatrix_from(basis_matrix_transposed, internal_dofs_fine, all_dofs_coarse);
+// BMT.print(std::cout);
+// BMT.copy_from(basis_matrix_transposed);
+        PT_int.Tmmult(is_id, BMT);
+        is_id /= (H*H);
+is_id.print_formatted(std::cout, 3, true, 0, " ", 1., 0.01, ",");
 
 }
 
@@ -1656,7 +1770,7 @@ LOD<dim, spacedim>::run()
   compute_basis_function_candidates();
   assemble_global_matrix();
   solve_fem_problem();
-  /*
+  
   solve();
   compare_fem_lod();
 
@@ -1664,7 +1778,7 @@ LOD<dim, spacedim>::run()
   // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
   //                                             par.exact_solution);
-  */
+  
   if (pcout.is_active())
     {
       // pcout << "LOD vs exact solution (fine mesh)" << std::endl;
