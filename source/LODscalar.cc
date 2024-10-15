@@ -1289,8 +1289,8 @@ LOD<dim, spacedim>::solve()
 
   const auto amgA = linear_operator(A, prec_A);
 
-  SolverCG<LA::MPI::Vector> cg_stiffness(par.coarse_solver_control);
-  invA = inverse_operator(A, cg_stiffness, amgA);
+  SolverCG<LA::MPI::Vector> sd(par.coarse_solver_control);
+  invA = inverse_operator(A, sd, amgA);
 
   system_rhs = C * fem_rhs;
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
@@ -1300,7 +1300,7 @@ LOD<dim, spacedim>::solve()
   // const auto &f = system_rhs;
 
   // dealii::TrilinosWrappers::SolverDirect sd(par.coarse_solver_control);
-  // sd.solve(global_stiffness_matrix, solution, system_rhs);
+  // sd.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
 
   solution = invA * system_rhs;
   pcout << "   size of u " << solution.size() << std::endl;
@@ -1598,13 +1598,16 @@ IndexSet boundary_dofs_set =
       PT_int.extract_submatrix_from(PT, internal_dofs_fine, all_dofs_coarse);
    //    PT_int.print(std::cout);
 // std::cout << "here" << std::endl;
+Assert(basis_matrix_transposed.m() == Ndofs_fine, ExcNotImplemented());
+Assert(basis_matrix_transposed.n() == Ndofs_coarse, ExcNotImplemented());
 FullMatrix<double> BMT(N_internal_dofs, Ndofs_coarse);
 BMT.extract_submatrix_from(basis_matrix_transposed, internal_dofs_fine, all_dofs_coarse);
 // BMT.print(std::cout);
 // BMT.copy_from(basis_matrix_transposed);
         PT_int.Tmmult(is_id, BMT);
         is_id /= (H*H);
-is_id.print_formatted(std::cout, 3, true, 0, " ", 1., 0.01, ",");
+//is_id.print_formatted(std::cout, 3, true, 0, " ", 1., 0.01, ",");
+
 
 }
 
@@ -1667,6 +1670,30 @@ LOD<dim, spacedim>::compare_fem_lod()
                            lod_names,
                            //  DataOut<dim>::type_dof_data,
                            data_component_interpretation);
+  if(true)
+  {
+  for (unsigned int i = 0; i < basis_matrix_transposed.n(); ++i)
+  {
+    const std::string name = "c_" + std::to_string(i);
+    std::vector<std::string> names(spacedim, name);
+
+    auto e_i = solution;
+    e_i = 0;
+    e_i[i] = 1.0;
+
+    auto c_i(lod_solution);
+    c_i = 0.0;
+    basis_matrix_transposed.vmult(c_i, e_i);
+
+    //c_i.print(std::cout);
+
+    data_out.add_data_vector(dh,
+                           c_i,
+                           names,
+                           //  DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+  }
+  }
   data_out.build_patches();
   const std::string filename = par.output_name + "_fine.vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
