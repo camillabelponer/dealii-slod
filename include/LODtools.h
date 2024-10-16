@@ -435,15 +435,17 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-      ReductionControl solver_control(iter, tolerance, reduce, false, false);
 
       if (false)
         {
+          ReductionControl solver_control(
+            iter, tolerance, reduce, false, false);
           TrilinosWrappers::SolverCG solver(solver_control);
           solver.solve(mat, trilinos_dst, trilinos_src, prec);
         }
       else
         {
+          SolverControl solver_control(iter, tolerance, false, false);
           TrilinosWrappers::MySolverDirect solver(solver_control);
           solver.initialize(sparse_matrix);
           solver.solve(mat, trilinos_dst, trilinos_src);

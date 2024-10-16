@@ -317,6 +317,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   TrilinosWrappers::SparseMatrix patch_stiffness_matrix;
   TrilinosWrappers::SparseMatrix unconstrained_patch_stiffness_matrix;
   AffineConstraints<double>      internal_boundary_constraints;
+  AffineConstraints<double>      empty_boundary_constraints;
+  empty_boundary_constraints.close();
 
   // we are assuming mesh to be created as hyper_cube l 83
   double H = pow(0.5, par.n_global_refinements);
@@ -325,6 +327,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   // create projection matrix from fine to coarse cell (DG)
   FullMatrix<double> projection_matrix(fe_coarse->n_dofs_per_cell(),
                                        fe_fine->n_dofs_per_cell());
+  FullMatrix<double> projection_matrixT(fe_fine->n_dofs_per_cell(),
+                                        fe_coarse->n_dofs_per_cell());
   if (false) // actually equivalent methods
     FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   else
@@ -332,6 +336,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       projection_P0_P1<dim>(projection_matrix);
       projection_matrix *= (h * h / 4);
     }
+  projection_matrixT.copy_transposed(projection_matrix);
   // this could be done via tensor product
 
   computing_timer.leave_subsection();
@@ -353,29 +358,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       auto Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
 
-      IndexSet boundary_dofs_set =
-        DoFTools::extract_boundary_dofs(dh_fine_patch);
-
-      std::vector<unsigned int> boundary_dofs_fine;
-      boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
-
-      std::vector<unsigned int> internal_dofs_fine;
-      std::vector<unsigned int> all_dofs_fine;
-      // TODO : change, this is ugly
-      for (unsigned int i = 0; i < Ndofs_fine; ++i)
-        {
-          all_dofs_fine.push_back(i);
-          if (!boundary_dofs_set.is_element(i))
-            internal_dofs_fine.push_back(i);
-        }
-      std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
-                                                all_dofs_fine.begin() +
-                                                  Ndofs_coarse);
-
-      unsigned int       considered_candidates = Ndofs_coarse - 1;
-      const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
-      const unsigned int N_internal_dofs       = internal_dofs_fine.size();
-
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 2: constraints");
@@ -387,7 +369,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 3: sparsity pattern");
-      SparsityPattern patch_sparsity_pattern(Ndofs_fine, Ndofs_fine);
+      DynamicSparsityPattern patch_sparsity_pattern(Ndofs_fine, Ndofs_fine);
 
       // does the same as
       // DoFTools::make_sparsity_pattern() but also
@@ -439,28 +421,30 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       for (auto &elem : valence_coarse)
         elem = 1.0 / elem;
 
-      // // define interapolation function and its transposed
-      const auto projectT = [&](auto &dst, const auto &src) {
-        VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
-        VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
-        VectorType weights(fe_coarse->n_dofs_per_cell());
+      // // // define interapolation function and its transposed
+      // const auto projectT = [&](auto &dst, const auto &src) {
+      //   VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
+      //   VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
+      //   VectorType weights(fe_coarse->n_dofs_per_cell());
 
-        for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
-          {
-            const auto cell_coarse =
-              cell->as_dof_handler_iterator(dh_coarse_patch);
-            const auto cell_fine = cell->as_dof_handler_iterator(dh_fine_patch);
+      //   for (const auto &cell :
+      //   current_patch->sub_tria.active_cell_iterators())
+      //     {
+      //       const auto cell_coarse =
+      //         cell->as_dof_handler_iterator(dh_coarse_patch);
+      //       const auto cell_fine =
+      //       cell->as_dof_handler_iterator(dh_fine_patch);
 
-            cell_fine->get_dof_values(src, vec_local_fine);
+      //       cell_fine->get_dof_values(src, vec_local_fine);
 
-            projection_matrix.vmult(vec_local_coarse, vec_local_fine);
+      //       projection_matrix.vmult(vec_local_coarse, vec_local_fine);
 
-            cell_coarse->get_dof_values(valence_coarse, weights);
-            vec_local_coarse.scale(weights);
+      //       cell_coarse->get_dof_values(valence_coarse, weights);
+      //       vec_local_coarse.scale(weights);
 
-            cell_coarse->distribute_local_to_global(vec_local_coarse, dst);
-          }
-      };
+      //       cell_coarse->distribute_local_to_global(vec_local_coarse, dst);
+      //     }
+      // };
 
       const auto project = [&](auto &dst, const auto &src) {
         VectorType vec_local_coarse(fe_coarse->n_dofs_per_cell());
@@ -503,17 +487,37 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       // assign rhs
       // TODO: projection that works on matrices! -> see tests/projection_02
-      for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+      if (false)
         {
-          e_i    = 0.0;
-          P_e_i  = 0.0;
-          e_i[i] = 1.0;
+          for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+            {
+              e_i    = 0.0;
+              P_e_i  = 0.0;
+              e_i[i] = 1.0;
 
-          project(P_e_i, e_i);
+              project(P_e_i, e_i);
 
+              for (unsigned int j = 0; j < Ndofs_fine; ++j)
+                PT.set(j, i, P_e_i[j]);
+            }
+        }
 
-          for (unsigned int j = 0; j < Ndofs_fine; ++j)
-            PT.set(j, i, P_e_i[j]);
+      else // faster
+        {
+          std::vector<unsigned int> coarse_dofs_on_this_cell(
+            fe_coarse->n_dofs_per_cell());
+          coarse_dofs_on_this_cell[0] = 0;
+          for (auto &cell : dh_fine_patch.active_cell_iterators())
+            {
+              cell->get_dof_indices(dofs_on_this_cell);
+
+              empty_boundary_constraints.distribute_local_to_global(
+                projection_matrixT,
+                dofs_on_this_cell,
+                coarse_dofs_on_this_cell,
+                PT);
+              coarse_dofs_on_this_cell[0]++;
+            }
         }
 
       computing_timer.leave_subsection();
@@ -558,7 +562,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           computing_timer.leave_subsection();
         }
-      else // SLOD
+      else if (par.oversampling > 0) // SLOD
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: stabilizazion: setup");
@@ -637,7 +641,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                              all_dofs_coarse);
 
           S_boundary.mmult(B_full, Ainv_PT_restricted);
-          // TODO: use add() from fullmatrix to add B_full and Pt first and then multiply -> you will need another temporary full matrix to store
+          // TODO: use add() from fullmatrix to add B_full and Pt first and then
+          // multiply -> you will need another temporary full matrix to store
           PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
           PT_boundary.mmult(BD, P_Ainv_PT, true);
@@ -707,13 +712,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           AssertDimension(U.m(), SVD.n());
           AssertDimension(U.m(), considered_candidates);
 
-          bool corrected = false;
-
           for (int i = (considered_candidates - 1); i >= 0; --i)
             {
               if (d_i.linfty_norm() < 0.5)
                 break;
-              corrected = true;
               VectorType uT(considered_candidates);
               VectorType v(considered_candidates);
               // for (auto j : all_dofs_coarse)
@@ -1105,7 +1107,7 @@ LOD<dim, spacedim>::solve_fem_problem() //_and_compare() // const
 
   LA::MPI::SparseMatrix fem_stiffness_matrix;
 
-  SparsityPattern sparsity_pattern(dh.n_dofs(), dh.n_dofs());
+  DynamicSparsityPattern sparsity_pattern(dh.n_dofs(), dh.n_dofs());
 
   std::vector<types::global_dof_index> dofs_on_this_cell;
 

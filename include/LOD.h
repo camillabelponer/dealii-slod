@@ -193,6 +193,9 @@ private:
                      const DoFHandler<dim> &             dh,
                      AffineConstraints<double> &         stiffnes_constraints);
 
+  void
+  assemble_stiffness_patch(SparseMatrix<double> & stiffness_matrix,
+                           const DoFHandler<dim> &dh);
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
   // shared not distributed bc we want all processors to get access to all cells
