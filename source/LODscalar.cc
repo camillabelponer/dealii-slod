@@ -188,6 +188,8 @@ LOD<dim, spacedim>::create_patches()
                                  global_sparsity_pattern,
                                  mpi_communicator);
 
+  solution.reinit(locally_owned_patches, mpi_communicator);
+
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0 ||
       Utilities::MPI::n_mpi_processes(mpi_communicator) == 1)
@@ -692,16 +694,25 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         }
 computing_timer.leave_subsection();
       computing_timer.enter_subsection(
-        "2: compute basis function 5b2: extraction");
+        "2: compute basis function 5b2: extraction 1");
 
       A_internal_full.extract_submatrix_from(
         unconstrained_patch_stiffness_matrix,
         internal_dofs_fine,
         internal_dofs_fine);
+        computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "2: compute basis function 5b2: extraction 2");
       SparsityPattern internal_sparsity_pattern;
       internal_sparsity_pattern.copy_from(A_internal_full);
+      computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "2: compute basis function 5b2: extraction 3");
       internal_patch_stiffness_matrix.reinit(internal_sparsity_pattern);
       internal_patch_stiffness_matrix.copy_from(A_internal_full);
+      computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "2: compute basis function 5b2: extraction 4");
 
       PT_internal.extract_submatrix_from(PT,
                                          internal_dofs_fine,
@@ -943,7 +954,8 @@ computing_timer.leave_subsection();
 
           computing_timer.leave_subsection();
         }
-
+      computing_timer.enter_subsection(
+        "2: compute basis function 5d: xtend & asign");
       extend_vector_to_boundary_values(internal_selected_basis_function,
                                        dh_fine_patch,
                                        selected_basis_function);
@@ -969,7 +981,7 @@ computing_timer.leave_subsection();
 
       dh_fine_patch.clear();
 
-      // computing_timer.leave_subsection();
+      computing_timer.leave_subsection();
     }
 }
 
@@ -1278,21 +1290,23 @@ LOD<dim, spacedim>::solve()
   LA::MPI::PreconditionAMG prec_A;
   prec_A.initialize(global_stiffness_matrix, 1.2);
 
-  const auto CT = linear_operator<LA::MPI::Vector>(basis_matrix_transposed);
-  const auto C  = transpose_operator(CT);
+  // const auto CT = linear_operator<LA::MPI::Vector>(basis_matrix_transposed);
+  // const auto C  = transpose_operator(CT);
   // const auto AM =
   // linear_operator<LA::MPI::Vector>(premultiplied_basis_matrix);
   // const auto AMT = transpose_operator(AM);
   // const auto A = M*AMT;
-  const auto A    = linear_operator<LA::MPI::Vector>(global_stiffness_matrix);
-  auto       invA = A;
+  // const auto A    = linear_operator<LA::MPI::Vector>(global_stiffness_matrix);
+  // auto       invA = A;
+// 
+  // const auto amgA = linear_operator(A, prec_A);
 
-  const auto amgA = linear_operator(A, prec_A);
+  SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
+  //invA = inverse_operator(A, solver, amgA);
 
-  SolverCG<LA::MPI::Vector> sd(par.coarse_solver_control);
-  invA = inverse_operator(A, sd, amgA);
 
-  system_rhs = C * fem_rhs;
+  // system_rhs = C * fem_rhs;
+  basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
   // Some aliases
@@ -1302,7 +1316,12 @@ LOD<dim, spacedim>::solve()
   // dealii::TrilinosWrappers::SolverDirect sd(par.coarse_solver_control);
   // sd.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
 
-  solution = invA * system_rhs;
+  //solution = invA * system_rhs;
+
+  std::cout << global_stiffness_matrix.m() << " " << global_stiffness_matrix.n() << std::endl;
+  std::cout << solution.size() << std::endl;
+  std::cout << system_rhs.size() << std::endl;
+  solver.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
   pcout << "   size of u " << solution.size() << std::endl;
   coarse_boundary_constraints.distribute(solution);
 }
@@ -1505,7 +1524,7 @@ extend_vector_to_boundary_values(LS, dh, lod_solution);
   global_stiffness_matrix.compress(VectorOperation::add);
 
     computing_timer.leave_subsection();
-
+/*
     auto Ndofs_coarse = tria.n_active_cells();
     auto Ndofs_fine   = dh.n_dofs();
 
@@ -1607,7 +1626,7 @@ BMT.extract_submatrix_from(basis_matrix_transposed, internal_dofs_fine, all_dofs
         PT_int.Tmmult(is_id, BMT);
         is_id /= (H*H);
 //is_id.print_formatted(std::cout, 3, true, 0, " ", 1., 0.01, ",");
-
+*/
 
 }
 
@@ -1623,8 +1642,9 @@ LOD<dim, spacedim>::compare_fem_lod()
   lod_solution = 0;
   // const auto C  = linear_operator<LA::MPI::Vector>(basis_matrix);
   // const auto CT = transpose_operator(C);
-  const auto CT = linear_operator<LA::MPI::Vector>(basis_matrix_transposed);
-  lod_solution  = CT * solution;
+  // const auto CT = linear_operator<LA::MPI::Vector>(basis_matrix_transposed);
+  // lod_solution  = CT * solution;
+  basis_matrix_transposed.vmult(lod_solution, solution);
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
   // par.convergence_table_FEM.error_from_exact(dh,
   //                                            fem_solution,
@@ -1670,7 +1690,7 @@ LOD<dim, spacedim>::compare_fem_lod()
                            lod_names,
                            //  DataOut<dim>::type_dof_data,
                            data_component_interpretation);
-  if(true)
+  if(false)
   {
   for (unsigned int i = 0; i < basis_matrix_transposed.n(); ++i)
   {
