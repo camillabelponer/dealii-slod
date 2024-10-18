@@ -3,7 +3,7 @@
 #include <LOD.h>
 #include <LODtools.h>
 
-const unsigned int SPECIAL_NUMBER = 0;
+const unsigned int SPECIAL_NUMBER = 99;
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
@@ -364,7 +364,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                        fe_fine->n_dofs_per_cell());
   // FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   projection_P0_P1<dim>(projection_matrix);
-  projection_matrix *= (h * h / 4);
+  // projection_matrix *= (h * h / 4);
   // this could be done via tensor product
   computing_timer.leave_subsection();
   for (auto current_patch_id : locally_owned_patches)
@@ -387,11 +387,20 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       auto Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
 
-      IndexSet boundary_dofs_set =
-        DoFTools::extract_boundary_dofs(dh_fine_patch);
+      //create_dof_indices()
 
+std::set<unsigned int> bd_of_patch_index{SPECIAL_NUMBER};
+std::set<unsigned int> bd_of_domain_index{0};
+      IndexSet boundary_dofs_of_patch_set =
+        DoFTools::extract_boundary_dofs(dh_fine_patch, ComponentMask(), bd_of_patch_index);
+
+boundary_dofs_of_patch_set.print(std::cout);
       std::vector<unsigned int> boundary_dofs_fine;
-      boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+      boundary_dofs_of_patch_set.fill_index_vector(boundary_dofs_fine);
+      std::cout << "boundary: " ;
+      for (auto b : boundary_dofs_fine)
+      std::cout << b << " ";
+      std::cout << std::endl;
 
       std::vector<unsigned int> internal_dofs_fine;
       std::vector<unsigned int> all_dofs_fine;
@@ -399,9 +408,14 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       for (unsigned int i = 0; i < Ndofs_fine; ++i)
         {
           all_dofs_fine.push_back(i);
-          if (!boundary_dofs_set.is_element(i))
+          if (!boundary_dofs_of_patch_set.is_element(i))
             internal_dofs_fine.push_back(i);
         }
+            std::cout << "internal: " ;
+      for (auto b : internal_dofs_fine)
+      std::cout << b << " ";
+      std::cout << std::endl;
+
       std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
                                                 all_dofs_fine.begin() +
                                                   Ndofs_coarse);
@@ -422,21 +436,24 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.enter_subsection(
         "2: compute basis function 3: sparsity pattern");
       DynamicSparsityPattern patch_sparsity_pattern(Ndofs_fine);
+      DynamicSparsityPattern internal_sparsity_pattern(Ndofs_fine);
 
       if (false)
         {
           // option 2
           // IndexSet relevant_dofs;
           // DoFTools::extract_locally_active_dofs(dh_fine_patch,
-          // relevant_dofs); DynamicSparsityPattern
+          // relevant_dofs); 
+          // DynamicSparsityPattern
           // sparsity_pattern(relevant_dofs);
 
-          // DoFTools::make_sparsity_pattern(dh_fine_patch,
-          //                                 sparsity_pattern,
-          //                                 internal_boundary_constraints,
-          //                                 false);
-          // patch_stiffness_matrix.clear();
-          // patch_stiffness_matrix.reinit(sparsity_pattern);
+          DoFTools::make_sparsity_pattern(dh_fine_patch,
+                                          patch_sparsity_pattern,
+                                          empty_boundary_constraints,
+                                          false);
+          unconstrained_patch_stiffness_matrix.clear();
+          unconstrained_patch_stiffness_matrix.reinit(patch_sparsity_pattern);
+          // internal_sparsity_pattern.copy_from(sparsity_patter);
         }
       else
         {
@@ -466,6 +483,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                   patch_sparsity_pattern,
                   true,
                   bool_dof_mask); // keep constrained entries must be true
+
+                internal_boundary_constraints.add_entries_local_to_global(
+                  dofs_on_this_cell,
+                  internal_sparsity_pattern,
+                  false,
+                  bool_dof_mask); // here should be false
               }
 
           patch_sparsity_pattern.compress();
@@ -479,7 +502,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         "2: compute basis function 4: stiffness");
 
 
-      if (false)
+      if (true)
         {
           MappingQ1<dim> mapping;
 
@@ -695,21 +718,42 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5b2: extraction 1");
+        std::cout << "A unconstrained" << std::endl;
+        unconstrained_patch_stiffness_matrix.print(std::cout);
 
       A_internal_full.extract_submatrix_from(
         unconstrained_patch_stiffness_matrix,
         internal_dofs_fine,
         internal_dofs_fine);
+
+std::cout << "A full" << std::endl;
+        A_internal_full.print(std::cout);
+
         computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5b2: extraction 2");
-      SparsityPattern internal_sparsity_pattern;
-      internal_sparsity_pattern.copy_from(A_internal_full);
+      SparsityPattern isp;
+      // isp.copy_from(internal_sparsity_pattern);
+      isp.copy_from(A_internal_full);
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5b2: extraction 3");
-      internal_patch_stiffness_matrix.reinit(internal_sparsity_pattern);
+      internal_patch_stiffness_matrix.reinit(isp);
+      //internal_patch_stiffness_matrix.print(std::cout);
       internal_patch_stiffness_matrix.copy_from(A_internal_full);
+
+      
+std::cout << "A int" << std::endl;
+        internal_patch_stiffness_matrix.print(std::cout);
+      
+
+// for (unsigned int i  = 0; i < N_internal_dofs; ++i)
+// for (unsigned int j  = 0; j < N_internal_dofs; ++j)
+// if (internal_sparsity_pattern.exists(i,j) && patch_sparsity_pattern.exists(internal_dofs_fine[i],internal_dofs_fine[j]))
+// {
+// internal_patch_stiffness_matrix.set(i, j, unconstrained_patch_stiffness_matrix(internal_dofs_fine[i],internal_dofs_fine[j]));
+// }
+      
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5b2: extraction 4");
@@ -810,6 +854,10 @@ computing_timer.leave_subsection();
             unconstrained_patch_stiffness_matrix,
             boundary_dofs_fine,
             internal_dofs_fine);
+
+            
+std::cout << "S bd" << std::endl;
+        S_boundary.print(std::cout);
           // all_dofs_fine);
           //   if (false) // use sparse amtrix // mmutl does not work for spase
           //   with two full ones
@@ -832,6 +880,8 @@ computing_timer.leave_subsection();
           PT_boundary.extract_submatrix_from(PT,
                                              boundary_dofs_fine,
                                              all_dofs_coarse);
+
+          PT_boundary.print(std::cout);
           PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
 

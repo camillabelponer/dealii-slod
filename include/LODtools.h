@@ -107,7 +107,7 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
     [&quadrature](const auto &fe, const auto n_subdivisions) {
       Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
       MappingQ1<dim> mapping;
-      FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
+      FEValues<dim>  fe_values(mapping, fe, quadrature, update_values | update_gradients);
 
       Triangulation<dim> tria;
       GridGenerator::hyper_cube(tria);
@@ -144,8 +144,8 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
                               (c_0 * 2 + q_0) +
                               (c_1 * 2 + q_1) * (2 * n_subdivisions);
 
-                            sum += fe_values.shape_value(i, q_index) *
-                                   fe_values.shape_value(j, q_index);
+                            sum += fe_values.shape_grad(i, q_index) *
+                                   fe_values.shape_grad(j, q_index);
                           }
                       if (sum != 0)
                         bool_dof_mask(i, j) = true;
