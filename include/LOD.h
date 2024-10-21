@@ -233,6 +233,8 @@ private:
 
   std::vector<std::vector<unsigned int>> connected_fine_cell_dofs;
   std::vector<std::vector<unsigned int>> quadrature_dofs_map;
+
+  unsigned int N_corrected_patches = 0;
 };
 
 

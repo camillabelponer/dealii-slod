@@ -3,7 +3,7 @@
 #include <LOD.h>
 #include <LODtools.h>
 
-const unsigned int SPECIAL_NUMBER = 0;
+const unsigned int SPECIAL_NUMBER = 99;
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
@@ -365,6 +365,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       DoFTools::make_zero_boundary_constraints(dh_fine_patch,
                                                0,
                                                internal_boundary_constraints);
+      DoFTools::make_zero_boundary_constraints(dh_fine_patch,
+                                               SPECIAL_NUMBER,
+                                               internal_boundary_constraints);
       internal_boundary_constraints.close();
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -543,7 +546,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       Vector<double> selected_basis_function(Ndofs_fine);
 
 
-      if (!par.LOD_stabilization)
+      if (!par.LOD_stabilization // || par.oversampling == 0 || 
+      // tria.n_active_cells() == current_patch->sub_tria.n_active_cells()
+      )
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: non stabilizaziona & assignemnt");
@@ -562,32 +567,26 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           computing_timer.leave_subsection();
         }
-      else if (par.oversampling > 0) // SLOD
+      else// if (par.oversampling > 0) // SLOD
         {
           computing_timer.enter_subsection(
-            "2: compute basis function 7: stabilizazion: setup");
-
-
-          IndexSet boundary_dofs_set =
-            DoFTools::extract_boundary_dofs(dh_fine_patch);
-
-          std::vector<unsigned int> boundary_dofs_fine;
-          boundary_dofs_set.fill_index_vector(boundary_dofs_fine);
+            "2: compute basis function 7: stabilizazion: setup 1");
 
           std::vector<unsigned int> internal_dofs_fine;
           std::vector<unsigned int> all_dofs_fine;
-          // TODO : change, this is ugly
-          for (unsigned int i = 0; i < Ndofs_fine; ++i)
-            {
-              all_dofs_fine.push_back(i);
-              if (!boundary_dofs_set.is_element(i))
-                internal_dofs_fine.push_back(i);
-            }
+          std::vector<unsigned int> patch_boundary_dofs_fine;
 
+          fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, patch_boundary_dofs_fine);
+          
           unsigned int       considered_candidates = Ndofs_coarse - 1;
-          const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+          const unsigned int N_boundary_dofs       = patch_boundary_dofs_fine.size();
           const unsigned int N_internal_dofs       = internal_dofs_fine.size();
+  //        computing_timer.leave_subsection();
 
+//          if (N_boundary_dofs)
+          {
+// computing_timer.enter_subsection(
+//             "2: compute basis function 7: stabilizazion: setup 1");
           Assert(Ndofs_fine > Ndofs_coarse, ExcNotImplemented());
           std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
                                                     all_dofs_fine.begin() +
@@ -629,15 +628,28 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             "2: ompute basis function 7b: stabilizazion: extraction and othersetup");
           S_boundary.extract_submatrix_from(
             unconstrained_patch_stiffness_matrix,
-            boundary_dofs_fine,
+            patch_boundary_dofs_fine,
             internal_dofs_fine);
+            
+          FullMatrix<double>       S_internal(N_internal_dofs, N_internal_dofs);
 
-          Ainv_PT_restricted.extract_submatrix_from(Ainv_PT,
-                                                    internal_dofs_fine,
-                                                    all_dofs_coarse);
+          S_internal.extract_submatrix_from(
+            unconstrained_patch_stiffness_matrix,
+            internal_dofs_fine,
+            internal_dofs_fine); 
+
+          FullMatrix<double>       PT_internal(N_internal_dofs, Ndofs_coarse);
+
+          PT_internal.extract_submatrix_from(PT,
+                                             internal_dofs_fine,
+                                             all_dofs_coarse);
+
+          // Ainv_PT_restricted.extract_submatrix_from(Ainv_PT,
+          //                                           internal_dofs_fine,
+          //                                           all_dofs_coarse);
 
           PT_boundary.extract_submatrix_from(PT,
-                                             boundary_dofs_fine,
+                                             patch_boundary_dofs_fine,
                                              all_dofs_coarse);
 
           S_boundary.mmult(B_full, Ainv_PT_restricted);
@@ -711,11 +723,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           AssertDimension(U.m(), Vt.n());
           AssertDimension(U.m(), SVD.n());
           AssertDimension(U.m(), considered_candidates);
-
+bool corrected = false;
           for (int i = (considered_candidates - 1); i >= 0; --i)
             {
-              if (d_i.linfty_norm() < 0.5)
+              if (d_i.linfty_norm() < 0.3)
                 break;
+              corrected = true;
               VectorType uT(considered_candidates);
               VectorType v(considered_candidates);
               // for (auto j : all_dofs_coarse)
@@ -736,6 +749,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               d_i += correction;
             }
 
+          if (corrected)
+            N_corrected_patches++;
+
           c_i = DeT;
 
           for (unsigned int index = 0; index < considered_candidates; ++index)
@@ -752,6 +768,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
           selected_basis_function /= selected_basis_function.l2_norm();
           computing_timer.leave_subsection();
+          }
         }
 
       current_patch->basis_function.push_back(selected_basis_function);
@@ -762,6 +779,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       dh_fine_patch.clear();
 
       // computing_timer.leave_subsection();
+
     }
 }
 
@@ -1290,6 +1308,7 @@ LOD<dim, spacedim>::run()
   compare_fem_lod();
 
   output_results();
+  std::cout << "N_corrected_patches " << N_corrected_patches << std::endl;
   // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
   //                                             par.exact_solution);
