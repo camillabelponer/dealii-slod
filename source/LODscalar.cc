@@ -358,6 +358,13 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       auto Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
 
+
+          std::vector<unsigned int> internal_dofs_fine;
+          std::vector<unsigned int> all_dofs_fine;
+          std::vector<unsigned int> patch_boundary_dofs_fine;
+
+          fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, patch_boundary_dofs_fine);
+
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 2: constraints");
@@ -572,11 +579,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           computing_timer.enter_subsection(
             "2: compute basis function 7: stabilizazion: setup 1");
 
-          std::vector<unsigned int> internal_dofs_fine;
-          std::vector<unsigned int> all_dofs_fine;
-          std::vector<unsigned int> patch_boundary_dofs_fine;
+          // std::vector<unsigned int> internal_dofs_fine;
+          // std::vector<unsigned int> all_dofs_fine;
+          // std::vector<unsigned int> patch_boundary_dofs_fine;
 
-          fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, patch_boundary_dofs_fine);
+          // fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, patch_boundary_dofs_fine);
           
           unsigned int       considered_candidates = Ndofs_coarse - 1;
           const unsigned int N_boundary_dofs       = patch_boundary_dofs_fine.size();
