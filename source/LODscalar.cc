@@ -933,31 +933,37 @@ internal_patch_stiffness_matrix.compress(VectorOperation::insert);
 
           SVD.copy_from(BDTBD);
 
-          SVD.compute_inverse_svd(); // stores U V as normal, but
+          SVD.compute_inverse_svd(1e-15); // stores U V as normal, but
                                      // 1/singular_value_i
           d_i = 0.0;
           SVD.vmult(d_i, BDTBD0);
           d_i *= -1;
-
-          // {
-          //           SVD.compute_svd();
-          //           auto               U  = SVD.get_svd_u();
-          //           auto               Vt = SVD.get_svd_vt();
-          //           FullMatrix<double> Sigma_minus1(considered_candidates);
-          //           for (unsigned int i = 0; i < considered_candidates; ++i)
-          //             Sigma_minus1(i, i) = (1 /
-          //             SVD_manual.singular_value(i));
-          //           d_i = 0;
-          //           VectorType tt(considered_candidates);
-          //           VectorType tt1(considered_candidates);
-          //           U.Tvmult(tt, BDTBD0);
-          //           Sigma_minus1.vmult(tt1, tt);
-          //           Vt.Tvmult(d_i, tt1);
-          //           d_i *=-1;
-          // } // equivalent to previous (same d_i as output)
-
           auto U  = SVD.get_svd_u();
           auto Vt = SVD.get_svd_vt();
+
+
+          // {
+                    // SVD.compute_svd();
+                    // auto               U  = SVD.get_svd_u();
+                    // auto               Vt = SVD.get_svd_vt();
+                    // FullMatrix<double> Sigma_minus1(considered_candidates);
+                    // Sigma_minus1 = 0.0;
+                    // for (unsigned int i = 0; i < considered_candidates; ++i)
+                    // {
+                    //   if (SVD.singular_value(0) / SVD.singular_value(i) < 1e15)
+                    //     Sigma_minus1(i, i) = (1 / SVD.singular_value(i));
+                    // }
+                    // d_i = 0;
+                    // VectorType tt(considered_candidates);
+                    // VectorType tt1(considered_candidates);
+                    // U.Tvmult(tt, BDTBD0);
+                    // Sigma_minus1.vmult(tt1, tt);
+                    // Vt.Tvmult(d_i, tt1);
+                    // d_i *=-1;
+                    // U  = SVD.get_svd_u();
+                    // Vt = SVD.get_svd_vt();
+          // } // equivalent to previous (same d_i as output)
+
 
           AssertDimension(SVD.m(), SVD.n());
           AssertDimension(U.m(), U.n());
@@ -986,7 +992,7 @@ internal_patch_stiffness_matrix.compress(VectorOperation::insert);
               vuT.outer_product(v, uT);
               VectorType correction(d_i.size());
               vuT.vmult(correction, BDTBD0);
-              correction *= // Sigma_minus1(i, i); //
+              correction *= //Sigma_minus1(i, i); //
                 SVD.singular_value(i);
 
               d_i += correction;
