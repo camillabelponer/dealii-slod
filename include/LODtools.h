@@ -407,17 +407,17 @@ namespace dealii::TrilinosWrappers
 
 void
 Gauss_elimination(const FullMatrix<double> &rhs,
-                  const // TrilinosWrappers::SparseMatrix
-                  SparseMatrix<double> 
-                  &sparse_matrix_origin
+                  const TrilinosWrappers::SparseMatrix
+                  // SparseMatrix<double> 
+                  &sparse_matrix // _origin
                   ,
                   FullMatrix<double> &  solution,
                   double                reduce    = 1.e-2,
                   double                tolerance = 1.e-10,
                   double                iter      = 100)
 {
-  TrilinosWrappers::SparseMatrix sparse_matrix;
-  sparse_matrix.reinit(sparse_matrix_origin);
+  // TrilinosWrappers::SparseMatrix sparse_matrix;
+  // sparse_matrix.reinit(sparse_matrix_origin);
 
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;

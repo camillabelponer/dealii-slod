@@ -364,7 +364,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                        fe_fine->n_dofs_per_cell());
   // FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   projection_P0_P1<dim>(projection_matrix);
-  // projection_matrix *= (h * h / 4);
+  projection_matrix *= (h * h / 4);
   // this could be done via tensor product
   computing_timer.leave_subsection();
   for (auto current_patch_id : locally_owned_patches)
@@ -533,13 +533,6 @@ std::vector<unsigned int> internal_dofs_fine;
                              empty_boundary_constraints);
         }
 
-      //         patch_stiffness_matrix.print(std::cout);
-      // const auto A  = linear_operator<VectorType>(patch_stiffness_matrix);
-      // auto Ainv = A;
-
-      // SolverCG<VectorType> cg_A(par.fine_solver_control);
-      // Ainv = inverse_operator(A, cg_A);
-
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("2: compute basis function 4b: misc");
@@ -639,9 +632,9 @@ std::vector<unsigned int> internal_dofs_fine;
       FullMatrix<double> PT(Ndofs_fine, Ndofs_coarse);
       FullMatrix<double> PT_internal(N_internal_dofs, Ndofs_coarse);
       FullMatrix<double> Ainv_PT(N_internal_dofs, Ndofs_coarse);
-      SparseMatrix<double>
-      //TrilinosWrappers::SparseMatrix
-        internal_patch_stiffness_matrix/*(N_internal_dofs,N_internal_dofs, N_internal_dofs)*/;
+      // SparseMatrix<double>
+      TrilinosWrappers::SparseMatrix
+        internal_patch_stiffness_matrix(N_internal_dofs,N_internal_dofs, N_internal_dofs);
       FullMatrix<double> A_internal_full(N_internal_dofs, N_internal_dofs);
       // LAPACKFullMatrix<double>
       FullMatrix<double> P_Ainv_PT(Ndofs_coarse);
@@ -730,30 +723,38 @@ computing_timer.leave_subsection();
         // std::cout << "A unconstrained" << std::endl;
         // unconstrained_patch_stiffness_matrix.print(std::cout);
 
-      A_internal_full.extract_submatrix_from(
-        unconstrained_patch_stiffness_matrix,
-        internal_dofs_fine,
-        internal_dofs_fine);
+//       A_internal_full.extract_submatrix_from(
+//         unconstrained_patch_stiffness_matrix,
+//         internal_dofs_fine,
+//         internal_dofs_fine);
 
-// std::cout << "A full" << std::endl;
-//         A_internal_full.print(std::cout);
+// // std::cout << "A full" << std::endl;
+// //         A_internal_full.print(std::cout);
 
-        computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "2: compute basis function 5b2: extraction 2");
-      SparsityPattern isp;
-      // isp.copy_from(internal_sparsity_pattern);
-      isp.copy_from(A_internal_full);
-      computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "2: compute basis function 5b2: extraction 3");
-      internal_patch_stiffness_matrix.reinit(isp);
-      //internal_patch_stiffness_matrix.print(std::cout);
-      internal_patch_stiffness_matrix.copy_from(A_internal_full);
+//         computing_timer.leave_subsection();
+//       computing_timer.enter_subsection(
+//         "2: compute basis function 5b2: extraction 2");
+//       SparsityPattern isp;
+//       // isp.copy_from(internal_sparsity_pattern);
+//       isp.copy_from(A_internal_full);
+//       computing_timer.leave_subsection();
+//       computing_timer.enter_subsection(
+//         "2: compute basis function 5b2: extraction 3");
+//       internal_patch_stiffness_matrix.reinit(isp);
+//       //internal_patch_stiffness_matrix.print(std::cout);
+//       internal_patch_stiffness_matrix.copy_from(A_internal_full);
 
       
-// std::cout << "A int" << std::endl;
-//         internal_patch_stiffness_matrix.print(std::cout);
+// // std::cout << "A int" << std::endl;
+// //         internal_patch_stiffness_matrix.print(std::cout);
+
+for (unsigned int i  = 0; i < N_internal_dofs; ++i)
+for (unsigned int j  = 0; j < N_internal_dofs; ++j)
+if (patch_sparsity_pattern.exists(internal_dofs_fine[i],internal_dofs_fine[j]))
+{
+internal_patch_stiffness_matrix.set(i, j, unconstrained_patch_stiffness_matrix(internal_dofs_fine[i],internal_dofs_fine[j]));
+//std::cout << "(" << i << ", " << j << ") " << internal_patch_stiffness_matrix(i, j) << std::endl;
+}
       
 
 
@@ -862,8 +863,8 @@ internal_patch_stiffness_matrix.compress(VectorOperation::insert);
             internal_dofs_fine);
 
             
-std::cout << "S bd" << std::endl;
-        S_boundary.print(std::cout);
+// std::cout << "S bd" << std::endl;
+//         S_boundary.print(std::cout);
           // all_dofs_fine);
           //   if (false) // use sparse amtrix // mmutl does not work for spase
           //   with two full ones
@@ -887,7 +888,7 @@ std::cout << "S bd" << std::endl;
                                              boundary_dofs_fine,
                                              all_dofs_coarse);
 
-          PT_boundary.print(std::cout);
+          // PT_boundary.print(std::cout);
           PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
 
@@ -1148,10 +1149,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
   // TODO: for mpi should not allocate all cols and rows->create partitioning
   // like we do for global_stiffness_matrix.reinit(..)
 
-  basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
-                      patches_pattern_fine.nonempty_cols(),
-                      patches_pattern_fine,
-                      mpi_communicator);
+ //  basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
+ //                      patches_pattern_fine.nonempty_cols(),
+ //                      patches_pattern_fine,
+ //                      mpi_communicator);
 
   // if we don't want to use the operator to compute the global_stiffnes matrix
   // as a multiplication then we need the transpose of the patches_pattern_fine
@@ -1179,7 +1180,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
       patches_pattern_fine,
       mpi_communicator);
   */
-  basis_matrix               = 0.0;
+  // basis_matrix               = 0.0;
   premultiplied_basis_matrix = 0.0;
   basis_matrix_transposed    = 0.0;
 
@@ -1210,10 +1211,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
           iterator_to_cell_in_current_patch->get_dof_values(
             current_patch->basis_function[0], phi_loc);
           AssertDimension(global_dofs.size(), phi_loc.size());
-          basis_matrix.set(current_patch_id,
-                           phi_loc.size(),
-                           global_dofs.data(),
-                           phi_loc.data());
+          // basis_matrix.set(current_patch_id,
+          //                  phi_loc.size(),
+          //                  global_dofs.data(),
+          //                  phi_loc.data());
           for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
             {
               basis_matrix_transposed.set(global_dofs.data()[idx],
@@ -1239,7 +1240,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
             }
         }
     }
-  basis_matrix.compress(VectorOperation::insert);
+ //  basis_matrix.compress(VectorOperation::insert);
   premultiplied_basis_matrix.compress(VectorOperation::insert);
   basis_matrix_transposed.compress(VectorOperation::insert);
 
