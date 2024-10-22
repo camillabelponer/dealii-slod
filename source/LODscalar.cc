@@ -389,32 +389,40 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       //create_dof_indices()
 
-std::set<unsigned int> bd_of_patch_index{SPECIAL_NUMBER};
-std::set<unsigned int> bd_of_domain_index{0};
-      IndexSet boundary_dofs_of_patch_set =
-        DoFTools::extract_boundary_dofs(dh_fine_patch, ComponentMask(), bd_of_patch_index);
+// std::set<unsigned int> bd_of_patch_index{SPECIAL_NUMBER};
+// std::set<unsigned int> bd_of_domain_index{0};
+//       IndexSet boundary_dofs_of_patch_set =
+//         DoFTools::extract_boundary_dofs(dh_fine_patch, ComponentMask(), bd_of_patch_index);
 
-boundary_dofs_of_patch_set.print(std::cout);
-      std::vector<unsigned int> boundary_dofs_fine;
-      boundary_dofs_of_patch_set.fill_index_vector(boundary_dofs_fine);
-      std::cout << "boundary: " ;
-      for (auto b : boundary_dofs_fine)
-      std::cout << b << " ";
-      std::cout << std::endl;
+// boundary_dofs_of_patch_set.print(std::cout);
+//       std::vector<unsigned int> boundary_dofs_fine;
+//       boundary_dofs_of_patch_set.fill_index_vector(boundary_dofs_fine);
+//       std::cout << "boundary: " ;
+//       for (auto b : boundary_dofs_fine)
+//       std::cout << b << " ";
+//       std::cout << std::endl;
 
-      std::vector<unsigned int> internal_dofs_fine;
-      std::vector<unsigned int> all_dofs_fine;
-      // TODO : change, this is ugly
-      for (unsigned int i = 0; i < Ndofs_fine; ++i)
-        {
-          all_dofs_fine.push_back(i);
-          if (!boundary_dofs_of_patch_set.is_element(i))
-            internal_dofs_fine.push_back(i);
-        }
-            std::cout << "internal: " ;
-      for (auto b : internal_dofs_fine)
-      std::cout << b << " ";
-      std::cout << std::endl;
+//       std::vector<unsigned int> internal_dofs_fine;
+//       std::vector<unsigned int> all_dofs_fine;
+//       // TODO : change, this is ugly
+//       for (unsigned int i = 0; i < Ndofs_fine; ++i)
+//         {
+//           all_dofs_fine.push_back(i);
+//           if (!boundary_dofs_of_patch_set.is_element(i))
+//             internal_dofs_fine.push_back(i);
+//         }
+//             std::cout << "internal: " ;
+//       for (auto b : internal_dofs_fine)
+//       std::cout << b << " ";
+//       std::cout << std::endl;
+
+std::vector<unsigned int> internal_dofs_fine;
+          std::vector<unsigned int> all_dofs_fine;
+          std::vector<unsigned int> /*patch_*/boundary_dofs_fine;
+
+          fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, /*patch_*/boundary_dofs_fine);
+          
+
 
       std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
                                                 all_dofs_fine.begin() +
@@ -502,7 +510,7 @@ boundary_dofs_of_patch_set.print(std::cout);
         "2: compute basis function 4: stiffness");
 
 
-      if (true)
+      if (false)
         {
           MappingQ1<dim> mapping;
 
@@ -632,7 +640,8 @@ boundary_dofs_of_patch_set.print(std::cout);
       FullMatrix<double> PT_internal(N_internal_dofs, Ndofs_coarse);
       FullMatrix<double> Ainv_PT(N_internal_dofs, Ndofs_coarse);
       SparseMatrix<double>
-        internal_patch_stiffness_matrix; //(N_internal_dofs,N_internal_dofs);
+      //TrilinosWrappers::SparseMatrix
+        internal_patch_stiffness_matrix/*(N_internal_dofs,N_internal_dofs, N_internal_dofs)*/;
       FullMatrix<double> A_internal_full(N_internal_dofs, N_internal_dofs);
       // LAPACKFullMatrix<double>
       FullMatrix<double> P_Ainv_PT(Ndofs_coarse);
@@ -718,16 +727,16 @@ boundary_dofs_of_patch_set.print(std::cout);
 computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5b2: extraction 1");
-        std::cout << "A unconstrained" << std::endl;
-        unconstrained_patch_stiffness_matrix.print(std::cout);
+        // std::cout << "A unconstrained" << std::endl;
+        // unconstrained_patch_stiffness_matrix.print(std::cout);
 
       A_internal_full.extract_submatrix_from(
         unconstrained_patch_stiffness_matrix,
         internal_dofs_fine,
         internal_dofs_fine);
 
-std::cout << "A full" << std::endl;
-        A_internal_full.print(std::cout);
+// std::cout << "A full" << std::endl;
+//         A_internal_full.print(std::cout);
 
         computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -743,16 +752,13 @@ std::cout << "A full" << std::endl;
       internal_patch_stiffness_matrix.copy_from(A_internal_full);
 
       
-std::cout << "A int" << std::endl;
-        internal_patch_stiffness_matrix.print(std::cout);
+// std::cout << "A int" << std::endl;
+//         internal_patch_stiffness_matrix.print(std::cout);
       
 
-// for (unsigned int i  = 0; i < N_internal_dofs; ++i)
-// for (unsigned int j  = 0; j < N_internal_dofs; ++j)
-// if (internal_sparsity_pattern.exists(i,j) && patch_sparsity_pattern.exists(internal_dofs_fine[i],internal_dofs_fine[j]))
-// {
-// internal_patch_stiffness_matrix.set(i, j, unconstrained_patch_stiffness_matrix(internal_dofs_fine[i],internal_dofs_fine[j]));
-// }
+
+internal_patch_stiffness_matrix.compress(VectorOperation::insert);
+// internal_patch_stiffness_matrix.print(std::cout);
       
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
