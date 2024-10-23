@@ -638,22 +638,22 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             patch_boundary_dofs_fine,
             internal_dofs_fine);
             
-          FullMatrix<double>       S_internal(N_internal_dofs, N_internal_dofs);
+          // FullMatrix<double>       S_internal(N_internal_dofs, N_internal_dofs);
 
-          S_internal.extract_submatrix_from(
-            unconstrained_patch_stiffness_matrix,
-            internal_dofs_fine,
-            internal_dofs_fine); 
+          // S_internal.extract_submatrix_from(
+          //   unconstrained_patch_stiffness_matrix,
+          //   internal_dofs_fine,
+          //   internal_dofs_fine); 
 
-          FullMatrix<double>       PT_internal(N_internal_dofs, Ndofs_coarse);
+          // FullMatrix<double>       PT_internal(N_internal_dofs, Ndofs_coarse);
 
-          PT_internal.extract_submatrix_from(PT,
-                                             internal_dofs_fine,
-                                             all_dofs_coarse);
+          // PT_internal.extract_submatrix_from(PT,
+          //                                    internal_dofs_fine,
+          //                                    all_dofs_coarse);
 
-          // Ainv_PT_restricted.extract_submatrix_from(Ainv_PT,
-          //                                           internal_dofs_fine,
-          //                                           all_dofs_coarse);
+          Ainv_PT_restricted.extract_submatrix_from(Ainv_PT,
+                                                    internal_dofs_fine,
+                                                    all_dofs_coarse);
 
           PT_boundary.extract_submatrix_from(PT,
                                              patch_boundary_dofs_fine,
@@ -698,7 +698,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           SVD.copy_from(BDTBD);
 
           // { // option 1 slightly faster
-          SVD.compute_inverse_svd(); // stores U V as normal, but
+          SVD.compute_inverse_svd(1e-15); // stores U V as normal, but
                                      // 1/singular_value_i
           d_i = 0.0;
           SVD.vmult(d_i, BDTBD0);
