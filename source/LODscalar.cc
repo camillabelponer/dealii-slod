@@ -439,6 +439,9 @@ std::vector<unsigned int> internal_dofs_fine;
       DoFTools::make_zero_boundary_constraints(dh_fine_patch,
                                                0,
                                                internal_boundary_constraints);
+      DoFTools::make_zero_boundary_constraints(dh_fine_patch,
+                                               SPECIAL_NUMBER,
+                                               internal_boundary_constraints);
       internal_boundary_constraints.close();
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -1034,11 +1037,11 @@ internal_patch_stiffness_matrix.compress(VectorOperation::insert);
       // selected_basis_function); std::cout << "rhere 10" << std::endl;
       // TODO I think this should actually be
       VectorType Ac_i_0(Ndofs_fine);
+      // selected_basis_function = 0.0; // reused
 
-      internal_patch_stiffness_matrix.vmult(Ac_i,
-                                            internal_selected_basis_function);
+      unconstrained_patch_stiffness_matrix.vmult(Ac_i_0, selected_basis_function);
 
-      extend_vector_to_boundary_values(Ac_i, dh_fine_patch, Ac_i_0);
+      // extend_vector_to_boundary_values(Ac_i, dh_fine_patch, selected_basis_function);
 
       current_patch->basis_function_premultiplied.push_back(Ac_i_0);
 
@@ -1155,10 +1158,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
   // TODO: for mpi should not allocate all cols and rows->create partitioning
   // like we do for global_stiffness_matrix.reinit(..)
 
- //  basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
- //                      patches_pattern_fine.nonempty_cols(),
- //                      patches_pattern_fine,
- //                      mpi_communicator);
+  basis_matrix.reinit(patches_pattern_fine.nonempty_rows(),
+                      patches_pattern_fine.nonempty_cols(),
+                      patches_pattern_fine,
+                      mpi_communicator);
 
   // if we don't want to use the operator to compute the global_stiffnes matrix
   // as a multiplication then we need the transpose of the patches_pattern_fine
@@ -1186,7 +1189,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
       patches_pattern_fine,
       mpi_communicator);
   */
-  // basis_matrix               = 0.0;
+  basis_matrix               = 0.0;
   premultiplied_basis_matrix = 0.0;
   basis_matrix_transposed    = 0.0;
 
@@ -1217,10 +1220,10 @@ LOD<dim, spacedim>::assemble_global_matrix()
           iterator_to_cell_in_current_patch->get_dof_values(
             current_patch->basis_function[0], phi_loc);
           AssertDimension(global_dofs.size(), phi_loc.size());
-          // basis_matrix.set(current_patch_id,
-          //                  phi_loc.size(),
-          //                  global_dofs.data(),
-          //                  phi_loc.data());
+          basis_matrix.set(current_patch_id,
+                           phi_loc.size(),
+                           global_dofs.data(),
+                           phi_loc.data());
           for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
             {
               basis_matrix_transposed.set(global_dofs.data()[idx],
@@ -1246,13 +1249,13 @@ LOD<dim, spacedim>::assemble_global_matrix()
             }
         }
     }
- //  basis_matrix.compress(VectorOperation::insert);
+  basis_matrix.compress(VectorOperation::insert);
   premultiplied_basis_matrix.compress(VectorOperation::insert);
   basis_matrix_transposed.compress(VectorOperation::insert);
 
-  // basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix);
+  basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix);
 
-  //  global_stiffness_matrix.compress(VectorOperation::add);
+  global_stiffness_matrix.compress(VectorOperation::add);
 }
 
 template <int dim, int spacedim>
@@ -1579,12 +1582,12 @@ extend_vector_to_boundary_values(LS, dh, lod_solution);
 
   par.convergence_table_compare.difference(dh, FS, lod_solution);
 */
-      LA::MPI::SparseMatrix A_lod_temp;
-  fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
-  basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
-  // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
-  // A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
-  global_stiffness_matrix.compress(VectorOperation::add);
+  //     LA::MPI::SparseMatrix A_lod_temp;
+  // fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
+  // basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
+  // // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
+  // // A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
+  // global_stiffness_matrix.compress(VectorOperation::add);
 
     computing_timer.leave_subsection();
 /*
