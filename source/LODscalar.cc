@@ -446,11 +446,13 @@ std::vector<unsigned int> internal_dofs_fine;
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 3: sparsity pattern");
-      DynamicSparsityPattern patch_sparsity_pattern(Ndofs_fine);
+
       DynamicSparsityPattern internal_sparsity_pattern(Ndofs_fine);
+                SparsityPattern patch_sparsity_pattern;
 
       if (false)
         {
+          DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
           // option 2
           // IndexSet relevant_dofs;
           // DoFTools::extract_locally_active_dofs(dh_fine_patch,
@@ -459,15 +461,16 @@ std::vector<unsigned int> internal_dofs_fine;
           // sparsity_pattern(relevant_dofs);
 
           DoFTools::make_sparsity_pattern(dh_fine_patch,
-                                          patch_sparsity_pattern,
+                                          patch_dynamic_sparsity_pattern,
                                           empty_boundary_constraints,
                                           false);
           unconstrained_patch_stiffness_matrix.clear();
-          unconstrained_patch_stiffness_matrix.reinit(patch_sparsity_pattern);
+          unconstrained_patch_stiffness_matrix.reinit(patch_dynamic_sparsity_pattern);
           // internal_sparsity_pattern.copy_from(sparsity_patter);
         }
       else
         {
+          DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
           // option 1: does the same as
           // DoFTools::make_sparsity_pattern() but also
           // considers bool_dof_mask for FE_Q_iso_Q1
@@ -491,7 +494,7 @@ std::vector<unsigned int> internal_dofs_fine;
                 // internal_boundary_constraints.add_entries_local_to_global(
                 empty_boundary_constraints.add_entries_local_to_global(
                   dofs_on_this_cell,
-                  patch_sparsity_pattern,
+                  patch_dynamic_sparsity_pattern,
                   true,
                   bool_dof_mask); // keep constrained entries must be true
 
@@ -502,7 +505,9 @@ std::vector<unsigned int> internal_dofs_fine;
                   bool_dof_mask); // here should be false
               }
 
-          patch_sparsity_pattern.compress();
+          patch_dynamic_sparsity_pattern.compress();
+
+          patch_sparsity_pattern.copy_from (patch_dynamic_sparsity_pattern);
           unconstrained_patch_stiffness_matrix.clear();
           unconstrained_patch_stiffness_matrix.reinit(patch_sparsity_pattern);
         }
