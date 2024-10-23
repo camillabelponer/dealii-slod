@@ -244,7 +244,8 @@ void
 fill_dofs_indices_vector(const DoFHandler<dim> & dh,
                          std::vector<unsigned int> & all_dofs,
                          std::vector<unsigned int> & internal_dofs,
-                         std::vector<unsigned int> & boundary_dofs)
+                         std::vector<unsigned int> & boundary_dofs,
+                         std::vector<unsigned int> & domain_boundary_dofs)
 {
   auto boundary_indices(dh.get_triangulation().get_boundary_ids());
   unsigned int N_boundary_indices = boundary_indices.size();
@@ -264,7 +265,7 @@ fill_dofs_indices_vector(const DoFHandler<dim> & dh,
 
   internal.subtract_set(boundary_of_patch_not_of_domain_set);
   internal.subtract_set(boundary_of_domain_and_patch_set);
-  boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
+  // boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
 
 // std::cout << "all ";
 //   for (auto i: all)
@@ -290,6 +291,8 @@ fill_dofs_indices_vector(const DoFHandler<dim> & dh,
   boundary_of_patch_not_of_domain_set.fill_index_vector(boundary_dofs);
   internal.fill_index_vector(internal_dofs);
   all.fill_index_vector(all_dofs);
+
+  boundary_of_domain_and_patch_set.fill_index_vector(domain_boundary_dofs);
 
   
 }

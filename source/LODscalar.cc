@@ -362,9 +362,14 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           std::vector<unsigned int> internal_dofs_fine;
           std::vector<unsigned int> all_dofs_fine;
           std::vector<unsigned int> patch_boundary_dofs_fine;
+          std::vector<unsigned int> domain_boundary_dofs_fine;
 
-          fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, patch_boundary_dofs_fine);
+          fill_dofs_indices_vector(dh_fine_patch, all_dofs_fine, internal_dofs_fine, patch_boundary_dofs_fine, domain_boundary_dofs_fine);
 
+
+          std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
+                                                    all_dofs_fine.begin() +
+                                                      Ndofs_coarse); 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 2: constraints");
@@ -529,6 +534,14 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               coarse_dofs_on_this_cell[0]++;
             }
         }
+        // idelly we should be able to use the internal_boundary constraints to set the bd valuse of PT to zero, but i think they might be stored col-wise / row -wise 
+        for (unsigned int i = 0; i < Ndofs_coarse; ++i)
+        {
+          for (auto j : patch_boundary_dofs_fine) // loop over the filled vectors instead
+                PT.set(j, i, 0);
+          for (auto j : domain_boundary_dofs_fine) // loop over the filled vectors instead
+                PT.set(j, i, 0);
+        }
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -536,6 +549,25 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
 
+// if (patch_boundary_dofs_fine.size() > 0)
+// {
+//       FullMatrix<double> Ainv_PT_bd(patch_boundary_dofs_fine.size(), Ndofs_coarse);
+//       Ainv_PT_bd.extract_submatrix_from(Ainv_PT,
+//                                                     patch_boundary_dofs_fine,
+//                                                     all_dofs_coarse);
+//                                                           std::cout << Ainv_PT_bd.frobenius_norm() << std::endl;
+// }
+// if (domain_boundary_dofs_fine.size() > 0)
+// {
+//       FullMatrix<double> Ainv_PT_bd1(domain_boundary_dofs_fine.size(), Ndofs_coarse);
+//       Ainv_PT_bd1.extract_submatrix_from(Ainv_PT,
+//                                                     domain_boundary_dofs_fine,
+//                                                     all_dofs_coarse);
+
+
+//       std::cout << Ainv_PT_bd1.frobenius_norm() << std::endl;
+
+// }
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 5c: triple product inversion");
@@ -595,9 +627,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 // computing_timer.enter_subsection(
 //             "2: compute basis function 7: stabilizazion: setup 1");
           Assert(Ndofs_fine > Ndofs_coarse, ExcNotImplemented());
-          std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
-                                                    all_dofs_fine.begin() +
-                                                      Ndofs_coarse);
+          // std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
+          //                                           all_dofs_fine.begin() +
+          //                                             Ndofs_coarse);
           std::vector<unsigned int> all_boundary_dofs(all_dofs_fine.begin(),
                                                       all_dofs_fine.begin() +
                                                         N_boundary_dofs);
