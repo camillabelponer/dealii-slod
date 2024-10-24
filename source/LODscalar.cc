@@ -369,6 +369,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   computing_timer.leave_subsection();
   for (auto current_patch_id : locally_owned_patches)
     {
+      pcout << "pathc nr " << current_patch_id << std::endl;
       computing_timer.enter_subsection(
         "2: compute basis function 1: patch setup");
 
@@ -447,7 +448,6 @@ std::vector<unsigned int> internal_dofs_fine;
       computing_timer.enter_subsection(
         "2: compute basis function 3: sparsity pattern");
 
-      DynamicSparsityPattern internal_sparsity_pattern(Ndofs_fine);
                 SparsityPattern patch_sparsity_pattern;
 
       if (false)
@@ -471,6 +471,7 @@ std::vector<unsigned int> internal_dofs_fine;
       else
         {
           DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
+          // DynamicSparsityPattern internal_sparsity_pattern(Ndofs_fine);
           // option 1: does the same as
           // DoFTools::make_sparsity_pattern() but also
           // considers bool_dof_mask for FE_Q_iso_Q1
@@ -498,11 +499,11 @@ std::vector<unsigned int> internal_dofs_fine;
                   true,
                   bool_dof_mask); // keep constrained entries must be true
 
-                internal_boundary_constraints.add_entries_local_to_global(
-                  dofs_on_this_cell,
-                  internal_sparsity_pattern,
-                  false,
-                  bool_dof_mask); // here should be false
+                // internal_boundary_constraints.add_entries_local_to_global(
+                //   dofs_on_this_cell,
+                //   internal_sparsity_pattern,
+                //   false,
+                //   bool_dof_mask); // here should be false
               }
 
           patch_dynamic_sparsity_pattern.compress();
@@ -948,6 +949,27 @@ internal_patch_stiffness_matrix.compress(VectorOperation::insert);
           d_i *= -1;
           auto U  = SVD.get_svd_u();
           auto Vt = SVD.get_svd_vt();
+
+//           LAPACKFullMatrix<double> tempsvd(considered_candidates,
+//                                        considered_candidates);
+//           tempsvd.copy_from(BDTBD);
+//           tempsvd.compute_svd();
+
+//           Vector<double> Sigma_minus1(considered_candidates);
+//           Sigma_minus1 = 0.0;
+
+//           for (unsigned int i = 0; i < considered_candidates; ++i)
+//           {
+//             if (tempsvd.singular_value(0) / tempsvd.singular_value(i) < 1e15)
+//                   Sigma_minus1[i] = (1 / tempsvd.singular_value(i));
+//           }
+// for (unsigned int i = 0; i < considered_candidates; ++i)
+// {
+//   double diff = abs(Sigma_minus1[i] - SVD.singular_value(i));
+//   if (diff > par.patch_solver_control.tolerance())
+//     std::cout << current_patch_id << ": " << i << ": " << Sigma_minus1[i] << " " << SVD.singular_value(i) << std::endl;
+//   Assert((diff <= par.patch_solver_control.tolerance()), ExcNotImplemented());
+// }
 
 
           // {
