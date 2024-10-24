@@ -146,13 +146,10 @@ class LOD
 public:
   LOD(const LODParameters<dim, spacedim> &par);
 
-  void
+  virtual void
   run();
 
-  void
-  test();
-
-private:
+protected:
   void
   make_fe();
   void
@@ -162,17 +159,17 @@ private:
   void
   compute_basis_function_candidates();
   void
-  compute_basis_function_candidates_using_SVD(){};
-  void
   assemble_global_matrix();
   void
   solve();
   void
-  solve_fem_problem();
+  assemble_and_solve_fem_problem();
   void
-  compare_fem_lod(); // const;
-  void
-  output_results();
+  compare_lod_with_fem();
+  virtual void
+  output_coarse_results() {};
+  virtual void
+  output_fine_results() {};
   void
   print_parameters() const;
   void
@@ -187,15 +184,15 @@ private:
   create_mesh_for_patch(Patch<dim> &current_patch);
   void
   check_nested_patches(); // AFTER PATCHES ARE CREATED
-  void
+  virtual void
   assemble_stiffness(LA::MPI::SparseMatrix /*<double>*/ &stiffness_matrix,
                      LA::MPI::Vector &                   rhs,
                      const DoFHandler<dim> &             dh,
-                     AffineConstraints<double> &         stiffnes_constraints);
+                     AffineConstraints<double> &         stiffnes_constraints){};
 
-  void
+  virtual void
   assemble_stiffness_patch(SparseMatrix<double> & stiffness_matrix,
-                           const DoFHandler<dim> &dh);
+                           const DoFHandler<dim> &dh) {};
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
   // shared not distributed bc we want all processors to get access to all cells
@@ -233,44 +230,9 @@ private:
 
   std::vector<std::vector<unsigned int>> connected_fine_cell_dofs;
   std::vector<std::vector<unsigned int>> quadrature_dofs_map;
+
+  unsigned int N_corrected_patches = 0;
 };
 
 
 #endif
-
-// NOTE
-// ONLY WORK WITH DIRICHLET = 0 EVERYWHERE because of LOD formulation
-
-
-// 3.4.24
-// TODO
-// compute sp-1 blablabla
-// asseble c
-// asseble ct S c
-// check Solve
-// fix internal boundary
-// check scaling inside "transfer"
-
-// 10.4.24
-// TODO
-// testing LOD
-// stabilization
-// elasticity
-// parallelization
-// optimize C^T S C
-
-// 30 04 24 : stabilization
-/*
- get vector of cand
- define conormal op.
- apply op (B) to cand(0)
- apply b to all other candidates
- solve somehow d = B-1 B0 cannot do that then
- svd (Parpack)
- truncate by throwing away as many patches as this patches containes ( the
-smallest) etc
-*/
-// cosntruct B
-// take first col of B as rhs
-// the rest is B_r
-// SVD of B_r ^T B_r and then truncate

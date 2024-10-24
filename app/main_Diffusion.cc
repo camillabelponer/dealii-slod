@@ -1,4 +1,4 @@
-#include "LOD.h"
+#include "Diffusion.h"
 
 int
 main(int argc, char *argv[])
@@ -15,7 +15,7 @@ main(int argc, char *argv[])
       else
         prm_file = "parameters.prm";
       LODParameters<2, 1> par;
-      LOD<2, 1>           problem(par);
+      DiffusionProblem<2, 1>           problem(par);
       ParameterAcceptor::initialize(prm_file);
 
       problem.run();

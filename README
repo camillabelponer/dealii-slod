@@ -1,17 +1,2 @@
-only sequential, at 16.07.24 mpi is work in progress for the scalar case.
-to run the vector case change line 16 in CMakeList.txt to 
-file(GLOB TARGET_SRC source/LODvector.cc )
-uncomment lines 39-42 and comment 43-45
-
-#TODO 
-- fix CMakeFile.txt 
-- mpirun
-- convergence test for elasticity case
-- nested patches are deprecated in the vector case
-- change CG solver to direct
-- remove use of special_number: it does not make a difference
-- remove use of linear operators
-- locally_owned_patches is created from the triangulation, which as shared is known to every processors, because we need all of them to know all the cells, they don't need, however, to create all the patches -> inside crate_patches we should only loop over the cells whose patch will be on the same processor. one way would be to loop over all using dh_coarse and then ask if locally_owned_patches contains cell->global_index()
-
-
-to run assemly tests deal 9.6 is needed
+branch to have the LOD as a base class and elasticity and diffusion as derived
+cmake file does not work

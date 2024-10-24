@@ -239,6 +239,64 @@ extend_vector_to_boundary_values(Vector<double> &       vector_in,
     }
 }
 
+template <int dim>
+void
+fill_dofs_indices_vector(const DoFHandler<dim> & dh,
+                         std::vector<unsigned int> & all_dofs,
+                         std::vector<unsigned int> & internal_dofs,
+                         std::vector<unsigned int> & boundary_dofs,
+                         std::vector<unsigned int> & domain_boundary_dofs)
+{
+  auto boundary_indices(dh.get_triangulation().get_boundary_ids());
+  unsigned int N_boundary_indices = boundary_indices.size();
+  Assert(N_boundary_indices < 3, ExcNotImplemented());
+
+
+  IndexSet all(dh.n_dofs());
+  all.add_range(0, dh.n_dofs());
+  IndexSet internal(all);
+  
+  IndexSet boundary_of_domain_and_patch_set;
+  IndexSet boundary_of_patch_not_of_domain_set;
+
+  boundary_of_domain_and_patch_set = DoFTools::extract_boundary_dofs(dh, ComponentMask(), std::set<unsigned int>{0});
+
+  boundary_of_patch_not_of_domain_set = DoFTools::extract_boundary_dofs(dh, ComponentMask(), std::set<unsigned int>{99});
+
+  internal.subtract_set(boundary_of_patch_not_of_domain_set);
+  internal.subtract_set(boundary_of_domain_and_patch_set);
+  // boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
+
+// std::cout << "all ";
+//   for (auto i: all)
+//   std::cout << i << " ";
+//   std::cout << all.n_elements() << std::endl;
+
+//   std::cout << "internal ";
+//   for (auto i: internal)
+//   std::cout << i << " ";
+//   std::cout << internal.n_elements() << std::endl;
+
+//   std::cout << "boundary_of_patch_not_of_domain_set ";
+//   for (auto i: boundary_of_patch_not_of_domain_set)
+//   std::cout << i << " ";
+//   std::cout << boundary_of_patch_not_of_domain_set.n_elements() << std::endl;
+//   std::cout << "boundary_of_domain_and_patch_set ";
+//   for (auto i: boundary_of_domain_and_patch_set)
+//   std::cout << i << " ";
+//   std::cout << boundary_of_domain_and_patch_set.n_elements() << std::endl;
+  
+  //Assert((internal.n_elements() + boundary_of_patch_not_of_domain_set.n_elements() + boundary_of_domain_and_patch_set.n_elements()) == all.n_elements(), ExcNotImplemented());
+
+  boundary_of_patch_not_of_domain_set.fill_index_vector(boundary_dofs);
+  internal.fill_index_vector(internal_dofs);
+  all.fill_index_vector(all_dofs);
+
+  boundary_of_domain_and_patch_set.fill_index_vector(domain_boundary_dofs);
+
+  
+}
+
 
 namespace dealii::TrilinosWrappers
 {
@@ -377,8 +435,8 @@ void
 Gauss_elimination(const FullMatrix<double> &            rhs,
                   const TrilinosWrappers::SparseMatrix &sparse_matrix,
                   FullMatrix<double> &                  solution,
-                  double                                reduce    = 1.e-2,
-                  double                                tolerance = 1.e-10,
+                  double                                reduce    = 1.e-16,
+                  double                                tolerance = 1.e-18,
                   double                                iter      = 100)
 {
   // create preconditioner

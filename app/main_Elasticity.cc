@@ -1,4 +1,4 @@
-#include "LODvector.h"
+#include "Elasticity.h"
 
 int
 main(int argc, char *argv[])
@@ -15,7 +15,7 @@ main(int argc, char *argv[])
       else
         prm_file = "parameters.prm";
       LODParameters<2, 2> par;
-      LOD<2>              problem(par);
+      ElasticityProblem<2>              problem(par);
       ParameterAcceptor::initialize(prm_file);
 
       problem.run();
