@@ -11,3 +11,7 @@ uncomment lines 39-42 and comment 43-45
 
 
 to run assemly tests deal 9.6 is needed
+
+TODO:
+- we are still using A_fem, it should be changed, see comments in code for more
+- add Flag from input file for the use of random coefficients

@@ -54,6 +54,8 @@
 #  include <deal.II/numerics/vector_tools.h>
 
 #  include <memory>
+#include <cstdlib> 
+#include <ctime> 
 
 
 namespace LA
@@ -178,6 +180,8 @@ private:
   print_parameters() const;
   void
   initialize_patches();
+  void
+  create_random_coefficients();
 
   const LODParameters<dim, spacedim> &par;
   MPI_Comm                            mpi_communicator;
@@ -229,8 +233,13 @@ private:
 
   Table<2, bool> bool_dof_mask;
 
-  std::vector<std::vector<unsigned int>> connected_fine_cell_dofs;
-  std::vector<std::vector<unsigned int>> quadrature_dofs_map;
+  // std::vector<std::vector<unsigned int>> connected_fine_cell_dofs;
+  // std::vector<std::vector<unsigned int>> quadrature_dofs_map;
+
+  Vector<double> random_coefficients;
+
+  // double       H = 0;                //= pow(0.5, par.n_global_refinements);
+  // unsigned int N_cells_per_line = 0; // = (int)1 / H;
 };
 
 

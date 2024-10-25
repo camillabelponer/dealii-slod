@@ -19,7 +19,10 @@ LOD<dim, spacedim>::LOD(const LODParameters<dim, spacedim> &par)
   , tria(mpi_communicator)
   , dof_handler_coarse(tria)
   , dof_handler_fine(tria)
-{}
+{
+  // H = pow(0.5, par.n_global_refinements);
+  // N_cells_per_line = (int)1 / H;
+}
 
 template <int dim, int spacedim>
 void
@@ -96,6 +99,52 @@ LOD<dim, spacedim>::make_grid()
 
 template <int dim, int spacedim>
 void
+LOD<dim, spacedim>::create_random_coefficients()
+{
+  TimerOutput::Scope        t(computing_timer, "1: create random coeff");
+
+  double       H                = pow(0.5, par.n_global_refinements);
+  unsigned int N_cells_per_line = (int)1 / H;
+  random_coefficients.reinit(tria.n_active_cells());
+  for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+  {
+    const double x = cell->barycenter()(0);
+    const double y = cell->barycenter()(1);
+    const unsigned int vector_cell_index =
+        (int)floor(x / H) + N_cells_per_line * (int)floor(y / H);
+    random_coefficients[vector_cell_index] =  1.0 + static_cast <float> (rand()) / ( static_cast <float> (RAND_MAX/(100.0-1.0)));
+  }
+
+  //random_coefficients.print(std::cout);
+
+
+  // random coeff
+  std::vector<std::string> name(spacedim, "coefficients");
+
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    data_component_interpretation(
+      spacedim, DataComponentInterpretation::component_is_scalar);
+  DataOut<dim> data_out;
+
+  data_out.attach_dof_handler(dof_handler_fine);
+
+  data_out.add_data_vector(// dof_handler_coarse,
+                           random_coefficients,
+                           name,
+                           DataOut<dim>::type_cell_data,
+                           data_component_interpretation);
+
+  data_out.build_patches();
+  const std::string filename = par.output_name + "_coefficients.vtu";
+  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+                                 mpi_communicator);
+
+  std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
+                              "_fine.pvd");
+}
+
+template <int dim, int spacedim>
+void
 LOD<dim, spacedim>::create_patches()
 {
   TimerOutput::Scope        t(computing_timer, "1: Create Patches");
@@ -109,6 +158,7 @@ LOD<dim, spacedim>::create_patches()
   double       H                = pow(0.5, par.n_global_refinements);
   unsigned int N_cells_per_line = (int)1 / H;
   std::vector<typename DoFHandler<dim>::active_cell_iterator> ordered_cells;
+  // ordered cells is a vector that contains pointer to all coarse cells, ordered line by line
   ordered_cells.resize(tria.n_active_cells());
   std::vector<std::vector<unsigned int>> cells_in_patch;
   cells_in_patch.resize(tria.n_active_cells());
@@ -708,6 +758,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           std::vector<unsigned int> coarse_dofs_on_this_cell(
             fe_coarse->n_dofs_per_cell());
           coarse_dofs_on_this_cell[0] = 0;
+          // this will not work for the vector problem
           for (auto &cell : dh_fine_patch.active_cell_iterators())
             {
               cell->get_dof_indices(dofs_on_this_cell);
@@ -759,6 +810,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         }
 
       {
+        // todo: idea to make LOD faster, thiw following lines are only needed if we use
+        // empty_contraints in assemble_stiffness
+        // we should first of all merge the two constrains (patch and domain)
+        // and then decide if pass to assemble empty ( SLOD case) or the merged one (LOD)
+        // then skipping this following lines if (!par.SLOD_stabilization)
         computing_timer.enter_subsection(
           "2: compute basis function 5b2: applying bd : reinit");
         SparseMatrix<double> CPSM;
@@ -1272,9 +1328,16 @@ LOD<dim, spacedim>::assemble_stiffness( // Patch<dim> & current_patch,
   const auto lexicographic_to_hierarchic_numbering =
     FETools::lexicographic_to_hierarchic_numbering<dim>(par.n_subdivisions);
 
+  double       H = pow(0.5, par.n_global_refinements);
+  unsigned int N_cells_per_line = (int)1 / H;
+
   for (const auto &cell : dh.active_cell_iterators())
     if (cell->is_locally_owned())
       {
+        const double x = cell->barycenter()(0);
+        const double y = cell->barycenter()(1);
+        const unsigned int vector_cell_index =
+          (int)floor(x / H) + N_cells_per_line * (int)floor(y / H);
         cell_matrix = 0;
         cell_rhs    = 0;
         fe_values.reinit(cell);
@@ -1307,7 +1370,7 @@ LOD<dim, spacedim>::assemble_stiffness( // Patch<dim> & current_patch,
                                   [(c_0 + j_0) +
                                    (c_1 + j_1) * (par.n_subdivisions + 1)];
 
-                              cell_matrix(i, j) +=
+                              cell_matrix(i, j) += random_coefficients[vector_cell_index] *
                                 (fe_values.shape_grad(i, q_index) *
                                  fe_values.shape_grad(j, q_index) *
                                  fe_values.JxW(q_index));
@@ -1348,8 +1411,6 @@ LOD<dim, spacedim>::solve()
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
-  std::cout << solution.size() << std::endl;
-  std::cout << system_rhs.size() << std::endl;
   solver.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
   pcout << "   size of u " << solution.size() << std::endl;
   coarse_boundary_constraints.distribute(solution);
@@ -1633,6 +1694,7 @@ LOD<dim, spacedim>::run()
   make_grid();
   make_fe();
   initialize_patches();
+  create_random_coefficients();
 
   compute_basis_function_candidates();
   assemble_global_matrix();
