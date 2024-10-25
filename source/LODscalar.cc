@@ -885,6 +885,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             {
               Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
             }
+            computing_timer.leave_subsection();
         }
       else // SLOD
         {
