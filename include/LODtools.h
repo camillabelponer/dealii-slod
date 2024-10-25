@@ -107,7 +107,10 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
     [&quadrature](const auto &fe, const auto n_subdivisions) {
       Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
       MappingQ1<dim> mapping;
-      FEValues<dim>  fe_values(mapping, fe, quadrature, update_values | update_gradients);
+      FEValues<dim>  fe_values(mapping,
+                              fe,
+                              quadrature,
+                              update_values | update_gradients);
 
       Triangulation<dim> tria;
       GridGenerator::hyper_cube(tria);
@@ -219,7 +222,7 @@ extend_vector_to_boundary_values(const Vector<double> & vector_in,
   IndexSet     boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
   unsigned int N_internal_dofs   = dh.n_dofs() - boundary_dofs_set.n_elements();
 
-  AssertDimension(N_internal_dofs, vector_in.size());//, ExcNotImplemented());
+  AssertDimension(N_internal_dofs, vector_in.size()); //, ExcNotImplemented());
   Assert(N_internal_dofs < dh.n_dofs(), ExcNotImplemented());
 
   unsigned int in_index = 0;
@@ -237,12 +240,13 @@ extend_vector_to_boundary_values(const Vector<double> & vector_in,
 
 template <int dim>
 void
-fill_dofs_indices_vector(const DoFHandler<dim> & dh,
-                         std::vector<unsigned int> & all_dofs,
-                         std::vector<unsigned int> & internal_dofs,
-                         std::vector<unsigned int> & boundary_dofs)
+fill_dofs_indices_vector(const DoFHandler<dim> &    dh,
+                         std::vector<unsigned int> &all_dofs,
+                         std::vector<unsigned int> &internal_dofs,
+                         std::vector<unsigned int> &boundary_dofs,
+                         std::vector<unsigned int> &domain_boundary_dofs)
 {
-  auto boundary_indices(dh.get_triangulation().get_boundary_ids());
+  auto         boundary_indices(dh.get_triangulation().get_boundary_ids());
   unsigned int N_boundary_indices = boundary_indices.size();
   Assert(N_boundary_indices < 3, ExcNotImplemented());
 
@@ -250,25 +254,33 @@ fill_dofs_indices_vector(const DoFHandler<dim> & dh,
   IndexSet all(dh.n_dofs());
   all.add_range(0, dh.n_dofs());
   IndexSet internal(all);
-  
+
   IndexSet boundary_of_domain_and_patch_set;
   IndexSet boundary_of_patch_not_of_domain_set;
 
-  boundary_of_domain_and_patch_set = DoFTools::extract_boundary_dofs(dh, ComponentMask(), std::set<unsigned int>{0});
+  boundary_of_domain_and_patch_set =
+    DoFTools::extract_boundary_dofs(dh,
+                                    ComponentMask(),
+                                    std::set<unsigned int>{0});
 
-  boundary_of_patch_not_of_domain_set = DoFTools::extract_boundary_dofs(dh, ComponentMask(), std::set<unsigned int>{99});
+  boundary_of_patch_not_of_domain_set =
+    DoFTools::extract_boundary_dofs(dh,
+                                    ComponentMask(),
+                                    std::set<unsigned int>{99});
 
   internal.subtract_set(boundary_of_patch_not_of_domain_set);
   internal.subtract_set(boundary_of_domain_and_patch_set);
-  //boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
-  
-  //Assert((internal.n_elements() + boundary_of_patch_not_of_domain_set.n_elements() + boundary_of_domain_and_patch_set.n_elements()) == all.n_elements(), ExcNotImplemented());
+  // boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
+
+  // Assert((internal.n_elements() +
+  // boundary_of_patch_not_of_domain_set.n_elements() +
+  // boundary_of_domain_and_patch_set.n_elements()) == all.n_elements(),
+  // ExcNotImplemented());
 
   boundary_of_patch_not_of_domain_set.fill_index_vector(boundary_dofs);
+  boundary_of_domain_and_patch_set.fill_index_vector(domain_boundary_dofs);
   internal.fill_index_vector(internal_dofs);
   all.fill_index_vector(all_dofs);
-
-  
 }
 
 
@@ -408,13 +420,13 @@ namespace dealii::TrilinosWrappers
 void
 Gauss_elimination(const FullMatrix<double> &rhs,
                   const TrilinosWrappers::SparseMatrix
-                  // SparseMatrix<double> 
-                  &sparse_matrix // _origin
+                    // SparseMatrix<double>
+                    &sparse_matrix // _origin
                   ,
-                  FullMatrix<double> &  solution,
-                  double                reduce    = 1.e-2,
-                  double                tolerance = 1.e-10,
-                  double                iter      = 100)
+                  FullMatrix<double> &solution,
+                  double              reduce    = 1.e-2,
+                  double              tolerance = 1.e-10,
+                  double              iter      = 100)
 {
   // TrilinosWrappers::SparseMatrix sparse_matrix;
   // sparse_matrix.reinit(sparse_matrix_origin);
