@@ -50,7 +50,7 @@ protected:
                            data_component_interpretation);
   data_out.add_data_vector(lod::dof_handler_coarse,
                            exact_vec,
-                           exact_solution_names,git 
+                           exact_solution_names,
                            //  DataOut<dim>::type_dof_data,
                            data_component_interpretation);
   // Vector<float> subdomain(tria.n_active_cells());
