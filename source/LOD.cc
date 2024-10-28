@@ -1209,6 +1209,7 @@ LOD<dim, spacedim>::run()
   compare_lod_with_fem();
 
   output_fine_results();
+  output_coarse_results();
   std::cout << "N_corrected_patches " << N_corrected_patches << std::endl;
   // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
