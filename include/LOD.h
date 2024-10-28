@@ -53,9 +53,9 @@
 #  include <deal.II/numerics/matrix_tools.h>
 #  include <deal.II/numerics/vector_tools.h>
 
+#  include <cstdlib>
+#  include <ctime>
 #  include <memory>
-#include <cstdlib> 
-#include <ctime> 
 
 
 namespace LA
@@ -81,7 +81,6 @@ public:
   std::vector<Vector<double>> basis_function;
   std::vector<Vector<double>> basis_function_premultiplied;
   unsigned int                contained_patches = 0;
-  unsigned int                patch_id;
 };
 
 
@@ -198,6 +197,9 @@ private:
                      const DoFHandler<dim> &             dh,
                      AffineConstraints<double> &         stiffnes_constraints);
 
+  void
+  assemble_stiffness_patch(SparseMatrix<double> & stiffness_matrix,
+                           const DoFHandler<dim> &dh);
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
   // shared not distributed bc we want all processors to get access to all cells

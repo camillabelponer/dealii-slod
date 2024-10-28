@@ -94,7 +94,7 @@ main(int argc, char **argv)
 
   // create_patches();
 
-  if (false) // 71.54s for ref 5 oversampling 4
+  if (false) // 71.54s for ref 5 oversampling 4 (if printing with first option)
     {
       // Queue for patches for which neighbours should be added
 
@@ -146,7 +146,7 @@ main(int argc, char **argv)
           }
         }
     }
-  else // 10.97s for ref 5 oversampling 4
+  else // 10.97s for ref 5 oversampling 4 (if printing with first option)
     {
       // looping over all the cells once and storing them ordered
 
@@ -212,7 +212,7 @@ main(int argc, char **argv)
           {
             auto patch = &patches.emplace_back();
 
-            patch->cells.push_back(cell);
+            // patch->cells.push_back(cell);
             patches_pattern.add(cell_index, cell_index);
             for (auto neighbour_ordered_index :
                  cells_in_patch[vector_cell_index])
@@ -220,26 +220,40 @@ main(int argc, char **argv)
                 patches_pattern.add(
                   cell_index,
                   ordered_cells[neighbour_ordered_index]->active_cell_index());
+                patch->cells.push_back(ordered_cells[neighbour_ordered_index]);
               }
           }
         }
     }
 
-  {
-    std::cout << "printing the sparsity pattern: [global_cell_id] = {cells}"
-              << std::endl;
-    // for (unsigned int cell = 0; cell < tria.n_active_cells(); ++cell)
-    for (const auto &cell_it : tria.active_cell_iterators())
-      {
-        auto cell = cell_it->active_cell_index();
-        std::cout << "- cell " << cell << " (baricenter "
-                  << cell_it->barycenter()
-                  << ") is connected to patches/cells: {";
-        for (unsigned int j = 0; j < patches_pattern.row_length(cell); j++)
-          {
-            std::cout << patches_pattern.column_number(cell, j) << " ";
-          }
-        std::cout << "}" << std::endl;
-      }
-  }
+  if (false) // option 1
+    {
+      std::cout
+        << "printing the sparsity pattern: [global_cell_id] = (#){cells}"
+        << std::endl;
+      // for (unsigned int cell = 0; cell < tria.n_active_cells(); ++cell)
+      for (const auto &cell_it : tria.active_cell_iterators())
+        {
+          auto cell = cell_it->active_cell_index();
+          std::cout << "- cell " << cell << " (baricenter "
+                    << cell_it->barycenter()
+                    << ") is connected to patches/cells: {";
+          for (unsigned int j = 0; j < patches_pattern.row_length(cell); j++)
+            {
+              std::cout << patches_pattern.column_number(cell, j) << " ";
+            }
+          std::cout << "}" << std::endl;
+        }
+    }
+  else // option 2 // does not work because thery are differently ordered
+    {
+      std::cout << "printing the vector cells: [patch index] = {# cells}"
+                << std::endl;
+      for (unsigned int i = 0; i < patches.size(); ++i)
+        {
+          auto &patch = patches[i];
+          std::cout << "- " << i << ": {" << patch.cells.size() << "}"
+                    << std::endl;
+        }
+    }
 }

@@ -418,19 +418,13 @@ namespace dealii::TrilinosWrappers
 
 
 void
-Gauss_elimination(const FullMatrix<double> &rhs,
-                  const TrilinosWrappers::SparseMatrix
-                    // SparseMatrix<double>
-                    &sparse_matrix // _origin
-                  ,
-                  FullMatrix<double> &solution,
-                  double              reduce    = 1.e-2,
-                  double              tolerance = 1.e-10,
-                  double              iter      = 100)
+Gauss_elimination(const FullMatrix<double> &            rhs,
+                  const TrilinosWrappers::SparseMatrix &sparse_matrix,
+                  FullMatrix<double> &                  solution,
+                  double                                reduce    = 1.e-16,
+                  double                                tolerance = 1.e-18,
+                  double                                iter      = 100)
 {
-  // TrilinosWrappers::SparseMatrix sparse_matrix;
-  // sparse_matrix.reinit(sparse_matrix_origin);
-
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
   ilu.initialize(sparse_matrix);
@@ -485,15 +479,17 @@ Gauss_elimination(const FullMatrix<double> &rhs,
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-      ReductionControl solver_control(iter, tolerance, reduce, false, false);
 
       if (false)
         {
+          ReductionControl solver_control(
+            iter, tolerance, reduce, false, false);
           TrilinosWrappers::SolverCG solver(solver_control);
           solver.solve(mat, trilinos_dst, trilinos_src, prec);
         }
       else
         {
+          SolverControl solver_control(iter, tolerance, false, false);
           TrilinosWrappers::MySolverDirect solver(solver_control);
           solver.initialize(sparse_matrix);
           solver.solve(mat, trilinos_dst, trilinos_src);
