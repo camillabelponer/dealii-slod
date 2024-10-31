@@ -14,8 +14,8 @@ main(int argc, char *argv[])
         prm_file = argv[1];
       else
         prm_file = "parameters.prm";
-      LODParameters<2, 2> par;
-      ElasticityProblem<2>              problem(par);
+      LODParameters<2, 2>  par;
+      ElasticityProblem<2> problem(par);
       ParameterAcceptor::initialize(prm_file);
 
       problem.run();

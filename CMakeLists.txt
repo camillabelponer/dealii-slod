@@ -48,11 +48,11 @@ FOREACH(_main ${_main_files})
 ENDFOREACH()
 
 
-# # IF(EXISTS ${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt)
-# #   SET(DEAL_II_HAVE_TESTS_DIRECTORY TRUE)
-# # ENDIF()
+IF(EXISTS ${CMAKE_SOURCE_DIR}/tests/CMakeLists.txt)
+  SET(DEAL_II_HAVE_TESTS_DIRECTORY TRUE)
+ENDIF()
 
 # add_custom_target(indent ./scripts/indent WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
-# # enable_testing()
-# # ADD_SUBDIRECTORY(tests)
+enable_testing()
+ADD_SUBDIRECTORY(tests)

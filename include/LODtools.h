@@ -19,23 +19,27 @@
 using namespace dealii;
 
 
-template <int dim>
+template <int dim, int spacedim>
 void
 projection_P0_P1(FullMatrix<double> &projection_matrix)
 {
-  unsigned int n_fine_dofs = projection_matrix.n();
-  unsigned int p           = (int)sqrt(n_fine_dofs);
-  Assert(p * p == n_fine_dofs, ExcNotImplemented());
-  Assert(projection_matrix.n() != 0, ExcNotImplemented());
   Assert(dim == 2, ExcNotImplemented());
 
+  unsigned int n_fine_dofs = projection_matrix.n();
+  unsigned int p           = (int)sqrt(n_fine_dofs/spacedim);
+  Assert(p * p * spacedim == n_fine_dofs, ExcNotImplemented()); // check the root to avoid casting
+  Assert(projection_matrix.n() != 0, ExcNotImplemented());
+  Assert(projection_matrix.m() == 1, ExcNotImplemented()); // otherwise it's not P0
+
+  if constexpr (spacedim < 3)
+  {
   unsigned int col_index = 0;
-  while (col_index < 2 * dim)
+  while (col_index < 2 * dim * spacedim)
     {
       projection_matrix(0, col_index) = 1.0;
       col_index++;
     }
-  while (col_index < (2 * dim * (p - 2) + 2 * dim))
+  while (col_index < (2 * dim * (p - 2) * spacedim + 2 * dim * spacedim))
     {
       projection_matrix(0, col_index) = 2.0;
       col_index++;
@@ -45,6 +49,9 @@ projection_P0_P1(FullMatrix<double> &projection_matrix)
       projection_matrix(0, col_index) = 4.0;
       col_index++;
     }
+  }
+  else 
+     AssertThrow(false, ExcNotImplemented());
 }
 
 
@@ -107,7 +114,10 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
     [&quadrature](const auto &fe, const auto n_subdivisions) {
       Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
       MappingQ1<dim> mapping;
-      FEValues<dim>  fe_values(mapping, fe, quadrature, update_values);
+      FEValues<dim>  fe_values(mapping,
+                              fe,
+                              quadrature,
+                              update_values | update_gradients);
 
       Triangulation<dim> tria;
       GridGenerator::hyper_cube(tria);
@@ -144,8 +154,8 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
                               (c_0 * 2 + q_0) +
                               (c_1 * 2 + q_1) * (2 * n_subdivisions);
 
-                            sum += fe_values.shape_value(i, q_index) *
-                                   fe_values.shape_value(j, q_index);
+                            sum += fe_values.shape_grad(i, q_index) *
+                                   fe_values.shape_grad(j, q_index);
                           }
                       if (sum != 0)
                         bool_dof_mask(i, j) = true;
@@ -214,22 +224,18 @@ extend_vector_to_boundary_values(Vector<double> &       vector_in,
                                  const DoFHandler<dim> &dh,
                                  Vector<double> &       vector_out)
 {
-  AssertDimension(dh.n_dofs(), vector_out.size());
+  Assert(dh.n_dofs() == vector_out.size(), ExcNotImplemented());
 
-  if (vector_in.size() == vector_out.size())
-    {
-      vector_out = vector_in;
-      return;
-    }
+  IndexSet     boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
+  unsigned int N_internal_dofs   = dh.n_dofs() - boundary_dofs_set.n_elements();
 
-  IndexSet boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
-
-  AssertDimension(boundary_dofs_set.n_elements(), vector_in.size());
+  AssertDimension(N_internal_dofs, vector_in.size()); //, ExcNotImplemented());
+  Assert(N_internal_dofs < dh.n_dofs(), ExcNotImplemented());
 
   unsigned int in_index = 0;
   for (unsigned int out_index = 0; out_index < vector_out.size(); ++out_index)
     {
-      if (boundary_dofs_set.is_element(out_index))
+      if (!boundary_dofs_set.is_element(out_index))
         {
           vector_out[out_index] = vector_in[in_index];
           in_index++;
@@ -241,13 +247,13 @@ extend_vector_to_boundary_values(Vector<double> &       vector_in,
 
 template <int dim>
 void
-fill_dofs_indices_vector(const DoFHandler<dim> & dh,
-                         std::vector<unsigned int> & all_dofs,
-                         std::vector<unsigned int> & internal_dofs,
-                         std::vector<unsigned int> & boundary_dofs,
-                         std::vector<unsigned int> & domain_boundary_dofs)
+fill_dofs_indices_vector(const DoFHandler<dim> &    dh,
+                         std::vector<unsigned int> &all_dofs,
+                         std::vector<unsigned int> &internal_dofs,
+                         std::vector<unsigned int> &boundary_dofs,
+                         std::vector<unsigned int> &domain_boundary_dofs)
 {
-  auto boundary_indices(dh.get_triangulation().get_boundary_ids());
+  auto         boundary_indices(dh.get_triangulation().get_boundary_ids());
   unsigned int N_boundary_indices = boundary_indices.size();
   Assert(N_boundary_indices < 3, ExcNotImplemented());
 
@@ -255,46 +261,28 @@ fill_dofs_indices_vector(const DoFHandler<dim> & dh,
   IndexSet all(dh.n_dofs());
   all.add_range(0, dh.n_dofs());
   IndexSet internal(all);
-  
+
   IndexSet boundary_of_domain_and_patch_set;
   IndexSet boundary_of_patch_not_of_domain_set;
 
-  boundary_of_domain_and_patch_set = DoFTools::extract_boundary_dofs(dh, ComponentMask(), std::set<unsigned int>{0});
+  boundary_of_domain_and_patch_set =
+    DoFTools::extract_boundary_dofs(dh,
+                                    ComponentMask(),
+                                    std::set<unsigned int>{0});
 
-  boundary_of_patch_not_of_domain_set = DoFTools::extract_boundary_dofs(dh, ComponentMask(), std::set<unsigned int>{99});
+  boundary_of_patch_not_of_domain_set =
+    DoFTools::extract_boundary_dofs(dh,
+                                    ComponentMask(),
+                                    std::set<unsigned int>{99});
 
   internal.subtract_set(boundary_of_patch_not_of_domain_set);
   internal.subtract_set(boundary_of_domain_and_patch_set);
   // boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
 
-// std::cout << "all ";
-//   for (auto i: all)
-//   std::cout << i << " ";
-//   std::cout << all.n_elements() << std::endl;
-
-//   std::cout << "internal ";
-//   for (auto i: internal)
-//   std::cout << i << " ";
-//   std::cout << internal.n_elements() << std::endl;
-
-//   std::cout << "boundary_of_patch_not_of_domain_set ";
-//   for (auto i: boundary_of_patch_not_of_domain_set)
-//   std::cout << i << " ";
-//   std::cout << boundary_of_patch_not_of_domain_set.n_elements() << std::endl;
-//   std::cout << "boundary_of_domain_and_patch_set ";
-//   for (auto i: boundary_of_domain_and_patch_set)
-//   std::cout << i << " ";
-//   std::cout << boundary_of_domain_and_patch_set.n_elements() << std::endl;
-  
-  //Assert((internal.n_elements() + boundary_of_patch_not_of_domain_set.n_elements() + boundary_of_domain_and_patch_set.n_elements()) == all.n_elements(), ExcNotImplemented());
-
   boundary_of_patch_not_of_domain_set.fill_index_vector(boundary_dofs);
+  boundary_of_domain_and_patch_set.fill_index_vector(domain_boundary_dofs);
   internal.fill_index_vector(internal_dofs);
   all.fill_index_vector(all_dofs);
-
-  boundary_of_domain_and_patch_set.fill_index_vector(domain_boundary_dofs);
-
-  
 }
 
 
