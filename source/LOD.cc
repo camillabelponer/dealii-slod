@@ -75,10 +75,10 @@ LOD<dim, spacedim>::make_fe()
 
   patches_pattern.reinit(dof_handler_coarse.n_dofs(),
                          dof_handler_coarse.n_dofs(),
-                         locally_relevant_dofs);
-  patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
+                         locally_relevant_dofs);  // locally_owned_patches !
+  patches_pattern_fine.reinit(locally_owned_patches.size(),// (dof_handler_coarse.n_dofs() / spacedim),
                               dof_handler_fine.n_dofs(),
-                              locally_relevant_dofs);
+                              locally_owned_patches);
 
   bool_dof_mask = create_bool_dof_mask_Q_iso_Q1(*fe_fine,
                                                 *quadrature_fine,
@@ -123,22 +123,22 @@ LOD<dim, spacedim>::create_random_coefficients()
   // print random coeff
   std::vector<std::string> name(spacedim, "coefficients");
 
-  // std::vector<DataComponentInterpretation::DataComponentInterpretation>
-  //   data_component_interpretation(
-  //     spacedim, DataComponentInterpretation::component_is_scalar);
-  DataOut<dim> data_out;
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    scalar_component_interpretation(
+      spacedim, DataComponentInterpretation::component_is_scalar);
+  DataOut<dim> data_output;
 
-  data_out.attach_dof_handler(dof_handler_fine);
+  data_output.attach_dof_handler(dof_handler_fine);
 
-  data_out.add_data_vector( // dof_handler_coarse,
+  data_output.add_data_vector( // dof_handler_coarse,
     random_coefficients,
     name,
     DataOut<dim>::type_cell_data,
-    data_component_interpretation);
+    scalar_component_interpretation);
 
-  data_out.build_patches();
+  data_output.build_patches();
   const std::string filename = par.output_name + "_coefficients.vtu";
-  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+  data_output.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
 
   std::ofstream pvd_solutions(par.output_directory + "/" + filename +
@@ -275,22 +275,17 @@ LOD<dim, spacedim>::output_coarse_results()
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
 
-  // std::vector<DataComponentInterpretation::DataComponentInterpretation>
-  //   data_component_interpretation(
-  //     spacedim,
-  //     //   DataComponentInterpretation::component_is_part_of_vector);
-  //     DataComponentInterpretation::component_is_scalar);
-  DataOut<dim> data_out;
+  DataOut<dim> data_output;
 
-  // data_out.attach_dof_handler(dof_handler_coarse);
+  // data_output.attach_dof_handler(dof_handler_coarse);
 
-  // data_out.add_data_vector(solution, solution_names);
-  data_out.add_data_vector(dof_handler_coarse,
+  // data_output.add_data_vector(solution, solution_names);
+  data_output.add_data_vector(dof_handler_coarse,
                            solution,
                            solution_names,
                            // DataOut<dim>::type_dof_data,
                            data_component_interpretation);
-  data_out.add_data_vector(dof_handler_coarse,
+  data_output.add_data_vector(dof_handler_coarse,
                            exact_vec,
                            exact_solution_names,
                            //  DataOut<dim>::type_dof_data,
@@ -298,10 +293,10 @@ LOD<dim, spacedim>::output_coarse_results()
   // Vector<float> subdomain(tria.n_active_cells());
   // for (unsigned int i = 0; i < subdomain.size(); ++i)
   //   subdomain(i) = tria.locally_owned_subdomain();
-  // data_out.add_data_vector(subdomain, "subdomain");
-  data_out.build_patches();
+  // data_output.add_data_vector(subdomain, "subdomain");
+  data_output.build_patches();
   const std::string filename = par.output_name + ".vtu";
-  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+  data_output.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
 
   std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
@@ -387,8 +382,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                /*patch_*/ boundary_dofs_fine,
                                domain_boundary_dofs_fine);
 
-
-
       std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
                                                 all_dofs_fine.begin() +
                                                   Ndofs_coarse);
@@ -419,24 +412,28 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
         // option 1: does the same as
         // DoFTools::make_sparsity_pattern() but also
+if constexpr (spacedim == 1)
+{
+        std::vector<types::global_dof_index> dofs_on_this_cell(
+          fe_fine->n_dofs_per_cell());
 
-//         std::vector<types::global_dof_index> dofs_on_this_cell(
-//           fe_fine->n_dofs_per_cell());
-// 
-//         for (const auto &cell : dh_fine_patch.active_cell_iterators())
-//           if (cell->is_locally_owned())
-//             {
-//               cell->get_dof_indices(dofs_on_this_cell);
-// 
-//               empty_boundary_constraints.add_entries_local_to_global(
-//                 dofs_on_this_cell,
-//                 patch_dynamic_sparsity_pattern,
-//                 true,
-//                 bool_dof_mask); // keep constrained entries must be true
-//             }
+        for (const auto &cell : dh_fine_patch.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell->get_dof_indices(dofs_on_this_cell);
+
+              empty_boundary_constraints.add_entries_local_to_global(
+                dofs_on_this_cell,
+                patch_dynamic_sparsity_pattern,
+                true,
+                bool_dof_mask); // keep constrained entries must be true
+            }
+}
+else if constexpr (spacedim == 2)
+{
 
       DoFTools::make_sparsity_pattern(dh_fine_patch, patch_dynamic_sparsity_pattern, empty_boundary_constraints, true);
-
+}
         patch_dynamic_sparsity_pattern.compress();
 
         patch_sparsity_pattern.copy_from(patch_dynamic_sparsity_pattern);
@@ -444,17 +441,23 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         patch_stiffness_matrix.reinit(patch_sparsity_pattern);
       }
 
-
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 4: stiffness");
-
+if constexpr (spacedim == 1)
+{
       LA::MPI::Vector dummy;
       assemble_stiffness(patch_stiffness_matrix,
                          dummy,
                          dh_fine_patch,
                          empty_boundary_constraints);
       // using empty_boundary the stiffness is assembled unconstrained
+} else if constexpr (spacedim == dim)
+      {
+MappingQ1<dim> mapping;
+      MatrixCreator::create_laplace_matrix<dim, spacedim>(mapping, dh_fine_patch, *quadrature_fine, patch_stiffness_matrix, nullptr, empty_boundary_constraints);
+      }
+      // patch_stiffness_matrix.print(std::cout);
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("2: compute basis function 4b: misc");
@@ -619,7 +622,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       PT.Tmmult(P_Ainv_PT, Ainv_PT);
 
       // P_tilda is actually P/ H^dim
-      P_Ainv_PT /= (H * H); // H^
+      P_Ainv_PT /= pow(H, dim);;
 
       P_Ainv_PT.gauss_jordan();
 
@@ -1010,10 +1013,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
   basis_matrix_transposed    = 0.0;
 
 
-  system_rhs.reinit(patches_pattern_fine.nonempty_rows(), mpi_communicator);
-  LA::MPI::Vector rhs_values(patches_pattern_fine.nonempty_cols(),
-                             mpi_communicator);
-  rhs_values = 0.0;
+  system_rhs.reinit(patches_pattern_fine_T.nonempty_cols(), mpi_communicator);
 
   Vector<double>            phi_loc(fe_fine->n_dofs_per_cell());
   std::vector<unsigned int> global_dofs(fe_fine->n_dofs_per_cell());
@@ -1083,7 +1083,6 @@ LOD<dim, spacedim>::solve()
   prec_A.initialize(global_stiffness_matrix, 1.2);
 
   SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
-
 
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
@@ -1212,7 +1211,9 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   //     spacedim, DataComponentInterpretation::component_is_scalar
   //     //        DataComponentInterpretation::component_is_part_of_vector
   //   );
-  DataOut<dim> data_out;
+ DataOut<dim> data_out;
+
+  // data_out.attach_dof_handler(dh);
 
   data_out.add_data_vector(dh,
                            fem_solution,
@@ -1222,12 +1223,12 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   data_out.add_data_vector(dh,
                            exact_vec,
                            exact_solution_names,
-                           //  DataOut<dim>::type_dof_data,
+                           // DataOut<dim>::type_dof_data,
                            data_component_interpretation);
   data_out.add_data_vector(dh,
                            lod_solution,
                            lod_names,
-                           //  DataOut<dim>::type_dof_data,
+                           // DataOut<dim>::type_dof_data,
                            data_component_interpretation);
 
   // output of (S)LOD basis functions
@@ -1249,11 +1250,11 @@ LOD<dim, spacedim>::compare_lod_with_fem()
           data_out.add_data_vector(dh,
                                    c_i,
                                    names,
-                                   //  DataOut<dim>::type_dof_data,
+                                   // DataOut<dim>::type_dof_data,
                                    data_component_interpretation);
         }
     }
-  data_out.build_patches();
+  // data_out.build_patches();
   const std::string filename = par.output_name + "_fine.vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
@@ -1324,7 +1325,8 @@ LOD<dim, spacedim>::run()
   compare_lod_with_fem();
 
   output_fine_results();
-  output_coarse_results();
+  if constexpr (spacedim == 1)
+    output_coarse_results();
   // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
   //                                             par.exact_solution);

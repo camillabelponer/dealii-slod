@@ -132,7 +132,7 @@ protected:
       std::vector<Tensor<2, spacedim>>     grad_phi_u(dofs_per_cell);
   std::vector<double>                  div_phi_u(dofs_per_cell);
 
-  const FEValuesExtractors::Vector displacement(0);
+  // const FEValuesExtractors::Vector displacement(0);
     
     //std::vector<Vector<double>> rhs_values(n_q_points);
     std::vector<Vector<double>> rhs_values(n_q_points, Vector<double>(spacedim));
@@ -149,21 +149,25 @@ protected:
         }
         for (unsigned int q = 0; q < n_q_points; ++q)
           {
-            for (unsigned int k = 0; k < dofs_per_cell; ++k)
-              {
-                grad_phi_u[k] =
-                  fe_values[displacement].symmetric_gradient(k, q);
-                div_phi_u[k] = fe_values[displacement].divergence(k, q);
-              }
+            // for (unsigned int k = 0; k < dofs_per_cell; ++k)
+            //   {
+            //     grad_phi_u[k] =
+            //       fe_values[displacement].symmetric_gradient(k, q);
+            //     div_phi_u[k] = fe_values[displacement].divergence(k, q);
+            //   }
             for (unsigned int i = 0; i < dofs_per_cell; ++i)
               {
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   {
                     cell_matrix(i, j) +=
-                      (//2 * par.Lame_mu *
-                         scalar_product(grad_phi_u[i], grad_phi_u[j]) //+
-                       //par.Lame_lambda * div_phi_u[i] * div_phi_u[j]
-                       ) *
+                      // (//2 * par.Lame_mu *
+                      //    scalar_product(grad_phi_u[i], grad_phi_u[j]) //+
+                      //  //par.Lame_lambda * div_phi_u[i] * div_phi_u[j]
+                      //  ) *
+
+                                  scalar_product(
+                                         fe_values.shape_grad(i, q),
+                                         fe_values.shape_grad(j, q)) * 
                       fe_values.JxW(q);
                   }
                 
