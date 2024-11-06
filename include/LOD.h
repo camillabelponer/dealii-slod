@@ -186,11 +186,11 @@ protected:
   create_mesh_for_patch(Patch<dim> &current_patch);
   virtual void
   assemble_stiffness(LA::MPI::SparseMatrix &,
-                     LA::MPI::Vector &                   ,
-                     const DoFHandler<dim> &             ,
+                     LA::MPI::Vector &,
+                     const DoFHandler<dim> &,
                      AffineConstraints<double> &){
-                      // TODO: assert that lod is never called 
-                     };
+    // TODO: assert that lod is never called
+  };
 
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
@@ -227,6 +227,7 @@ protected:
 
   Vector<double> random_coefficients;
 
+  DataOut<dim> data_out;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     data_component_interpretation;
 };

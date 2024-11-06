@@ -2,6 +2,7 @@
 
 #include <LOD.h>
 #include <LODtools.h>
+#include <math.h>
 
 const unsigned int SPECIAL_NUMBER = 99;
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -26,7 +27,7 @@ LOD<dim, spacedim>::LOD(const LODParameters<dim, spacedim> &par)
   else
     data_component_interpretation =
       std::vector<DataComponentInterpretation::DataComponentInterpretation>(
-        spacedim, DataComponentInterpretation::component_is_scalar);
+        spacedim, DataComponentInterpretation::component_is_part_of_vector);
 }
 
 template <int dim, int spacedim>
@@ -75,10 +76,11 @@ LOD<dim, spacedim>::make_fe()
 
   patches_pattern.reinit(dof_handler_coarse.n_dofs(),
                          dof_handler_coarse.n_dofs(),
-                         locally_relevant_dofs);  // locally_owned_patches !
-  patches_pattern_fine.reinit(locally_owned_patches.size(),// (dof_handler_coarse.n_dofs() / spacedim),
-                              dof_handler_fine.n_dofs(),
-                              locally_owned_patches);
+                         locally_relevant_dofs); // locally_owned_patches !
+  patches_pattern_fine.reinit(
+    locally_owned_patches.size(), // (dof_handler_coarse.n_dofs() / spacedim),
+    dof_handler_fine.n_dofs(),
+    locally_owned_patches);
 
   bool_dof_mask = create_bool_dof_mask_Q_iso_Q1(*fe_fine,
                                                 *quadrature_fine,
@@ -106,43 +108,78 @@ LOD<dim, spacedim>::create_random_coefficients()
 {
   TimerOutput::Scope t(computing_timer, "1: create random coeff");
 
+  Triangulation<dim> fine_tria;
+  GridGenerator::hyper_cube(fine_tria);
+  const unsigned int ref = (int)log2(par.n_subdivisions);
+  Assert(
+    pow(2, ref) == par.n_subdivisions,
+    ExcNotImplemented(
+      "for consistency, choose a number of subdivisions that's a power of 2"));
+  fine_tria.refine_global((par.n_global_refinements + ref));
+
+  DoFHandler<dim> dh_fine(fine_tria);
+  dh_fine.distribute_dofs(FE_Q<dim>(1));
+
   double       H                = pow(0.5, par.n_global_refinements);
-  unsigned int N_cells_per_line = (int)1 / H;
-  random_coefficients.reinit(tria.n_active_cells());
+  double       h                = H / (par.n_subdivisions);
+  unsigned int N_cells_per_line = (int)1 / h;
+  unsigned int N_fine_cells     = pow(N_cells_per_line, dim);
+  random_coefficients.reinit(N_fine_cells);
+  // cells are on all processors (parallel::shared triangulation)
+  // but they are on a 1 to 1 correspondence with the patches
+  // we want to create a different coefficient for any fine cell !
+  // we can use the same logic as used to create the patches but with small h
   for (const auto &cell : dof_handler_coarse.active_cell_iterators())
+    // if locally owned but on the patch!!
     {
-      const double       x = cell->barycenter()(0);
-      const double       y = cell->barycenter()(1);
-      const unsigned int vector_cell_index =
-        (int)floor(x / H) + N_cells_per_line * (int)floor(y / H);
-      random_coefficients[vector_cell_index] =
-        1.0 + static_cast<float>(rand()) /
-                (static_cast<float>(RAND_MAX / (100.0 - 1.0)));
+      // coordinates of the bottom left corner of the coarse cell
+      const double x0 = cell->barycenter()(0) - H / 2;
+      const double y0 = cell->barycenter()(1) - H / 2;
+
+      double x = x0 + h / 2;
+      while (x < (x0 + H))
+        {
+          double y = y0 + h / 2;
+          while (y < (y0 + H))
+            {
+              const unsigned int vector_cell_index =
+                (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
+
+              random_coefficients[vector_cell_index] =
+                1.0 + static_cast<float>(rand()) /
+                        (static_cast<float>(RAND_MAX / (100.0 - 1.0)));
+              y += h;
+            }
+          x += h;
+        }
     }
 
-  // print random coeff
+  // TODO: this putput nly makes sense for spacedim ==1, see ouput coarse on how
+  // to plot a scalar coefficients in the case fo spacedim == 2 however in the
+  // vector case we will likely need 2 coeafficients and probablu not random, so
+  // this function is not used for spacedim > 1 print random coeff
   std::vector<std::string> name(spacedim, "coefficients");
 
   std::vector<DataComponentInterpretation::DataComponentInterpretation>
     scalar_component_interpretation(
       spacedim, DataComponentInterpretation::component_is_scalar);
-  DataOut<dim> data_output;
 
-  data_output.attach_dof_handler(dof_handler_fine);
+  data_out.attach_dof_handler(dh_fine);
 
-  data_output.add_data_vector( // dof_handler_coarse,
-    random_coefficients,
-    name,
-    DataOut<dim>::type_cell_data,
-    scalar_component_interpretation);
+  data_out.add_data_vector(random_coefficients,
+                           name,
+                           DataOut<dim>::type_cell_data,
+                           scalar_component_interpretation);
 
-  data_output.build_patches();
+  data_out.build_patches();
   const std::string filename = par.output_name + "_coefficients.vtu";
-  data_output.write_vtu_in_parallel(par.output_directory + "/" + filename,
+  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
 
-  std::ofstream pvd_solutions(par.output_directory + "/" + filename +
-                              "_fine.pvd");
+  // std::ofstream pvd_solutions(par.output_directory + "/" + filename +
+  //                             "_fine.pvd");
+
+  data_out.clear();
 }
 
 template <int dim, int spacedim>
@@ -263,44 +300,52 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::output_coarse_results()
 {
-  TimerOutput::Scope t(computing_timer, "6: Output results");
+  TimerOutput::Scope t(computing_timer, "6: Output coarse results");
 
-  std::vector<std::string> solution_names(spacedim, "LOD_solution");
-  std::vector<std::string> exact_solution_names(spacedim,
-                                                "coarse_exact_solution");
+  // the coarse solution is made up by one element per cell, even in the vector
+  // case
+  const unsigned int plot_dim = 1;
 
-  auto exact_vec(solution);
+  std::vector<std::string> solution_names(plot_dim, "LOD_solution");
+  std::vector<std::string> exact_solution_names(spacedim, "exact_solution");
+
+  Vector<double> exact_vec(dof_handler_coarse.n_dofs());
   VectorTools::interpolate(dof_handler_coarse, par.exact_solution, exact_vec);
   // to be added for MPI
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
 
-  DataOut<dim> data_output;
+  std::vector<DataComponentInterpretation::DataComponentInterpretation>
+    vector_data_component_interpretation(
+      plot_dim, DataComponentInterpretation::component_is_part_of_vector);
 
-  // data_output.attach_dof_handler(dof_handler_coarse);
+  data_out.attach_dof_handler(dof_handler_coarse);
 
-  // data_output.add_data_vector(solution, solution_names);
-  data_output.add_data_vector(dof_handler_coarse,
-                           solution,
+  data_out.add_data_vector(solution,
                            solution_names,
-                           // DataOut<dim>::type_dof_data,
-                           data_component_interpretation);
-  data_output.add_data_vector(dof_handler_coarse,
-                           exact_vec,
+                           DataOut<dim>::type_cell_data,
+                           vector_data_component_interpretation);
+
+  data_out.add_data_vector(exact_vec,
                            exact_solution_names,
-                           //  DataOut<dim>::type_dof_data,
+                           DataOut<dim>::type_dof_data,
                            data_component_interpretation);
+
+
   // Vector<float> subdomain(tria.n_active_cells());
   // for (unsigned int i = 0; i < subdomain.size(); ++i)
   //   subdomain(i) = tria.locally_owned_subdomain();
-  // data_output.add_data_vector(subdomain, "subdomain");
-  data_output.build_patches();
-  const std::string filename = par.output_name + ".vtu";
-  data_output.write_vtu_in_parallel(par.output_directory + "/" + filename,
+  // data_out.add_data_vector(subdomain, "subdomain");
+  data_out.build_patches();
+  const std::string filename = par.output_name + "_coarse.vtu";
+  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
 
-  std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
-                              ".pvd");
+  // TODO MPI
+  // std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
+  //                             ".pvd");
+
+  data_out.clear();
 }
 
 
@@ -337,15 +382,16 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   double h = H / (par.n_subdivisions);
 
   // create projection matrix from fine to coarse cell (DG)
-  FullMatrix<double> projection_matrix(1, //fe_coarse->n_dofs_per_cell(),
+  FullMatrix<double> projection_matrix(1, // fe_coarse->n_dofs_per_cell(),
                                        fe_fine->n_dofs_per_cell());
   FullMatrix<double> projection_matrixT(fe_fine->n_dofs_per_cell(),
-                                        1); //fe_coarse->n_dofs_per_cell());
-  if (false) // actually equivalent methods
+                                        1); // fe_coarse->n_dofs_per_cell());
+  if (false)                                // actually equivalent methods
     FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
   else
     {
-      projection_P0_P1<dim, spacedim>(projection_matrix); // only work for vector case!!
+      projection_P0_P1<dim, spacedim>(
+        projection_matrix); // only work for vector case!!
       projection_matrix *= (h * h / 4);
     }
   projection_matrixT.copy_transposed(projection_matrix);
@@ -412,28 +458,30 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
         // option 1: does the same as
         // DoFTools::make_sparsity_pattern() but also
-if constexpr (spacedim == 1)
-{
-        std::vector<types::global_dof_index> dofs_on_this_cell(
-          fe_fine->n_dofs_per_cell());
+        if constexpr (spacedim == 1)
+          {
+            std::vector<types::global_dof_index> dofs_on_this_cell(
+              fe_fine->n_dofs_per_cell());
 
-        for (const auto &cell : dh_fine_patch.active_cell_iterators())
-          if (cell->is_locally_owned())
-            {
-              cell->get_dof_indices(dofs_on_this_cell);
+            for (const auto &cell : dh_fine_patch.active_cell_iterators())
+              if (cell->is_locally_owned())
+                {
+                  cell->get_dof_indices(dofs_on_this_cell);
 
-              empty_boundary_constraints.add_entries_local_to_global(
-                dofs_on_this_cell,
-                patch_dynamic_sparsity_pattern,
-                true,
-                bool_dof_mask); // keep constrained entries must be true
-            }
-}
-else if constexpr (spacedim == 2)
-{
-
-      DoFTools::make_sparsity_pattern(dh_fine_patch, patch_dynamic_sparsity_pattern, empty_boundary_constraints, true);
-}
+                  empty_boundary_constraints.add_entries_local_to_global(
+                    dofs_on_this_cell,
+                    patch_dynamic_sparsity_pattern,
+                    true,
+                    bool_dof_mask); // keep constrained entries must be true
+                }
+          }
+        else if constexpr (spacedim == 2)
+          {
+            DoFTools::make_sparsity_pattern(dh_fine_patch,
+                                            patch_dynamic_sparsity_pattern,
+                                            empty_boundary_constraints,
+                                            true);
+          }
         patch_dynamic_sparsity_pattern.compress();
 
         patch_sparsity_pattern.copy_from(patch_dynamic_sparsity_pattern);
@@ -444,19 +492,26 @@ else if constexpr (spacedim == 2)
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 4: stiffness");
-if constexpr (spacedim == 1)
-{
-      LA::MPI::Vector dummy;
-      assemble_stiffness(patch_stiffness_matrix,
-                         dummy,
-                         dh_fine_patch,
-                         empty_boundary_constraints);
-      // using empty_boundary the stiffness is assembled unconstrained
-} else if constexpr (spacedim == dim)
-      {
-MappingQ1<dim> mapping;
-      MatrixCreator::create_laplace_matrix<dim, spacedim>(mapping, dh_fine_patch, *quadrature_fine, patch_stiffness_matrix, nullptr, empty_boundary_constraints);
-      }
+      if constexpr (spacedim == 1)
+        {
+          LA::MPI::Vector dummy;
+          assemble_stiffness(patch_stiffness_matrix,
+                             dummy,
+                             dh_fine_patch,
+                             empty_boundary_constraints);
+          // using empty_boundary the stiffness is assembled unconstrained
+        }
+      else if constexpr (spacedim == dim)
+        {
+          MappingQ1<dim> mapping;
+          MatrixCreator::create_laplace_matrix<dim, spacedim>(
+            mapping,
+            dh_fine_patch,
+            *quadrature_fine,
+            patch_stiffness_matrix,
+            nullptr,
+            empty_boundary_constraints);
+        }
       // patch_stiffness_matrix.print(std::cout);
 
       computing_timer.leave_subsection();
@@ -464,18 +519,19 @@ MappingQ1<dim> mapping;
 
       // averaging (inverse of P0 mass matrix)
       VectorType valence_coarse(Ndofs_coarse);
-      VectorType local_identity_coarse(1); //fe_coarse->n_dofs_per_cell());
+      VectorType local_identity_coarse(1); // fe_coarse->n_dofs_per_cell());
       local_identity_coarse = 1.0;
 
-      //for (const auto &cell : dh_coarse_patch.active_cell_iterators())
-      //  cell->distribute_local_to_global(local_identity_coarse, valence_coarse);
-      //for (auto &elem : valence_coarse)
+      // for (const auto &cell : dh_coarse_patch.active_cell_iterators())
+      //  cell->distribute_local_to_global(local_identity_coarse,
+      //  valence_coarse);
+      // for (auto &elem : valence_coarse)
       //  elem = 1.0 / elem;
 
       const auto project = [&](auto &dst, const auto &src) {
-        VectorType vec_local_coarse(1); //fe_coarse->n_dofs_per_cell());
+        VectorType vec_local_coarse(1); // fe_coarse->n_dofs_per_cell());
         VectorType vec_local_fine(fe_fine->n_dofs_per_cell());
-        VectorType weights(1); //fe_coarse->n_dofs_per_cell());
+        VectorType weights(1); // fe_coarse->n_dofs_per_cell());
 
         for (const auto &cell : current_patch->sub_tria.active_cell_iterators())
           {
@@ -537,9 +593,9 @@ MappingQ1<dim> mapping;
           std::vector<types::global_dof_index> dofs_on_this_cell(
             fe_fine->n_dofs_per_cell());
           std::vector<unsigned int> coarse_dofs_on_this_cell(
-            1//fe_coarse->n_dofs_per_cell()
+            1 // fe_coarse->n_dofs_per_cell()
             // it should be called coarse cells instead of coarse dofs
-            );
+          );
           coarse_dofs_on_this_cell[0] = 0;
           for (auto &cell : dh_fine_patch.active_cell_iterators())
             {
@@ -622,7 +678,8 @@ MappingQ1<dim> mapping;
       PT.Tmmult(P_Ainv_PT, Ainv_PT);
 
       // P_tilda is actually P/ H^dim
-      P_Ainv_PT /= pow(H, dim);;
+      P_Ainv_PT /= pow(H, dim);
+      ;
 
       P_Ainv_PT.gauss_jordan();
 
@@ -1196,9 +1253,8 @@ LOD<dim, spacedim>::compare_lod_with_fem()
 
   // output fem solution
   std::vector<std::string> fem_names(spacedim, "fem_solution");
-  std::vector<std::string> exact_solution_names(spacedim,
-                                                "exact_solution_fine");
-  std::vector<std::string> lod_names(spacedim, "lod_solution_fine");
+  std::vector<std::string> exact_solution_names(spacedim, "exact_solution");
+  std::vector<std::string> lod_names(spacedim, "lod_solution");
 
   auto exact_vec(fem_solution);
   VectorTools::interpolate(dh, par.exact_solution, exact_vec);
@@ -1206,29 +1262,19 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
 
-  // std::vector<DataComponentInterpretation::DataComponentInterpretation>
-  //   data_component_interpretation(
-  //     spacedim, DataComponentInterpretation::component_is_scalar
-  //     //        DataComponentInterpretation::component_is_part_of_vector
-  //   );
- DataOut<dim> data_out;
+  data_out.attach_dof_handler(dh);
 
-  // data_out.attach_dof_handler(dh);
-
-  data_out.add_data_vector(dh,
-                           fem_solution,
+  data_out.add_data_vector(fem_solution,
                            fem_names,
-                           // DataOut<dim>::type_dof_data,
+                           DataOut<dim>::type_dof_data,
                            data_component_interpretation);
-  data_out.add_data_vector(dh,
-                           exact_vec,
+  data_out.add_data_vector(exact_vec,
                            exact_solution_names,
-                           // DataOut<dim>::type_dof_data,
+                           DataOut<dim>::type_dof_data,
                            data_component_interpretation);
-  data_out.add_data_vector(dh,
-                           lod_solution,
+  data_out.add_data_vector(lod_solution,
                            lod_names,
-                           // DataOut<dim>::type_dof_data,
+                           DataOut<dim>::type_dof_data,
                            data_component_interpretation);
 
   // output of (S)LOD basis functions
@@ -1247,22 +1293,20 @@ LOD<dim, spacedim>::compare_lod_with_fem()
           c_i = 0.0;
           basis_matrix_transposed.vmult(c_i, e_i);
 
-          data_out.add_data_vector(dh,
-                                   c_i,
+          data_out.add_data_vector(c_i,
                                    names,
-                                   // DataOut<dim>::type_dof_data,
+                                   DataOut<dim>::type_dof_data,
                                    data_component_interpretation);
         }
     }
-  // data_out.build_patches();
+  data_out.build_patches();
   const std::string filename = par.output_name + "_fine.vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
 
-  std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
-                              "_fine.pvd");
-
-
+  // std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
+  //                             "_fine.pvd");
+  data_out.clear();
   computing_timer.leave_subsection();
 }
 
@@ -1317,6 +1361,7 @@ LOD<dim, spacedim>::run()
   make_grid();
   make_fe();
   initialize_patches();
+  // create_random_coefficients();
 
   compute_basis_function_candidates();
   assemble_global_matrix();
@@ -1325,8 +1370,7 @@ LOD<dim, spacedim>::run()
   compare_lod_with_fem();
 
   output_fine_results();
-  if constexpr (spacedim == 1)
-    output_coarse_results();
+  output_coarse_results();
   // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
   //                                             solution,
   //                                             par.exact_solution);

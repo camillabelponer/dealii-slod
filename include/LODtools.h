@@ -26,32 +26,34 @@ projection_P0_P1(FullMatrix<double> &projection_matrix)
   Assert(dim == 2, ExcNotImplemented());
 
   unsigned int n_fine_dofs = projection_matrix.n();
-  unsigned int p           = (int)sqrt(n_fine_dofs/spacedim);
-  Assert(p * p * spacedim == n_fine_dofs, ExcNotImplemented()); // check the root to avoid casting
+  unsigned int p           = (int)sqrt(n_fine_dofs / spacedim);
+  Assert(p * p * spacedim == n_fine_dofs,
+         ExcNotImplemented()); // check the root to avoid casting
   Assert(projection_matrix.n() != 0, ExcNotImplemented());
-  Assert(projection_matrix.m() == 1, ExcNotImplemented()); // otherwise it's not P0
+  Assert(projection_matrix.m() == 1,
+         ExcNotImplemented()); // otherwise it's not P0
 
   if constexpr (spacedim < 3)
-  {
-  unsigned int col_index = 0;
-  while (col_index < 2 * dim * spacedim)
     {
-      projection_matrix(0, col_index) = 1.0;
-      col_index++;
+      unsigned int col_index = 0;
+      while (col_index < 2 * dim * spacedim)
+        {
+          projection_matrix(0, col_index) = 1.0;
+          col_index++;
+        }
+      while (col_index < (2 * dim * (p - 2) * spacedim + 2 * dim * spacedim))
+        {
+          projection_matrix(0, col_index) = 2.0;
+          col_index++;
+        }
+      while (col_index < projection_matrix.n())
+        {
+          projection_matrix(0, col_index) = 4.0;
+          col_index++;
+        }
     }
-  while (col_index < (2 * dim * (p - 2) * spacedim + 2 * dim * spacedim))
-    {
-      projection_matrix(0, col_index) = 2.0;
-      col_index++;
-    }
-  while (col_index < projection_matrix.n())
-    {
-      projection_matrix(0, col_index) = 4.0;
-      col_index++;
-    }
-  }
-  else 
-     AssertThrow(false, ExcNotImplemented());
+  else
+    AssertThrow(false, ExcNotImplemented());
 }
 
 

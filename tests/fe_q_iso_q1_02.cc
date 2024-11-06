@@ -70,11 +70,10 @@ test()
   Triangulation<dim> tria;
   GridGenerator::hyper_cube(tria);
 
-  FESystem<dim> fe (FE_Q_iso_Q1<dim>(fe_degree), spacedim);
+  FESystem<dim>        fe(FE_Q_iso_Q1<dim>(fe_degree), spacedim);
   const QIterated<dim> quadrature(QGauss<1>(2), fe_degree);
 
-  Table<2, bool>  bool_dof_mask = create_bool_dof_mask(fe,
-                                                quadrature);
+  Table<2, bool> bool_dof_mask = create_bool_dof_mask(fe, quadrature);
 
 
   FEValues<dim> fe_values(fe,
@@ -82,16 +81,14 @@ test()
                           update_values | update_gradients | update_JxW_values);
 
   fe_values.reinit(tria.begin());
-      const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+  const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
 
-    FullMatrix<double> cell_matrix_1(dofs_per_cell, dofs_per_cell);
-    FullMatrix<double> cell_matrix_2(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_matrix_1(dofs_per_cell, dofs_per_cell);
+  FullMatrix<double> cell_matrix_2(dofs_per_cell, dofs_per_cell);
 
 
 
   {
-
-
     for (const unsigned int q_index : fe_values.quadrature_point_indices())
       {
         for (const unsigned int i : fe_values.dof_indices())
@@ -106,17 +103,16 @@ test()
   }
 
   {
-
     const auto lexicographic_to_hierarchic_numbering =
       FETools::lexicographic_to_hierarchic_numbering<dim>(fe_degree);
 
     if (dim == 1)
       {
-
         for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
-        for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-          if (bool_dof_mask[i][j])
-            for (const unsigned int q_index : fe_values.quadrature_point_indices())
+          for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+            if (bool_dof_mask[i][j])
+              for (const unsigned int q_index :
+                   fe_values.quadrature_point_indices())
                 {
                   cell_matrix_2(i, j) +=
                     (fe_values.shape_grad(i, q_index) *
@@ -126,15 +122,15 @@ test()
     else if (dim == 2)
       {
         for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
-        for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-          if (bool_dof_mask[i][j])
-            for (const unsigned int q_index : fe_values.quadrature_point_indices())
-            {
-                          cell_matrix_2(i, j) +=
-                            (fe_values.shape_grad(i, q_index) *
-                             fe_values.shape_grad(j, q_index) *
-                             fe_values.JxW(q_index));
-                        }
+          for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+            if (bool_dof_mask[i][j])
+              for (const unsigned int q_index :
+                   fe_values.quadrature_point_indices())
+                {
+                  cell_matrix_2(i, j) +=
+                    (fe_values.shape_grad(i, q_index) *
+                     fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+                }
       }
     else
       {
@@ -146,8 +142,8 @@ test()
 
     double diff = -1;
     for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
-    for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-      diff = std::max(diff, abs(cell_matrix_1(i,j) - cell_matrix_2(i,j)));
+      for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+        diff = std::max(diff, abs(cell_matrix_1(i, j) - cell_matrix_2(i, j)));
     std::cout << diff << std::endl;
   }
 }
