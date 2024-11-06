@@ -273,6 +273,8 @@ fill_dofs_indices_vector(const DoFHandler<dim> &    dh,
 
   internal.subtract_set(boundary_of_patch_not_of_domain_set);
   internal.subtract_set(boundary_of_domain_and_patch_set);
+  // we DO NOT subtract boundary_of_domain_and_patch_set from
+  // boundary_of_patch_not_of_domain_set
   // boundary_of_patch_not_of_domain_set.subtract_set(boundary_of_domain_and_patch_set);
 
   boundary_of_patch_not_of_domain_set.fill_index_vector(boundary_dofs);

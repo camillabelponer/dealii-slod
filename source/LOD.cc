@@ -387,11 +387,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   FullMatrix<double> projection_matrixT(fe_fine->n_dofs_per_cell(),
                                         1); // fe_coarse->n_dofs_per_cell());
   if (false)                                // actually equivalent methods
-    FETools::get_projection_matrix(*fe_fine, *fe_coarse, projection_matrix);
+    FETools::get_projection_matrix(
+      *fe_fine, *fe_coarse, projection_matrix); // only work for scalar case!!
   else
     {
-      projection_P0_P1<dim, spacedim>(
-        projection_matrix); // only work for vector case!!
+      projection_P0_P1<dim, spacedim>(projection_matrix);
       projection_matrix *= (h * h / 4);
     }
   projection_matrixT.copy_transposed(projection_matrix);
@@ -458,22 +458,22 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
         // does the same as
         // DoFTools::make_sparsity_pattern() but also
-        
-          std::vector<types::global_dof_index> dofs_on_this_cell(
-            fe_fine->n_dofs_per_cell());
 
-          for (const auto &cell : dh_fine_patch.active_cell_iterators())
-            if (cell->is_locally_owned())
-              {
-                cell->get_dof_indices(dofs_on_this_cell);
+        std::vector<types::global_dof_index> dofs_on_this_cell(
+          fe_fine->n_dofs_per_cell());
 
-                empty_boundary_constraints.add_entries_local_to_global(
-                  dofs_on_this_cell,
-                  patch_dynamic_sparsity_pattern,
-                  true,
-                  bool_dof_mask); // keep constrained entries must be true
-              }
-        }
+        for (const auto &cell : dh_fine_patch.active_cell_iterators())
+          if (cell->is_locally_owned())
+            {
+              cell->get_dof_indices(dofs_on_this_cell);
+
+              empty_boundary_constraints.add_entries_local_to_global(
+                dofs_on_this_cell,
+                patch_dynamic_sparsity_pattern,
+                true,
+                bool_dof_mask); // keep constrained entries must be true
+            }
+
         patch_dynamic_sparsity_pattern.compress();
 
         patch_sparsity_pattern.copy_from(patch_dynamic_sparsity_pattern);
@@ -658,7 +658,6 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       // P_tilda is actually P/ H^dim
       P_Ainv_PT /= pow(H, dim);
-      ;
 
       P_Ainv_PT.gauss_jordan();
 
@@ -748,8 +747,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             FullMatrix<double> BDTBD(considered_candidates,
                                      considered_candidates);
 
-            std::vector<unsigned int> other_phi(all_dofs_fine.begin() +
-                                                  spacedim,
+            std::vector<unsigned int> other_phi(all_dofs_fine.begin() + 1,
                                                 all_dofs_fine.begin() +
                                                   Ndofs_coarse);
             Assert(
@@ -1222,12 +1220,12 @@ LOD<dim, spacedim>::compare_lod_with_fem()
 
   basis_matrix_transposed.vmult(lod_solution, solution);
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
-  // par.convergence_table_FEM.error_from_exact(dh,
-  //                                            fem_solution,
-  //                                            par.exact_solution);
-  // par.convergence_table_LOD.error_from_exact(dh,
-  //                                            lod_solution,
-  //                                            par.exact_solution);
+  par.convergence_table_FEM.error_from_exact(dh,
+                                             fem_solution,
+                                             par.exact_solution);
+  par.convergence_table_LOD.error_from_exact(dh,
+                                             lod_solution,
+                                             par.exact_solution);
 
   computing_timer.leave_subsection();
   computing_timer.enter_subsection("6: fine output");
@@ -1235,10 +1233,13 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   // output fem solution
   std::vector<std::string> fem_names(spacedim, "fem_solution");
   std::vector<std::string> exact_solution_names(spacedim, "exact_solution");
+  std::vector<std::string> exact_rhs_names(spacedim, "exact_rhs");
   std::vector<std::string> lod_names(spacedim, "lod_solution");
 
   auto exact_vec(fem_solution);
   VectorTools::interpolate(dh, par.exact_solution, exact_vec);
+  auto exact_rhs(fem_solution);
+  VectorTools::interpolate(dh, par.rhs, exact_rhs);
   // to be added for MPI
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
@@ -1251,6 +1252,10 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                            data_component_interpretation);
   data_out.add_data_vector(exact_vec,
                            exact_solution_names,
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+  data_out.add_data_vector(exact_rhs,
+                           exact_rhs_names,
                            DataOut<dim>::type_dof_data,
                            data_component_interpretation);
   data_out.add_data_vector(lod_solution,
@@ -1280,6 +1285,30 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                                    data_component_interpretation);
         }
     }
+  // // output of patches
+  // if (true)
+  //   {
+  //     for (auto current_patch_id : locally_owned_patches)
+  //       {
+  //         AssertIndexRange(current_patch_id, patches.size());
+  //         auto current_patch = &patches[current_patch_id];
+
+  //         dof_handler_fine.reinit(current_patch->sub_tria);
+  //         dof_handler_fine.distribute_dofs(*fe_coarse);
+
+  //         const std::string        name = "p_" +
+  //         std::to_string(current_patch_id); std::vector<std::string>
+  //         names(spacedim, name);
+
+  //         Vector<double> solution(dof_handler_fine.n_dofs());
+  //         solution = 0.0;
+  //         DataOut<dim> data_out_p;
+  //         data_out_p.add_data_vector(dof_handler_fine, solution,
+  //                                  names,
+  //                                  // DataOut<dim>::type_dof_data,
+  //                                  data_component_interpretation);
+  //       }
+  //   }
   data_out.build_patches();
   const std::string filename = par.output_name + "_fine.vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
@@ -1352,16 +1381,13 @@ LOD<dim, spacedim>::run()
 
   output_fine_results();
   output_coarse_results();
-  // par.convergence_table_LOD.error_from_exact(dof_handler_coarse,
-  //                                             solution,
-  //                                             par.exact_solution);
 
   if (pcout.is_active())
     {
-      // pcout << "LOD vs exact solution (fine mesh)" << std::endl;
-      // par.convergence_table_LOD.output_table(pcout.get_stream());
-      // pcout << "FEM vs exact solution (fine mesh)" << std::endl;
-      // par.convergence_table_FEM.output_table(pcout.get_stream());
+      pcout << "LOD vs exact solution (fine mesh)" << std::endl;
+      par.convergence_table_LOD.output_table(pcout.get_stream());
+      pcout << "FEM vs exact solution (fine mesh)" << std::endl;
+      par.convergence_table_FEM.output_table(pcout.get_stream());
       if (!par.LOD_stabilization)
         pcout << "LOD vs FEM (fine mesh)" << std::endl;
       else
