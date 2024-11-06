@@ -774,7 +774,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                                 all_dofs_fine.begin() +
                                                   Ndofs_coarse);
             Assert(other_phi.size() == considered_candidates,
-                   ExcNotImplemented());
+                   ExcNotImplemented("inconsistent number of candidates basis fuunction on the patch"));
             std::vector<unsigned int> boundary_dofs_vector_temp(
               all_dofs_fine.begin(), all_dofs_fine.begin() + N_boundary_dofs);
 
