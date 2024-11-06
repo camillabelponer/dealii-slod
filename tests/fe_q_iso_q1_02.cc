@@ -86,7 +86,7 @@ test()
   FullMatrix<double> cell_matrix_1(dofs_per_cell, dofs_per_cell);
   FullMatrix<double> cell_matrix_2(dofs_per_cell, dofs_per_cell);
 
-
+  const FEValuesExtractors::Vector displacement(0);
 
   {
     for (const unsigned int q_index : fe_values.quadrature_point_indices())
@@ -94,12 +94,20 @@ test()
         for (const unsigned int i : fe_values.dof_indices())
           for (const unsigned int j : fe_values.dof_indices())
             cell_matrix_1(i, j) +=
-              (fe_values.shape_grad(i, q_index) *
-               fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+              // (fe_values.shape_grad(i, q_index) *
+              //  fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+                                  (2 *
+                             scalar_product(
+                               fe_values[displacement].symmetric_gradient(i, q_index),
+                               fe_values[displacement].symmetric_gradient(j,
+                                                                          q_index)) +
+                           fe_values[displacement].divergence(i, q_index) *
+                             fe_values[displacement].divergence(j, q_index)) *
+                          fe_values.JxW(q_index);
       }
 
-    // cell_matrix.print_formatted(std::cout, 3, false, 10);
-    // std::cout << std::endl;
+    cell_matrix_1.print_formatted(std::cout, 3, false, 10);
+    std::cout << std::endl;
   }
 
   {
@@ -121,24 +129,49 @@ test()
       }
     else if (dim == 2)
       {
-        for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
-          for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
-            if (bool_dof_mask[i][j])
-              for (const unsigned int q_index :
-                   fe_values.quadrature_point_indices())
+        
+        // for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+        //   for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+        //     if (bool_dof_mask[i][j])
+        //       for (const unsigned int q_index :
+        //            fe_values.quadrature_point_indices())
+        for (unsigned int c_1 = 0; c_1 < fe_degree*2; ++c_1)
+          for (unsigned int c_0 = 0; c_0 < fe_degree*2; ++c_0)
+            for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+              for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                  for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                    for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                      for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
                 {
+                  const unsigned int q_index =
+                            (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * fe_degree);
+                          const unsigned int i =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + i_0) + (c_1 + i_1) * (fe_degree + 1)];
+                          const unsigned int j =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + j_0) + (c_1 + j_1) * (fe_degree + 1)];
+                  
                   cell_matrix_2(i, j) +=
-                    (fe_values.shape_grad(i, q_index) *
-                     fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+                    // (fe_values.shape_grad(i, q_index) *
+                    //  fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+                    (2 *
+                             scalar_product(
+                               fe_values[displacement].symmetric_gradient(i, q_index),
+                               fe_values[displacement].symmetric_gradient(j, q_index)) +
+                           fe_values[displacement].divergence(i, q_index) *
+                             fe_values[displacement].divergence(j, q_index)) *
+                          fe_values.JxW(q_index);
                 }
       }
     else
       {
         AssertThrow(false, ExcNotImplemented());
       }
-
-    // cell_matrix.print_formatted(std::cout, 3, false, 10);
-    // std::cout << std::endl;
+std::cout << "new assemble" << std::endl;
+    cell_matrix_2.print_formatted(std::cout, 3, false, 10);
+    std::cout << std::endl;
 
     double diff = -1;
     for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
@@ -151,6 +184,6 @@ test()
 int
 main()
 {
-  test<1, 2>();
+  //test<1, 2>();
   test<2, 2>();
 }
