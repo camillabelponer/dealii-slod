@@ -456,32 +456,24 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       SparsityPattern patch_sparsity_pattern;
       {
         DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
-        // option 1: does the same as
+        // does the same as
         // DoFTools::make_sparsity_pattern() but also
-        if constexpr (spacedim == 1)
-          {
-            std::vector<types::global_dof_index> dofs_on_this_cell(
-              fe_fine->n_dofs_per_cell());
+        
+          std::vector<types::global_dof_index> dofs_on_this_cell(
+            fe_fine->n_dofs_per_cell());
 
-            for (const auto &cell : dh_fine_patch.active_cell_iterators())
-              if (cell->is_locally_owned())
-                {
-                  cell->get_dof_indices(dofs_on_this_cell);
+          for (const auto &cell : dh_fine_patch.active_cell_iterators())
+            if (cell->is_locally_owned())
+              {
+                cell->get_dof_indices(dofs_on_this_cell);
 
-                  empty_boundary_constraints.add_entries_local_to_global(
-                    dofs_on_this_cell,
-                    patch_dynamic_sparsity_pattern,
-                    true,
-                    bool_dof_mask); // keep constrained entries must be true
-                }
-          }
-        else if constexpr (spacedim == 2)
-          {
-            DoFTools::make_sparsity_pattern(dh_fine_patch,
-                                            patch_dynamic_sparsity_pattern,
-                                            empty_boundary_constraints,
-                                            true);
-          }
+                empty_boundary_constraints.add_entries_local_to_global(
+                  dofs_on_this_cell,
+                  patch_dynamic_sparsity_pattern,
+                  true,
+                  bool_dof_mask); // keep constrained entries must be true
+              }
+        }
         patch_dynamic_sparsity_pattern.compress();
 
         patch_sparsity_pattern.copy_from(patch_dynamic_sparsity_pattern);
@@ -492,27 +484,14 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
         "2: compute basis function 4: stiffness");
-      if constexpr (spacedim == 1)
-        {
-          LA::MPI::Vector dummy;
-          assemble_stiffness(patch_stiffness_matrix,
-                             dummy,
-                             dh_fine_patch,
-                             empty_boundary_constraints);
-          // using empty_boundary the stiffness is assembled unconstrained
-        }
-      else if constexpr (spacedim == dim)
-        {
-          MappingQ1<dim> mapping;
-          MatrixCreator::create_laplace_matrix<dim, spacedim>(
-            mapping,
-            dh_fine_patch,
-            *quadrature_fine,
-            patch_stiffness_matrix,
-            nullptr,
-            empty_boundary_constraints);
-        }
-      // patch_stiffness_matrix.print(std::cout);
+      {
+        LA::MPI::Vector dummy;
+        assemble_stiffness(patch_stiffness_matrix,
+                           dummy,
+                           dh_fine_patch,
+                           empty_boundary_constraints);
+        // using empty_boundary the stiffness is assembled unconstrained
+      }
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection("2: compute basis function 4b: misc");
@@ -773,8 +752,10 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                                   spacedim,
                                                 all_dofs_fine.begin() +
                                                   Ndofs_coarse);
-            Assert(other_phi.size() == considered_candidates,
-                   ExcNotImplemented("inconsistent number of candidates basis fuunction on the patch"));
+            Assert(
+              other_phi.size() == considered_candidates,
+              ExcNotImplemented(
+                "inconsistent number of candidates basis fuunction on the patch"));
             std::vector<unsigned int> boundary_dofs_vector_temp(
               all_dofs_fine.begin(), all_dofs_fine.begin() + N_boundary_dofs);
 

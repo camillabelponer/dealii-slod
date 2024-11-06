@@ -8,7 +8,9 @@ template <int dim, int spacedim>
 void
 projection_P0_P1(FullMatrix<double> &projection_matrix)
 {
-  Assert(dim == 2, ExcNotImplemented("Projection P0 to P1 only implemented for 2D problems"));
+  Assert(dim == 2,
+         ExcNotImplemented(
+           "Projection P0 to P1 only implemented for 2D problems"));
 
   unsigned int n_fine_dofs = projection_matrix.n();
   unsigned int p           = (int)sqrt(n_fine_dofs / spacedim);
@@ -16,7 +18,8 @@ projection_P0_P1(FullMatrix<double> &projection_matrix)
          ExcNotImplemented("casting error")); // check the root to avoid casting
   Assert(projection_matrix.n() != 0, ExcNotImplemented("empty matrix"));
   Assert(projection_matrix.m() == 1,
-         ExcNotImplemented("only projection to P0 allowed")); // otherwise it's not P0
+         ExcNotImplemented(
+           "only projection to P0 allowed")); // otherwise it's not P0
 
   if constexpr (spacedim < 3)
     {
@@ -38,7 +41,10 @@ projection_P0_P1(FullMatrix<double> &projection_matrix)
         }
     }
   else
-    AssertThrow(false, ExcNotImplemented("projection matrix P0 to P1 not implemented for spacedim > 2"));
+    AssertThrow(
+      false,
+      ExcNotImplemented(
+        "projection matrix P0 to P1 not implemented for spacedim > 2"));
 }
 
 
@@ -211,13 +217,15 @@ extend_vector_to_boundary_values(Vector<double> &       vector_in,
                                  const DoFHandler<dim> &dh,
                                  Vector<double> &       vector_out)
 {
-  Assert(dh.n_dofs() == vector_out.size(), ExcNotImplemented("incoherent vector size"));
+  Assert(dh.n_dofs() == vector_out.size(),
+         ExcNotImplemented("incoherent vector size"));
 
   IndexSet     boundary_dofs_set = DoFTools::extract_boundary_dofs(dh);
   unsigned int N_internal_dofs   = dh.n_dofs() - boundary_dofs_set.n_elements();
 
   AssertDimension(N_internal_dofs, vector_in.size()); //, ExcNotImplemented());
-  Assert(N_internal_dofs < dh.n_dofs(), ExcNotImplemented("incoherent vector size"));
+  Assert(N_internal_dofs < dh.n_dofs(),
+         ExcNotImplemented("incoherent vector size"));
 
   unsigned int in_index = 0;
   for (unsigned int out_index = 0; out_index < vector_out.size(); ++out_index)
@@ -242,7 +250,8 @@ fill_dofs_indices_vector(const DoFHandler<dim> &    dh,
 {
   auto         boundary_indices(dh.get_triangulation().get_boundary_ids());
   unsigned int N_boundary_indices = boundary_indices.size();
-  Assert(N_boundary_indices < 3, ExcNotImplemented("too many doundary ids specified"));
+  Assert(N_boundary_indices < 3,
+         ExcNotImplemented("too many doundary ids specified"));
 
 
   IndexSet all(dh.n_dofs());
