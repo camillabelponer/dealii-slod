@@ -6,38 +6,63 @@ using namespace dealii;
 
 template <int dim, int spacedim>
 void
-projection_P0_P1(FullMatrix<double> &projection_matrix)
+projection_P1_P0(FullMatrix<double> &projection_matrix)
 {
   Assert(dim == 2,
          ExcNotImplemented(
            "Projection P0 to P1 only implemented for 2D problems"));
 
-  unsigned int n_fine_dofs = projection_matrix.n();
+  unsigned int n_fine_dofs = projection_matrix.m();
   unsigned int p           = (int)sqrt(n_fine_dofs / spacedim);
   Assert(p * p * spacedim == n_fine_dofs,
          ExcNotImplemented("casting error")); // check the root to avoid casting
-  Assert(projection_matrix.n() != 0, ExcNotImplemented("empty matrix"));
-  Assert(projection_matrix.m() == 1,
+  Assert(projection_matrix.m() != 0, ExcNotImplemented("empty matrix"));
+  Assert(projection_matrix.n() == spacedim,
          ExcNotImplemented(
            "only projection to P0 allowed")); // otherwise it's not P0
 
-  if constexpr (spacedim < 3)
+  if constexpr (spacedim == 1)
     {
-      unsigned int col_index = 0;
-      while (col_index < 2 * dim * spacedim)
+      unsigned int row_index = 0;
+      while (row_index < 2 * dim)
         {
-          projection_matrix(0, col_index) = 1.0;
-          col_index++;
+          projection_matrix(row_index, 0) = 1.0;
+          row_index++;
         }
-      while (col_index < (2 * dim * (p - 2) * spacedim + 2 * dim * spacedim))
+      while (row_index < (2 * dim * (p - 2) + 2 * dim))
         {
-          projection_matrix(0, col_index) = 2.0;
-          col_index++;
+          projection_matrix(row_index, 0) = 2.0;
+          row_index++;
         }
-      while (col_index < projection_matrix.n())
+      while (row_index < projection_matrix.m())
         {
-          projection_matrix(0, col_index) = 4.0;
-          col_index++;
+          projection_matrix(row_index, 0) = 4.0;
+          row_index++;
+        }
+    }
+  else if constexpr (spacedim == 2)
+    {
+      unsigned int row_index = 0;
+      while (row_index < 2 * dim * spacedim)
+        {
+          projection_matrix(row_index, 0) = 1.0;
+          row_index++;
+          projection_matrix(row_index, 1) = 1.0;
+          row_index++;
+        }
+      while (row_index < (2 * dim * (p - 2) * spacedim + 2 * dim * spacedim))
+        {
+          projection_matrix(row_index, 0) = 2.0;
+          row_index++;
+          projection_matrix(row_index, 1) = 2.0;
+          row_index++;
+        }
+      while (row_index < projection_matrix.m())
+        {
+          projection_matrix(row_index, 0) = 4.0;
+          row_index++;
+          projection_matrix(row_index, 1) = 4.0;
+          row_index++;
         }
     }
   else

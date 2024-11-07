@@ -76,11 +76,10 @@ LOD<dim, spacedim>::make_fe()
 
   patches_pattern.reinit(dof_handler_coarse.n_dofs(),
                          dof_handler_coarse.n_dofs(),
-                         locally_relevant_dofs); // locally_owned_patches !
-  patches_pattern_fine.reinit(
-    locally_owned_patches.size(), // (dof_handler_coarse.n_dofs() / spacedim),
-    dof_handler_fine.n_dofs(),
-    locally_owned_patches);
+                         locally_relevant_dofs);
+  patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
+                              dof_handler_fine.n_dofs(),
+                              locally_relevant_dofs);
 
   bool_dof_mask = create_bool_dof_mask_Q_iso_Q1(*fe_fine,
                                                 *quadrature_fine,
@@ -188,6 +187,7 @@ LOD<dim, spacedim>::create_patches()
 {
   TimerOutput::Scope        t(computing_timer, "1: Create Patches");
   std::vector<unsigned int> fine_dofs(fe_fine->n_dofs_per_cell());
+  std::vector<unsigned int> coarse_dofs(fe_coarse->n_dofs_per_cell());
 
   size_t size_biggest_patch = 0;
   size_t size_tiniest_patch = tria.n_active_cells();
@@ -244,11 +244,12 @@ LOD<dim, spacedim>::create_patches()
 
   // now looping and creating the patches
   for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    {
+    { // 1d should not add just index but coarse dofs
+      cell->get_dof_indices(coarse_dofs);
       const auto vector_cell_index =
         (int)floor(cell->barycenter()(0) / H) +
         N_cells_per_line * (int)floor(cell->barycenter()(1) / H);
-      auto cell_index = cell->active_cell_index();
+      // auto cell_index = cell->active_cell_index();
       {
         auto patch = &patches.emplace_back();
 
@@ -256,12 +257,22 @@ LOD<dim, spacedim>::create_patches()
         for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
           {
             auto &cell_to_add = ordered_cells[neighbour_ordered_index];
+            auto  cell_to_add_coarse_dofs = coarse_dofs;
+            cell_to_add->get_dof_indices(cell_to_add_coarse_dofs);
+
             patch->cells.push_back(cell_to_add);
-            patches_pattern.add(cell_index, cell_to_add->active_cell_index());
+            // patches_pattern.add(cell_index,
+            // cell_to_add->active_cell_index());
+            for (unsigned int d = 0; d < spacedim; ++d)
+              patches_pattern.add_row_entries(coarse_dofs[d], coarse_dofs);
             auto cell_fine =
               cell_to_add->as_dof_handler_iterator(dof_handler_fine);
             cell_fine->get_dof_indices(fine_dofs);
-            patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
+            for (unsigned int d = 0; d < spacedim; ++d)
+              {
+                patches_pattern_fine.add_row_entries(coarse_dofs[d], fine_dofs);
+                // patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
+              }
           }
 
         size_biggest_patch = std::max(size_biggest_patch, patch->cells.size());
@@ -279,7 +290,7 @@ LOD<dim, spacedim>::create_patches()
   // TODO: fpr MPI FIX THIS
   global_stiffness_matrix.reinit(global_sparsity_pattern);
 
-  solution.reinit(locally_owned_patches, mpi_communicator);
+  solution.reinit(locally_owned_dofs, mpi_communicator);
 
 
   if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0 ||
@@ -303,28 +314,23 @@ LOD<dim, spacedim>::output_coarse_results()
   TimerOutput::Scope t(computing_timer, "6: Output coarse results");
 
   // the coarse solution is made up by one element per cell, even in the vector
-  // case
-  const unsigned int plot_dim = 1;
+  // cases
 
-  std::vector<std::string> solution_names(plot_dim, "LOD_solution");
+  std::vector<std::string> solution_names(spacedim, "LOD_solution");
   std::vector<std::string> exact_solution_names(spacedim, "exact_solution");
 
-  Vector<double> exact_vec(dof_handler_coarse.n_dofs());
+  Vector<double> exact_vec(solution);
   VectorTools::interpolate(dof_handler_coarse, par.exact_solution, exact_vec);
   // to be added for MPI
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
 
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    vector_data_component_interpretation(
-      plot_dim, DataComponentInterpretation::component_is_part_of_vector);
-
   data_out.attach_dof_handler(dof_handler_coarse);
 
   data_out.add_data_vector(solution,
                            solution_names,
-                           DataOut<dim>::type_cell_data,
-                           vector_data_component_interpretation);
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
 
   data_out.add_data_vector(exact_vec,
                            exact_solution_names,
@@ -382,20 +388,20 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   double h = H / (par.n_subdivisions);
 
   // create projection matrix from fine to coarse cell (DG)
-  FullMatrix<double> projection_matrix(1, // fe_coarse->n_dofs_per_cell(),
-                                       fe_fine->n_dofs_per_cell());
   FullMatrix<double> projection_matrixT(fe_fine->n_dofs_per_cell(),
-                                        1); // fe_coarse->n_dofs_per_cell());
-  if (false)                                // actually equivalent methods
-    FETools::get_projection_matrix(
-      *fe_fine, *fe_coarse, projection_matrix); // only work for scalar case!!
+                                        fe_coarse->n_dofs_per_cell());
+  if (false)
+    {
+      // actually equivalent method, excluding a scaling
+      // but it only work from fine to coarse -> need projection_matrix not its
+      // transpose FETools::get_projection_matrix(
+      //   *fe_fine, *fe_coarse, projection_matrix);
+    }
   else
     {
-      projection_P0_P1<dim, spacedim>(projection_matrix);
-      projection_matrix *= (h * h / 4);
+      projection_P1_P0<dim, spacedim>(projection_matrixT);
+      projection_matrixT *= (h * h / 4);
     }
-  projection_matrixT.copy_transposed(projection_matrix);
-  // this could be done via tensor product
 
   computing_timer.leave_subsection();
   for (auto current_patch_id : locally_owned_patches)
@@ -413,8 +419,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       dh_coarse_patch.reinit(current_patch->sub_tria);
       dh_coarse_patch.distribute_dofs(*fe_coarse);
 
-      // auto Ndofs_coarse = dh_coarse_patch.n_dofs();
-      auto Ndofs_coarse = dh_coarse_patch.get_triangulation().n_active_cells();
+      auto Ndofs_coarse = dh_coarse_patch.n_dofs();
       auto Ndofs_fine   = dh_fine_patch.n_dofs();
 
       std::vector<unsigned int>            internal_dofs_fine;
@@ -523,7 +528,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
             cell_coarse->get_dof_values(valence_coarse, weights);
             vec_local_coarse.scale(weights);
 
-            projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+            // projection_matrix.Tvmult(vec_local_fine, vec_local_coarse);
+            projection_matrixT.vmult(vec_local_fine, vec_local_coarse);
 
             cell_fine->distribute_local_to_global(vec_local_fine, dst);
           }
@@ -552,7 +558,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       // assign rhs
       // TODO: projection that works on matrices! -> see tests/projection_02
-      if (false)
+      if (false) // might be deprecated !!
         {
           for (unsigned int i = 0; i < Ndofs_coarse; ++i)
             {
@@ -572,10 +578,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           std::vector<types::global_dof_index> dofs_on_this_cell(
             fe_fine->n_dofs_per_cell());
           std::vector<unsigned int> coarse_dofs_on_this_cell(
-            1 // fe_coarse->n_dofs_per_cell()
+            fe_coarse->n_dofs_per_cell()
             // it should be called coarse cells instead of coarse dofs
           );
-          coarse_dofs_on_this_cell[0] = 0;
+          for (unsigned int d = 0; d < spacedim; d++)
+            coarse_dofs_on_this_cell[d] = d;
+
           for (auto &cell : dh_fine_patch.active_cell_iterators())
             {
               cell->get_dof_indices(dofs_on_this_cell);
@@ -587,7 +595,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                 PT);
               // here we cannot use any other constraint than empty, or we would
               // lose the boundary values that are needed for PT_boudnary
-              coarse_dofs_on_this_cell[0]++;
+
+              for (unsigned int d = 0; d < spacedim; d++)
+                coarse_dofs_on_this_cell[d] += spacedim;
             }
         }
 
@@ -677,25 +687,32 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: non stabilizaziona & assignemnt");
-          // if we are not stabilizing then we only take the first candiadates
-          // 0 is the index of the central cell
+          // if we are not stabilizing then we only take candiadates related to
+          // the central cell of the patch 0 is the index of the central cell
           // (this is also the central dof because we use P0 elements)
-
-          e_i                    = 0.0;
-          triple_product_inv_e_i = 0.0;
-
-          e_i[0] = 1.0;
-          P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
-
-          if (false)
+          for (unsigned int d = 0; d < spacedim; ++d)
             {
-              // Ainv_PT_internal.vmult(internal_selected_basis_function,
-              //             triple_product_inv_e_i);
-              // // this works but Ainv_PT_internal is not defined yet
-            }
-          else
-            {
-              Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
+              e_i                     = 0.0;
+              triple_product_inv_e_i  = 0.0;
+              selected_basis_function = 0.0;
+
+              e_i[d] = 1.0;
+              P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
+
+              if (false)
+                {
+                  // Ainv_PT_internal.vmult(internal_selected_basis_function,
+                  //             triple_product_inv_e_i);
+                  // // this works but Ainv_PT_internal is not defined yet
+                }
+              else
+                {
+                  Ainv_PT.vmult(selected_basis_function,
+                                triple_product_inv_e_i);
+                }
+
+              selected_basis_function /= selected_basis_function.l2_norm();
+              current_patch->basis_function.push_back(selected_basis_function);
             }
           computing_timer.leave_subsection();
         }
@@ -860,7 +877,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         "2: compute basis function 5d: asign premultiplied");
       selected_basis_function /= selected_basis_function.l2_norm();
       current_patch->basis_function.push_back(selected_basis_function);
-
+      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      current_patch->basis_function.push_back(selected_basis_function);
 
       Ac_i = 0;
 
@@ -898,6 +916,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           //   extend_vector_to_boundary_values(Ac_i, dh_fine_patch, Ac_i_0);
         }
 
+      current_patch->basis_function_premultiplied.push_back(Ac_i_0);
+      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       current_patch->basis_function_premultiplied.push_back(Ac_i_0);
 
       dh_fine_patch.clear();
@@ -1069,35 +1089,38 @@ LOD<dim, spacedim>::assemble_global_matrix()
               ->as_dof_handler_iterator(dof_handler_fine);
           iterator_to_cell_global->get_dof_indices(global_dofs);
 
-          iterator_to_cell_in_current_patch->get_dof_values(
-            current_patch->basis_function[0], phi_loc);
-          AssertDimension(global_dofs.size(), phi_loc.size());
-          // basis_matrix.set(current_patch_id,
-          //                  phi_loc.size(),
-          //                  global_dofs.data(),
-          //                  phi_loc.data());
-          for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
+          for (unsigned int d = 0; d < spacedim; ++d)
             {
-              basis_matrix_transposed.set(global_dofs.data()[idx],
-                                          current_patch_id,
-                                          phi_loc.data()[idx]);
-            }
+              iterator_to_cell_in_current_patch->get_dof_values(
+                current_patch->basis_function[d], phi_loc);
+              AssertDimension(global_dofs.size(), phi_loc.size());
+              // basis_matrix.set(current_patch_id,
+              //                  phi_loc.size(),
+              //                  global_dofs.data(),
+              //                  phi_loc.data());
+              for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
+                {
+                  basis_matrix_transposed.set(global_dofs.data()[idx],
+                                              spacedim * current_patch_id + d,
+                                              phi_loc.data()[idx]);
+                }
 
-
-          iterator_to_cell_in_current_patch->get_dof_values(
-            current_patch->basis_function_premultiplied[0], phi_loc);
-          AssertDimension(global_dofs.size(), phi_loc.size());
-          // premultiplied_basis_matrix.set(current_patch_id,
-          //                                phi_loc.size(),
-          //                                global_dofs.data(),
-          //                                phi_loc.data());
-          // if the matrix is already transposed we need to loop to add the
-          // elements
-          for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
-            {
-              premultiplied_basis_matrix.set(global_dofs.data()[idx],
-                                             current_patch_id,
-                                             phi_loc.data()[idx]);
+              iterator_to_cell_in_current_patch->get_dof_values(
+                current_patch->basis_function_premultiplied[d], phi_loc);
+              AssertDimension(global_dofs.size(), phi_loc.size());
+              // premultiplied_basis_matrix.set(current_patch_id,
+              //                                phi_loc.size(),
+              //                                global_dofs.data(),
+              //                                phi_loc.data());
+              // if the matrix is already transposed we need to loop to add the
+              // elements
+              for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
+                {
+                  premultiplied_basis_matrix.set(global_dofs.data()[idx],
+                                                 spacedim * current_patch_id +
+                                                   d,
+                                                 phi_loc.data()[idx]);
+                }
             }
         }
     }
@@ -1105,7 +1128,9 @@ LOD<dim, spacedim>::assemble_global_matrix()
   premultiplied_basis_matrix.compress(VectorOperation::insert);
   basis_matrix_transposed.compress(VectorOperation::insert);
 
-  // basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix);
+  // basis_matrix_transposed.print(std::cout);
+
+  // basis_matrix_transposed.Tmmult(global_stiffness_matrix, premultiplied_basis_matrix);
   //  global_stiffness_matrix.compress(VectorOperation::add);
 }
 
