@@ -1,2 +1,6 @@
 branch to have the LOD as a base class and elasticity and diffusion as derived
-cmake file does not work
+
+
+todo:
+- make svd a function to make the code more readable
+- assembly speed up (to be tested)

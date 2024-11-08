@@ -728,6 +728,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           FullMatrix<double>       Ainv_PT_internal(
             N_internal_dofs, Ndofs_coarse); // same as old a inv pt
 
+          selected_basis_function          = 0.0;
+          internal_selected_basis_function = 0.0;
+
           computing_timer.leave_subsection();
           computing_timer.enter_subsection(
             "2: ompute basis function 7b: stabilizazion: extraction and othersetup");
@@ -737,148 +740,161 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                                   all_dofs_coarse);
           S_boundary.mmult(B_full, Ainv_PT_internal);
 
+          // creating the matrix B_full using all components from all
+          // candidatesl
           PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
           PT_boundary.mmult(BD, P_Ainv_PT, true);
-
-          VectorType DeT(Ndofs_coarse);
-          e_i    = 0.0;
-          e_i[0] = 1.0;
-          P_Ainv_PT.vmult(DeT, e_i);
-
-          VectorType B_d0(N_boundary_dofs);
-
-
-          for (unsigned int i = 0; i < N_boundary_dofs; ++i)
-            {
-              B_d0[i] = BD(i, 0);
-            }
-
-          VectorType d_i(considered_candidates);
-          VectorType BDTBD0(considered_candidates);
-          d_i    = 0;
-          BDTBD0 = 0;
-
-          {
-            FullMatrix<double> newBD(N_boundary_dofs, considered_candidates);
-            FullMatrix<double> BDTBD(considered_candidates,
-                                     considered_candidates);
-
-            std::vector<unsigned int> other_phi(all_dofs_fine.begin() + 1,
-                                                all_dofs_fine.begin() +
-                                                  Ndofs_coarse);
-            Assert(
-              other_phi.size() == considered_candidates,
-              ExcNotImplemented(
-                "inconsistent number of candidates basis fuunction on the patch"));
-            std::vector<unsigned int> boundary_dofs_vector_temp(
-              all_dofs_fine.begin(), all_dofs_fine.begin() + N_boundary_dofs);
-
-            newBD.extract_submatrix_from(BD,
-                                         boundary_dofs_vector_temp,
-                                         other_phi);
-
-            newBD.Tmmult(BDTBD, newBD);
-
-            newBD.Tvmult(BDTBD0, B_d0);
-
-            SVD.copy_from(BDTBD);
-          }
-
           computing_timer.leave_subsection();
-          computing_timer.enter_subsection(
-            "compute basis function 7c: stabilizazion:correction and svd");
-
-          SVD.compute_inverse_svd(1e-15); // stores U V as normal, but
-                                          // 1/singular_value_i
-          d_i = 0.0;
-          SVD.vmult(d_i, BDTBD0);
-          d_i *= -1;
-          auto U  = SVD.get_svd_u();
-          auto Vt = SVD.get_svd_vt();
-
-          // {
-          // SVD.compute_svd();
-          // auto               U  = SVD.get_svd_u();
-          // auto               Vt = SVD.get_svd_vt();
-          // FullMatrix<double> Sigma_minus1(considered_candidates);
-          // Sigma_minus1 = 0.0;
-          // for (unsigned int i = 0; i < considered_candidates; ++i)
-          // {
-          //   if (SVD.singular_value(0) / SVD.singular_value(i) < 1e15)
-          //     Sigma_minus1(i, i) = (1 / SVD.singular_value(i));
-          // }
-          // d_i = 0;
-          // VectorType tt(considered_candidates);
-          // VectorType tt1(considered_candidates);
-          // U.Tvmult(tt, BDTBD0);
-          // Sigma_minus1.vmult(tt1, tt);
-          // Vt.Tvmult(d_i, tt1);
-          // d_i *=-1;
-          // } // equivalent to previous (same d_i as output)
-
-
-          AssertDimension(SVD.m(), SVD.n());
-          AssertDimension(U.m(), U.n());
-          AssertDimension(Vt.m(), Vt.n());
-          AssertDimension(U.m(), Vt.n());
-          AssertDimension(U.m(), SVD.n());
-          AssertDimension(U.m(), considered_candidates);
-
-          for (int i = (considered_candidates - 1); i >= 0; --i)
+          for (unsigned int d = 0; d < spacedim; ++d)
             {
-              if (d_i.linfty_norm() < 0.5)
-                break;
-              VectorType uT(considered_candidates);
-              VectorType v(considered_candidates);
-              // for (auto j : all_dofs_coarse)
-              for (unsigned int j = 0; j < considered_candidates; ++j)
+              computing_timer.enter_subsection(
+                "2: ompute basis function 7b: components");
+
+              VectorType B_d0(N_boundary_dofs);
+
+              for (unsigned int i = 0; i < N_boundary_dofs; ++i)
                 {
-                  uT[j] = U(j, i);
-                  v[j]  = Vt(i, j);
+                  B_d0[i] = BD(i, d);
                 }
-              FullMatrix<double> vuT(considered_candidates,
-                                     considered_candidates);
-              // do uT scalar BDTBD0 first
-              vuT.outer_product(v, uT);
-              VectorType correction(d_i.size());
-              vuT.vmult(correction, BDTBD0);
-              correction *= // Sigma_minus1(i, i); //
-                SVD.singular_value(i);
 
-              d_i += correction;
-            }
+              VectorType d_i(considered_candidates);
+              VectorType BDTBD0(considered_candidates);
+              d_i    = 0;
+              BDTBD0 = 0;
+
+              // std::vector<unsigned int> other_phi(all_dofs_fine.begin() + 1,
+              //                                     all_dofs_fine.begin() +
+              //                                       Ndofs_coarse);
+              std::vector<unsigned int> other_phi(all_dofs_fine.begin(),
+                                                  all_dofs_fine.begin() +
+                                                    Ndofs_coarse);
+              other_phi.erase(other_phi.begin() + d);
+
+              {
+                FullMatrix<double> newBD(N_boundary_dofs,
+                                         considered_candidates);
+                FullMatrix<double> BDTBD(considered_candidates,
+                                         considered_candidates);
+
+                Assert(
+                  other_phi.size() == considered_candidates,
+                  ExcNotImplemented(
+                    "inconsistent number of candidates basis fuunction on the patch"));
+                std::vector<unsigned int> boundary_dofs_vector_temp(
+                  all_dofs_fine.begin(),
+                  all_dofs_fine.begin() + N_boundary_dofs);
+
+                newBD.extract_submatrix_from(BD,
+                                             boundary_dofs_vector_temp,
+                                             other_phi);
+
+                newBD.Tmmult(BDTBD, newBD);
+
+                newBD.Tvmult(BDTBD0, B_d0);
+
+                SVD.copy_from(BDTBD);
+              }
+
+              computing_timer.leave_subsection();
+              computing_timer.enter_subsection(
+                "compute basis function 7c: stabilizazion:correction and svd");
+
+              SVD.compute_inverse_svd(1e-15); // stores U V as normal, but
+                                              // 1/singular_value_i
+              d_i = 0.0;
+              SVD.vmult(d_i, BDTBD0);
+              d_i *= -1;
+              auto U  = SVD.get_svd_u();
+              auto Vt = SVD.get_svd_vt();
+
+              // {
+              // SVD.compute_svd();
+              // auto               U  = SVD.get_svd_u();
+              // auto               Vt = SVD.get_svd_vt();
+              // FullMatrix<double> Sigma_minus1(considered_candidates);
+              // Sigma_minus1 = 0.0;
+              // for (unsigned int i = 0; i < considered_candidates; ++i)
+              // {
+              //   if (SVD.singular_value(0) / SVD.singular_value(i) < 1e15)
+              //     Sigma_minus1(i, i) = (1 / SVD.singular_value(i));
+              // }
+              // d_i = 0;
+              // VectorType tt(considered_candidates);
+              // VectorType tt1(considered_candidates);
+              // U.Tvmult(tt, BDTBD0);
+              // Sigma_minus1.vmult(tt1, tt);
+              // Vt.Tvmult(d_i, tt1);
+              // d_i *=-1;
+              // } // equivalent to previous (same d_i as output)
 
 
-          c_i = DeT;
+              AssertDimension(SVD.m(), SVD.n());
+              AssertDimension(U.m(), U.n());
+              AssertDimension(Vt.m(), Vt.n());
+              AssertDimension(U.m(), Vt.n());
+              AssertDimension(U.m(), SVD.n());
+              AssertDimension(U.m(), considered_candidates);
 
-          for (unsigned int index = 0; index < considered_candidates; ++index)
-            {
-              e_i            = 0.0;
-              e_i[index + 1] = 1.0;
+              for (int i = (considered_candidates - 1); i >= 0; --i)
+                {
+                  if (d_i.linfty_norm() < 0.5)
+                    break;
+                  VectorType uT(considered_candidates);
+                  VectorType v(considered_candidates);
+                  // for (auto j : all_dofs_coarse)
+                  for (unsigned int j = 0; j < considered_candidates; ++j)
+                    {
+                      uT[j] = U(j, i);
+                      v[j]  = Vt(i, j);
+                    }
+                  FullMatrix<double> vuT(considered_candidates,
+                                         considered_candidates);
+                  // do uT scalar BDTBD0 first
+                  vuT.outer_product(v, uT);
+                  VectorType correction(d_i.size());
+                  vuT.vmult(correction, BDTBD0);
+                  correction *= // Sigma_minus1(i, i); //
+                    SVD.singular_value(i);
 
+                  d_i += correction;
+                }
+
+              VectorType DeT(Ndofs_coarse);
+              e_i    = 0.0;
+              e_i[d] = 1.0;
               P_Ainv_PT.vmult(DeT, e_i);
+              c_i = DeT;
 
-              c_i += d_i[index] * DeT;
+              // for (unsigned int index = 0; index < considered_candidates;
+              // ++index)
+              for (unsigned int index = 0; index < other_phi.size(); ++index)
+                {
+                  e_i                   = 0.0;
+                  e_i[other_phi[index]] = 1.0;
+
+                  P_Ainv_PT.vmult(DeT, e_i);
+
+                  c_i += d_i[index] * DeT;
+                }
+
+              Ainv_PT_internal.vmult(internal_selected_basis_function, c_i);
+              // Ainv_PT.vmult(selected_basis_function, c_i);
+
+              extend_vector_to_boundary_values(internal_selected_basis_function,
+                                               dh_fine_patch,
+                                               selected_basis_function);
+
+
+              computing_timer.leave_subsection();
+
+              current_patch->basis_function.push_back(selected_basis_function);
             }
-
-          Ainv_PT_internal.vmult(internal_selected_basis_function, c_i);
-          // Ainv_PT.vmult(selected_basis_function, c_i);
-
-          extend_vector_to_boundary_values(internal_selected_basis_function,
-                                           dh_fine_patch,
-                                           selected_basis_function);
-
-
-          computing_timer.leave_subsection();
         }
 
       computing_timer.enter_subsection(
         "2: compute basis function 5d: asign premultiplied");
       selected_basis_function /= selected_basis_function.l2_norm();
-      current_patch->basis_function.push_back(selected_basis_function);
-      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      current_patch->basis_function.push_back(selected_basis_function);
 
       Ac_i = 0;
 
@@ -1130,7 +1146,8 @@ LOD<dim, spacedim>::assemble_global_matrix()
 
   // basis_matrix_transposed.print(std::cout);
 
-  // basis_matrix_transposed.Tmmult(global_stiffness_matrix, premultiplied_basis_matrix);
+  // basis_matrix_transposed.Tmmult(global_stiffness_matrix,
+  // premultiplied_basis_matrix);
   //  global_stiffness_matrix.compress(VectorOperation::add);
 }
 
