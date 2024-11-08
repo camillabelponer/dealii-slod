@@ -209,6 +209,8 @@ protected:
   LA::MPI::Vector       system_rhs;
   LA::MPI::Vector       fem_rhs;
   LA::MPI::Vector       fem_solution;
+  LA::MPI::SparseMatrix presaved_patch_stiffness_matrix;
+  LA::MPI::SparseMatrix presaved_constrained_patch_stiffness_matrix;
 
   std::unique_ptr<FiniteElement<dim>> fe_coarse;
   std::unique_ptr<FiniteElement<dim>> fe_fine;

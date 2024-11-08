@@ -412,6 +412,13 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
 
+      bool use_presaved = false;
+
+      unsigned int patch_size = current_patch->cells.size();
+      if (patch_size == pow((2*par.oversampling + 1), dim) // criteria to be defined to reuse patch matrix, could be that's based on tha paraeters
+          && presaved_patch_stiffness_matrix.local_size() > 0)
+          use_presaved = true;
+
       // create_mesh_for_patch(*current_patch);
       dh_fine_patch.reinit(current_patch->sub_tria);
       dh_fine_patch.distribute_dofs(*fe_fine);
@@ -459,6 +466,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         "2: compute basis function 3: sparsity pattern");
 
       SparsityPattern patch_sparsity_pattern;
+      // if (!use_presaved)
       {
         DynamicSparsityPattern patch_dynamic_sparsity_pattern(Ndofs_fine);
         // does the same as
@@ -487,18 +495,41 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       }
 
       computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "2: compute basis function 4: stiffness");
+      // computing_timer.enter_subsection(
+      //   "2: compute basis function 4: stiffness");
+      if (use_presaved)
       {
+        computing_timer.enter_subsection(
+        "2: compute basis function 4: presaved");
+        patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
+              computing_timer.leave_subsection();
+
+      }
+      else
+      {
+        computing_timer.enter_subsection(
+        "2: compute basis function 4: stiffness");
         LA::MPI::Vector dummy;
         assemble_stiffness(patch_stiffness_matrix,
                            dummy,
                            dh_fine_patch,
                            empty_boundary_constraints);
         // using empty_boundary the stiffness is assembled unconstrained
+              computing_timer.leave_subsection();
+        
+        if (patch_size == pow((2*par.oversampling + 1), dim))
+        {        
+        computing_timer.enter_subsection(
+        "2: compute basis function 4: presaving");
+
+          presaved_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
+          computing_timer.leave_subsection();
+        }
+              
+
       }
 
-      computing_timer.leave_subsection();
+      // computing_timer.leave_subsection();
       computing_timer.enter_subsection("2: compute basis function 4b: misc");
 
       // averaging (inverse of P0 mass matrix)
@@ -636,7 +667,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                             internal_dofs_fine);
           computing_timer.leave_subsection();
         }
-
+// if(!use_presaved)
       {
         // todo: idea to make LOD faster, thiw following lines are only needed
         // if we use empty_contraints in assemble_stiffness we should first of
@@ -653,6 +684,13 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         patch_stiffness_matrix.clear();
         patch_stiffness_matrix.reinit(CPSM, 1e-20, true, nullptr);
         computing_timer.leave_subsection();
+
+//         if (patch_size == pow((2*par.oversampling + 1), dim))
+//           presaved_constrained_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
+//       }
+//       else{
+//         patch_stiffness_matrix.clear();
+//         patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
       }
 
       computing_timer.enter_subsection(
