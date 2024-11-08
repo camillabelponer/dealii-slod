@@ -140,38 +140,50 @@ test()
                   for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
                     for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
                       for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
-                      for (unsigned int d_0 = 0; d_0 < 2; ++d_0)
-                      for (unsigned int d_1 = 0; d_1 < 2; ++d_1)
-                        {
-                          const unsigned int q_index =
-                            (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * fe_degree);
-                          // const unsigned int i =
-                          //   lexicographic_to_hierarchic_numbering
-                          //     [(c_0 + i_0) + (c_1 + i_1) * (fe_degree + 1)];
-                          // const unsigned int j =
-                          //   lexicographic_to_hierarchic_numbering
-                          //     [(c_0 + j_0) + (c_1 + j_1) * (fe_degree + 1)];
-                          const unsigned int i =
-                            fe.component_to_system_index(d_0, lexicographic_to_hierarchic_numbering
-                              [(c_0 + i_0) + (c_1 + i_1) * (fe_degree + 1)]);
-                          const unsigned int j =
-                            fe.component_to_system_index(d_1, lexicographic_to_hierarchic_numbering
-                              [(c_0 + j_0) + (c_1 + j_1) * (fe_degree + 1)]);
+                        for (unsigned int d_0 = 0; d_0 < 2; ++d_0)
+                          for (unsigned int d_1 = 0; d_1 < 2; ++d_1)
+                            {
+                              const unsigned int q_index =
+                                (c_0 * 2 + q_0) +
+                                (c_1 * 2 + q_1) * (2 * fe_degree);
+                              // const unsigned int i =
+                              //   lexicographic_to_hierarchic_numbering
+                              //     [(c_0 + i_0) + (c_1 + i_1) * (fe_degree +
+                              //     1)];
+                              // const unsigned int j =
+                              //   lexicographic_to_hierarchic_numbering
+                              //     [(c_0 + j_0) + (c_1 + j_1) * (fe_degree +
+                              //     1)];
+                              const unsigned int i =
+                                fe.component_to_system_index(
+                                  d_0,
+                                  lexicographic_to_hierarchic_numbering
+                                    [(c_0 + i_0) +
+                                     (c_1 + i_1) * (fe_degree + 1)]);
+                              const unsigned int j =
+                                fe.component_to_system_index(
+                                  d_1,
+                                  lexicographic_to_hierarchic_numbering
+                                    [(c_0 + j_0) +
+                                     (c_1 + j_1) * (fe_degree + 1)]);
 
 
-                          cell_matrix_2(i, j) +=
-                            // (fe_values.shape_grad(i, q_index) *
-                            //  fe_values.shape_grad(j, q_index) *
-                            //  fe_values.JxW(q_index));
-                            (2 * scalar_product(
-                                   fe_values[displacement].symmetric_gradient(
-                                     i, q_index),
-                                   fe_values[displacement].symmetric_gradient(
-                                     j, q_index)) +
-                             fe_values[displacement].divergence(i, q_index) *
-                               fe_values[displacement].divergence(j, q_index)) *
-                            fe_values.JxW(q_index);
-                        }
+                              cell_matrix_2(i, j) +=
+                                // (fe_values.shape_grad(i, q_index) *
+                                //  fe_values.shape_grad(j, q_index) *
+                                //  fe_values.JxW(q_index));
+                                (2 *
+                                   scalar_product(
+                                     fe_values[displacement].symmetric_gradient(
+                                       i, q_index),
+                                     fe_values[displacement].symmetric_gradient(
+                                       j, q_index)) +
+                                 fe_values[displacement].divergence(i,
+                                                                    q_index) *
+                                   fe_values[displacement].divergence(
+                                     j, q_index)) *
+                                fe_values.JxW(q_index);
+                            }
       }
     else
       {

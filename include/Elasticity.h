@@ -40,6 +40,9 @@ protected:
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
     std::vector<Vector<double>>          rhs_values(n_q_points,
                                            Vector<double>(spacedim));
+    const auto                           lexicographic_to_hierarchic_numbering =
+      FETools::lexicographic_to_hierarchic_numbering<dim>(
+        lod::par.n_subdivisions);
 
     for (const auto &cell : dh.active_cell_iterators())
       {
@@ -53,69 +56,64 @@ protected:
                                            rhs_values);
           }
 
-        // for (const unsigned int i : fe_values.dof_indices())
-        for (unsigned int i = 0; i < dofs_per_cell; ++i)
-          {
-            // const unsigned int component_i =
-            //   lod::fe_fine->system_to_component_index(i).first;
+        for (unsigned int c_1 = 0; c_1 < lod::par.n_subdivisions; ++c_1)
+          for (unsigned int c_0 = 0; c_0 < lod::par.n_subdivisions; ++c_0)
+            for (unsigned int d_0 = 0; d_0 < 2; ++d_0)
+              for (unsigned int d_1 = 0; d_1 < 2; ++d_1)
+                for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                  for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                    {
+                      const unsigned int q =
+                        (c_0 * 2 + q_0) +
+                        (c_1 * 2 + q_1) * (2 * lod::par.n_subdivisions);
 
-            // for (const unsigned int j : fe_values.dof_indices())
-            for (unsigned int j = 0; j < dofs_per_cell; ++j)
+                      for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                        for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                          {
+                            const unsigned int i =
+                              lod::fe_fine->component_to_system_index(
+                                d_0,
+                                lexicographic_to_hierarchic_numbering
+                                  [(c_0 + i_0) +
+                                   (c_1 + i_1) *
+                                     (lod::par.n_subdivisions + 1)]);
 
-              {
-                // const unsigned int component_j =
-                //   lod::fe_fine->system_to_component_index(j).first;
-                if (lod::bool_dof_mask[i][j])
-                  {
-                    // for (const unsigned int q_point :
-                    // fe_values.quadrature_point_indices())
-                    for (unsigned int q = 0; q < n_q_points; ++q)
-                      {
-                        cell_matrix(i, j) +=
-                          // (fe_values.shape_grad(i, q_point)[component_i] *
-                          //    fe_values.shape_grad(j, q_point)[component_j] +
-                          //  fe_values.shape_grad(i, q_point)[component_j] *
-                          //    fe_values.shape_grad(j, q_point)[component_i] +
-                          //  ((component_i == component_j) ?
-                          //     (fe_values.shape_grad(i, q_point) *
-                          //      fe_values.shape_grad(j, q_point)) :
-                          //     0)) *
-                          // fe_values.JxW(q_point);
-                          (2 *
-                             scalar_product(
-                               fe_values[displacement].symmetric_gradient(i, q),
-                               fe_values[displacement].symmetric_gradient(j,
-                                                                          q)) +
-                           fe_values[displacement].divergence(i, q) *
-                             fe_values[displacement].divergence(j, q)) *
-                          fe_values.JxW(q);
-                      }
-                  }
-              }
-          }
+                            for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                              for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                                {
+                                  const unsigned int j =
+                                    lod::fe_fine->component_to_system_index(
+                                      d_1,
+                                      lexicographic_to_hierarchic_numbering
+                                        [(c_0 + j_0) +
+                                         (c_1 + j_1) *
+                                           (lod::par.n_subdivisions + 1)]);
 
-        // assemble rhs
-        if (rhs.size())
-          {
-            // for (const unsigned int i : fe_values.dof_indices())
-            //   {
-            //     const unsigned int component_i =
-            //       lod::fe_fine->system_to_component_index(i).first;
+                                  cell_matrix(i, j) +=
+                                    (2 * scalar_product(
+                                           fe_values[displacement]
+                                             .symmetric_gradient(i, q),
+                                           fe_values[displacement]
+                                             .symmetric_gradient(j, q)) +
+                                     fe_values[displacement].divergence(i, q) *
+                                       fe_values[displacement].divergence(j,
+                                                                          q)) *
+                                    fe_values.JxW(q);
+                                }
+                            // assemble rhs
+                            if (rhs.size())
+                              {
+                                const auto comp_i =
+                                  lod::fe_fine->system_to_component_index(i)
+                                    .first;
 
-            //     for (const unsigned int q_point :
-            //          fe_values.quadrature_point_indices())
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
-              {
-                for (unsigned int q = 0; q < n_q_points; ++q)
-                  {
-                    const unsigned int component_i =
-                      lod::fe_fine->system_to_component_index(i).first;
-                    cell_rhs(i) += fe_values.shape_value(i, q) *
-                                   rhs_values[q][component_i] *
-                                   fe_values.JxW(q);
-                  }
-              }
-          }
+                                cell_rhs(i) += fe_values.shape_value(i, q) *
+                                               rhs_values[q][comp_i] *
+                                               fe_values.JxW(q);
+                              }
+                          }
+                    }
+
 
         cell->get_dof_indices(local_dof_indices);
 
