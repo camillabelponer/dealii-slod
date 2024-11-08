@@ -1175,7 +1175,7 @@ void
 LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
 {
   // TimerOutput::Scope t(computing_timer, "4: assemble & Solve fine FEM");
-  computing_timer.enter_subsection("4: assemble & Solve fine FEM");
+  computing_timer.enter_subsection("4: assemble fine FEM");
   const auto &dh = dof_handler_fine;
 
   auto     locally_owned_dofs = dh.locally_owned_dofs();
@@ -1225,6 +1225,10 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
 
   assemble_stiffness(fem_stiffness_matrix, fem_rhs, dh, fem_constraints);
 
+  computing_timer.leave_subsection();
+  computing_timer.enter_subsection("4: solve fine FEM");
+
+
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;
 
   // solve
@@ -1262,13 +1266,15 @@ LOD<dim, spacedim>::compare_lod_with_fem()
 
   basis_matrix_transposed.vmult(lod_solution, solution);
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
-  par.convergence_table_FEM.error_from_exact(dh,
-                                             fem_solution,
-                                             par.exact_solution);
-  par.convergence_table_LOD.error_from_exact(dh,
-                                             lod_solution,
-                                             par.exact_solution);
-
+  if (false)
+    {
+      par.convergence_table_FEM.error_from_exact(dh,
+                                                 fem_solution,
+                                                 par.exact_solution);
+      par.convergence_table_LOD.error_from_exact(dh,
+                                                 lod_solution,
+                                                 par.exact_solution);
+    }
   computing_timer.leave_subsection();
   computing_timer.enter_subsection("6: fine output");
 
@@ -1426,10 +1432,13 @@ LOD<dim, spacedim>::run()
 
   if (pcout.is_active())
     {
-      pcout << "LOD vs exact solution (fine mesh)" << std::endl;
-      par.convergence_table_LOD.output_table(pcout.get_stream());
-      pcout << "FEM vs exact solution (fine mesh)" << std::endl;
-      par.convergence_table_FEM.output_table(pcout.get_stream());
+      if (false)
+        {
+          pcout << "LOD vs exact solution (fine mesh)" << std::endl;
+          par.convergence_table_LOD.output_table(pcout.get_stream());
+          pcout << "FEM vs exact solution (fine mesh)" << std::endl;
+          par.convergence_table_FEM.output_table(pcout.get_stream());
+        }
       if (!par.LOD_stabilization)
         pcout << "LOD vs FEM (fine mesh)" << std::endl;
       else

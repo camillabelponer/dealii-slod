@@ -58,26 +58,25 @@ protected:
 
         for (unsigned int c_1 = 0; c_1 < lod::par.n_subdivisions; ++c_1)
           for (unsigned int c_0 = 0; c_0 < lod::par.n_subdivisions; ++c_0)
-            for (unsigned int d_0 = 0; d_0 < 2; ++d_0)
-              for (unsigned int d_1 = 0; d_1 < 2; ++d_1)
-                for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
-                  for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
-                    {
-                      const unsigned int q =
-                        (c_0 * 2 + q_0) +
-                        (c_1 * 2 + q_1) * (2 * lod::par.n_subdivisions);
 
-                      for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
-                        for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
-                          {
-                            const unsigned int i =
-                              lod::fe_fine->component_to_system_index(
-                                d_0,
-                                lexicographic_to_hierarchic_numbering
-                                  [(c_0 + i_0) +
-                                   (c_1 + i_1) *
-                                     (lod::par.n_subdivisions + 1)]);
+            for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+              for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                {
+                  const unsigned int q =
+                    (c_0 * 2 + q_0) +
+                    (c_1 * 2 + q_1) * (2 * lod::par.n_subdivisions);
+                  for (unsigned int d_0 = 0; d_0 < 2; ++d_0)
+                    for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                      for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                        {
+                          const unsigned int i =
+                            lod::fe_fine->component_to_system_index(
+                              d_0,
+                              lexicographic_to_hierarchic_numbering
+                                [(c_0 + i_0) +
+                                 (c_1 + i_1) * (lod::par.n_subdivisions + 1)]);
 
+                          for (unsigned int d_1 = 0; d_1 < 2; ++d_1)
                             for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
                               for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
                                 {
@@ -100,19 +99,19 @@ protected:
                                                                           q)) *
                                     fe_values.JxW(q);
                                 }
-                            // assemble rhs
-                            if (rhs.size())
-                              {
-                                const auto comp_i =
-                                  lod::fe_fine->system_to_component_index(i)
-                                    .first;
+                          // assemble rhs
+                          if (rhs.size())
+                            {
+                              const auto comp_i =
+                                lod::fe_fine->system_to_component_index(i)
+                                  .first;
 
-                                cell_rhs(i) += fe_values.shape_value(i, q) *
-                                               rhs_values[q][comp_i] *
-                                               fe_values.JxW(q);
-                              }
-                          }
-                    }
+                              cell_rhs(i) += fe_values.shape_value(i, q) *
+                                             rhs_values[q][comp_i] *
+                                             fe_values.JxW(q);
+                            }
+                        }
+                }
 
 
         cell->get_dof_indices(local_dof_indices);
