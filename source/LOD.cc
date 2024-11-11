@@ -984,34 +984,45 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 {
-  TimerOutput::Scope t(computing_timer, "1: Create mesh for Patches");
-
-  current_patch.sub_tria.clear();
-
+  // TimerOutput::Scope t(computing_timer, "1: Create mesh for Patches");
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 1 ");
+          current_patch.sub_tria.clear();
+computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 2 ");
   // copy manifolds
-  for (const auto i : tria.get_manifold_ids())
-    if (i != numbers::flat_manifold_id)
-      current_patch.sub_tria.set_manifold(i, tria.get_manifold(i));
-
+  // for (const auto i : tria.get_manifold_ids())
+  //   if (i != numbers::flat_manifold_id)
+  //     current_patch.sub_tria.set_manifold(i, tria.get_manifold(i));
+computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 3 ");
   // renumerate vertices
   std::vector<unsigned int> new_vertex_indices(tria.n_vertices(), 0);
 
   for (const auto &cell : current_patch.cells)
     for (const unsigned int v : cell->vertex_indices())
       new_vertex_indices[cell->vertex_index(v)] = 1;
-
+computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 4 ");
   for (unsigned int i = 0, c = 0; i < new_vertex_indices.size(); ++i)
     if (new_vertex_indices[i] == 0)
       new_vertex_indices[i] = numbers::invalid_unsigned_int;
     else
       new_vertex_indices[i] = c++;
-
+computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 5 ");
   // collect points
   std::vector<Point<dim>> sub_points;
   for (unsigned int i = 0; i < new_vertex_indices.size(); ++i)
     if (new_vertex_indices[i] != numbers::invalid_unsigned_int)
       sub_points.emplace_back(tria.get_vertices()[i]);
-
+computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 6 ");
   // create new cell and data
   std::vector<CellData<dim>> coarse_cells_of_patch;
 
@@ -1027,7 +1038,9 @@ LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 
       coarse_cells_of_patch.emplace_back(new_cell);
     }
-
+computing_timer.leave_subsection();
+      computing_timer.enter_subsection(
+        "1: Create mesh for Patches 7 ");
   // create coarse mesh on the patch
   current_patch.sub_tria.create_triangulation(sub_points,
                                               coarse_cells_of_patch,
@@ -1070,6 +1083,7 @@ LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 
       sub_cell++;
     }
+    computing_timer.leave_subsection();
 }
 
 template <int dim, int spacedim>
