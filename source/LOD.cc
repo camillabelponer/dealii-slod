@@ -101,85 +101,6 @@ LOD<dim, spacedim>::make_grid()
       mpi_communicator, tria.n_global_active_cells());
 }
 
-template <int dim, int spacedim>
-void
-LOD<dim, spacedim>::create_random_coefficients()
-{
-  TimerOutput::Scope t(computing_timer, "1: create random coeff");
-
-  Triangulation<dim> fine_tria;
-  GridGenerator::hyper_cube(fine_tria);
-  const unsigned int ref = (int)log2(par.n_subdivisions);
-  Assert(
-    pow(2, ref) == par.n_subdivisions,
-    ExcNotImplemented(
-      "for consistency, choose a number of subdivisions that's a power of 2"));
-  fine_tria.refine_global((par.n_global_refinements + ref));
-
-  DoFHandler<dim> dh_fine(fine_tria);
-  dh_fine.distribute_dofs(FE_Q<dim>(1));
-
-  double       H                = pow(0.5, par.n_global_refinements);
-  double       h                = H / (par.n_subdivisions);
-  unsigned int N_cells_per_line = (int)1 / h;
-  unsigned int N_fine_cells     = pow(N_cells_per_line, dim);
-  random_coefficients.reinit(N_fine_cells);
-  // cells are on all processors (parallel::shared triangulation)
-  // but they are on a 1 to 1 correspondence with the patches
-  // we want to create a different coefficient for any fine cell !
-  // we can use the same logic as used to create the patches but with small h
-  for (const auto &cell : dof_handler_coarse.active_cell_iterators())
-    // if locally owned but on the patch!!
-    {
-      // coordinates of the bottom left corner of the coarse cell
-      const double x0 = cell->barycenter()(0) - H / 2;
-      const double y0 = cell->barycenter()(1) - H / 2;
-
-      double x = x0 + h / 2;
-      while (x < (x0 + H))
-        {
-          double y = y0 + h / 2;
-          while (y < (y0 + H))
-            {
-              const unsigned int vector_cell_index =
-                (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
-
-              random_coefficients[vector_cell_index] =
-                1.0 + static_cast<float>(rand()) /
-                        (static_cast<float>(RAND_MAX / (100.0 - 1.0)));
-              y += h;
-            }
-          x += h;
-        }
-    }
-
-  // TODO: this putput nly makes sense for spacedim ==1, see ouput coarse on how
-  // to plot a scalar coefficients in the case fo spacedim == 2 however in the
-  // vector case we will likely need 2 coeafficients and probablu not random, so
-  // this function is not used for spacedim > 1 print random coeff
-  std::vector<std::string> name(spacedim, "coefficients");
-
-  std::vector<DataComponentInterpretation::DataComponentInterpretation>
-    scalar_component_interpretation(
-      spacedim, DataComponentInterpretation::component_is_scalar);
-
-  data_out.attach_dof_handler(dh_fine);
-
-  data_out.add_data_vector(random_coefficients,
-                           name,
-                           DataOut<dim>::type_cell_data,
-                           scalar_component_interpretation);
-
-  data_out.build_patches();
-  const std::string filename = par.output_name + "_coefficients.vtu";
-  data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
-                                 mpi_communicator);
-
-  // std::ofstream pvd_solutions(par.output_directory + "/" + filename +
-  //                             "_fine.pvd");
-
-  data_out.clear();
-}
 
 template <int dim, int spacedim>
 void
@@ -415,9 +336,13 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       bool use_presaved = false;
 
       unsigned int patch_size = current_patch->cells.size();
-      if (patch_size == pow((2*par.oversampling + 1), dim) // criteria to be defined to reuse patch matrix, could be that's based on tha paraeters
+      if (par.constant_coefficients &&
+          patch_size ==
+            pow((2 * par.oversampling + 1),
+                dim) // criteria to be defined to reuse patch matrix, could be
+                     // that's based on tha paraeters
           && presaved_patch_stiffness_matrix.local_size() > 0)
-          use_presaved = true;
+        use_presaved = true;
 
       // create_mesh_for_patch(*current_patch);
       dh_fine_patch.reinit(current_patch->sub_tria);
@@ -498,36 +423,34 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // computing_timer.enter_subsection(
       //   "2: compute basis function 4: stiffness");
       if (use_presaved)
-      {
-        computing_timer.enter_subsection(
-        "2: compute basis function 4: presaved");
-        patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
-              computing_timer.leave_subsection();
-
-      }
-      else
-      {
-        computing_timer.enter_subsection(
-        "2: compute basis function 4: stiffness");
-        LA::MPI::Vector dummy;
-        assemble_stiffness(patch_stiffness_matrix,
-                           dummy,
-                           dh_fine_patch,
-                           empty_boundary_constraints);
-        // using empty_boundary the stiffness is assembled unconstrained
-              computing_timer.leave_subsection();
-        
-        if (patch_size == pow((2*par.oversampling + 1), dim))
-        {        
-        computing_timer.enter_subsection(
-        "2: compute basis function 4: presaving");
-
-          presaved_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
+        {
+          computing_timer.enter_subsection(
+            "2: compute basis function 4: presaved");
+          patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
           computing_timer.leave_subsection();
         }
-              
+      else
+        {
+          computing_timer.enter_subsection(
+            "2: compute basis function 4: stiffness");
+          LA::MPI::Vector dummy;
+          assemble_stiffness(patch_stiffness_matrix,
+                             dummy,
+                             dh_fine_patch,
+                             empty_boundary_constraints);
+          // using empty_boundary the stiffness is assembled unconstrained
+          computing_timer.leave_subsection();
 
-      }
+          if (par.constant_coefficients &&
+              patch_size == pow((2 * par.oversampling + 1), dim))
+            {
+              computing_timer.enter_subsection(
+                "2: compute basis function 4: presaving");
+
+              presaved_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
+              computing_timer.leave_subsection();
+            }
+        }
 
       // computing_timer.leave_subsection();
       computing_timer.enter_subsection("2: compute basis function 4b: misc");
@@ -667,7 +590,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                             internal_dofs_fine);
           computing_timer.leave_subsection();
         }
-// if(!use_presaved)
+      // if(!use_presaved)
       {
         // todo: idea to make LOD faster, thiw following lines are only needed
         // if we use empty_contraints in assemble_stiffness we should first of
@@ -685,12 +608,12 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         patch_stiffness_matrix.reinit(CPSM, 1e-20, true, nullptr);
         computing_timer.leave_subsection();
 
-//         if (patch_size == pow((2*par.oversampling + 1), dim))
-//           presaved_constrained_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
-//       }
-//       else{
-//         patch_stiffness_matrix.clear();
-//         patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
+        //         if (patch_size == pow((2*par.oversampling + 1), dim))
+        //           presaved_constrained_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
+        //       }
+        //       else{
+        //         patch_stiffness_matrix.clear();
+        //         patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
       }
 
       computing_timer.enter_subsection(
@@ -984,45 +907,32 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 {
-  // TimerOutput::Scope t(computing_timer, "1: Create mesh for Patches");
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 1 ");
-          current_patch.sub_tria.clear();
-computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 2 ");
+  TimerOutput::Scope t(computing_timer, "1: Create mesh for Patches");
+  current_patch.sub_tria.clear();
   // copy manifolds
   // for (const auto i : tria.get_manifold_ids())
   //   if (i != numbers::flat_manifold_id)
   //     current_patch.sub_tria.set_manifold(i, tria.get_manifold(i));
-computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 3 ");
+
   // renumerate vertices
   std::vector<unsigned int> new_vertex_indices(tria.n_vertices(), 0);
 
   for (const auto &cell : current_patch.cells)
     for (const unsigned int v : cell->vertex_indices())
       new_vertex_indices[cell->vertex_index(v)] = 1;
-computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 4 ");
+
   for (unsigned int i = 0, c = 0; i < new_vertex_indices.size(); ++i)
     if (new_vertex_indices[i] == 0)
       new_vertex_indices[i] = numbers::invalid_unsigned_int;
     else
       new_vertex_indices[i] = c++;
-computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 5 ");
+
   // collect points
   std::vector<Point<dim>> sub_points;
   for (unsigned int i = 0; i < new_vertex_indices.size(); ++i)
     if (new_vertex_indices[i] != numbers::invalid_unsigned_int)
       sub_points.emplace_back(tria.get_vertices()[i]);
-computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 6 ");
+
   // create new cell and data
   std::vector<CellData<dim>> coarse_cells_of_patch;
 
@@ -1033,14 +943,12 @@ computing_timer.leave_subsection();
       for (const auto v : cell->vertex_indices())
         new_cell.vertices[v] = new_vertex_indices[cell->vertex_index(v)];
 
-      new_cell.material_id = cell->material_id();
-      new_cell.manifold_id = cell->manifold_id();
+      // new_cell.material_id = cell->material_id();
+      // new_cell.manifold_id = cell->manifold_id();
 
       coarse_cells_of_patch.emplace_back(new_cell);
     }
-computing_timer.leave_subsection();
-      computing_timer.enter_subsection(
-        "1: Create mesh for Patches 7 ");
+
   // create coarse mesh on the patch
   current_patch.sub_tria.create_triangulation(sub_points,
                                               coarse_cells_of_patch,
@@ -1071,19 +979,18 @@ computing_timer.leave_subsection();
         }
 
 
-      // lines // useless??
-      if constexpr (dim == 3)
-        for (const auto l : cell->line_indices())
-          {
-            const auto line = cell->line(l);
+      // // lines // useless??
+      // if constexpr (dim == 3)
+      //   for (const auto l : cell->line_indices())
+      //     {
+      //       const auto line = cell->line(l);
 
-            if (line->manifold_id() != numbers::flat_manifold_id)
-              sub_cell->line(l)->set_manifold_id(line->manifold_id());
-          }
+      //       if (line->manifold_id() != numbers::flat_manifold_id)
+      //         sub_cell->line(l)->set_manifold_id(line->manifold_id());
+      //     }
 
       sub_cell++;
     }
-    computing_timer.leave_subsection();
 }
 
 template <int dim, int spacedim>
@@ -1471,7 +1378,7 @@ LOD<dim, spacedim>::run()
   make_grid();
   make_fe();
   initialize_patches();
-  // create_random_coefficients();
+  create_random_problem_coefficients();
 
   compute_basis_function_candidates();
   assemble_global_matrix();

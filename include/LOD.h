@@ -88,13 +88,14 @@ class LODParameters : public ParameterAcceptor
 public:
   LODParameters();
 
-  std::string  output_directory     = ".";
-  std::string  output_name          = "solution";
-  unsigned int oversampling         = 1;
-  unsigned int n_subdivisions       = 5;
-  unsigned int n_global_refinements = 2;
-  bool         solve_fine_problem   = false;
-  bool         LOD_stabilization    = false;
+  std::string  output_directory      = ".";
+  std::string  output_name           = "solution";
+  unsigned int oversampling          = 1;
+  unsigned int n_subdivisions        = 5;
+  unsigned int n_global_refinements  = 2;
+  bool         solve_fine_problem    = false;
+  bool         LOD_stabilization     = false;
+  bool         constant_coefficients = true;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
@@ -131,6 +132,7 @@ LODParameters<dim, spacedim>::LODParameters()
   add_parameter("Number of global refinements", n_global_refinements);
   add_parameter("Compare with fine global solution", solve_fine_problem);
   add_parameter("Stabilize phi_LOD candidates", LOD_stabilization);
+  add_parameter("Constant unitary coefficients", constant_coefficients);
   this->prm.enter_subsection("Error");
   convergence_table_LOD.add_parameters(this->prm);
   convergence_table_FEM.add_parameters(this->prm);
@@ -174,8 +176,8 @@ protected:
   print_parameters() const;
   void
   initialize_patches();
-  void
-  create_random_coefficients();
+  virtual void
+  create_random_problem_coefficients(){};
 
   const LODParameters<dim, spacedim> &par;
   MPI_Comm                            mpi_communicator;
@@ -226,8 +228,6 @@ protected:
   IndexSet locally_relevant_dofs;
 
   Table<2, bool> bool_dof_mask;
-
-  Vector<double> random_coefficients;
 
   DataOut<dim> data_out;
   std::vector<DataComponentInterpretation::DataComponentInterpretation>

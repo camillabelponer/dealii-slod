@@ -3,4 +3,4 @@ branch to have the LOD as a base class and elasticity and diffusion as derived
 
 todo:
 - make svd a function to make the code more readable
-- assembly speed up (to be tested)
+- how to avoid ( or speed up) the extraction for S_boundary ?
