@@ -44,6 +44,9 @@ protected:
     mu.reinit(N_fine_cells);
     lambda.reinit(N_fine_cells);
 
+    const double min_val = 0.1;
+    const double max_val = 10;
+
     if (!lod::par.constant_coefficients)
       {
         // cells are on all processors (parallel::shared triangulation)
@@ -68,11 +71,11 @@ protected:
                       (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
 
                     mu[vector_cell_index] =
-                      1.0 + static_cast<float>(rand()) /
-                              (static_cast<float>(RAND_MAX / (100.0 - 1.0)));
+                      min_val + static_cast<float>(rand()) /
+                              (static_cast<float>(RAND_MAX / (max_val - min_val)));
                     lambda[vector_cell_index] =
-                      1.0 + static_cast<float>(rand()) /
-                              (static_cast<float>(RAND_MAX / (100.0 - 1.0)));
+                      min_val + static_cast<float>(rand()) /
+                              (static_cast<float>(RAND_MAX / (max_val - min_val)));
 
                     y += h;
                   }
