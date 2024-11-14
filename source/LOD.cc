@@ -336,12 +336,11 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       bool use_presaved = false;
 
       unsigned int patch_size = current_patch->cells.size();
-      if (par.constant_coefficients &&
-          patch_size ==
-            pow((2 * par.oversampling + 1),
-                dim) // criteria to be defined to reuse patch matrix, could be
-                     // that's based on tha paraeters
-          && presaved_patch_stiffness_matrix.local_size() > 0)
+      if (par.constant_coefficients && // criteria to be defined to reuse patch
+                                       // matrix, could be that's based on tha
+                                       // paraeters
+          patch_size == pow((2 * par.oversampling + 1), dim) &&
+          presaved_patch_stiffness_matrix.local_size() > 0)
         use_presaved = true;
 
       // create_mesh_for_patch(*current_patch);
@@ -502,9 +501,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       FullMatrix<double> P_Ainv_PT(Ndofs_coarse);
       FullMatrix<double> Ainv_PT(Ndofs_fine, Ndofs_coarse);
       // SLOD matrices
-      FullMatrix<double> PT_boundary(N_boundary_dofs, Ndofs_coarse);
-      FullMatrix<double> S_boundary(N_boundary_dofs, N_internal_dofs);
-
+      FullMatrix<double>   PT_boundary(N_boundary_dofs, Ndofs_coarse);
+      FullMatrix<double>   S_boundary(N_boundary_dofs, N_internal_dofs);
+      SparseMatrix<double> semi_costrained_patch_stiffness_matrix;
 
       computing_timer.leave_subsection();
       computing_timer.enter_subsection(
@@ -599,21 +598,25 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         // skipping this following lines if (!par.SLOD_stabilization)
         computing_timer.enter_subsection(
           "2: compute basis function 5b2: applying bd");
-        SparseMatrix<double> CPSM;
-        CPSM.reinit(patch_sparsity_pattern);
-        CPSM.copy_from(patch_stiffness_matrix);
-        domain_boundary_constraints.condense(CPSM);
-        patch_boundary_constraints.condense(CPSM);
-        patch_stiffness_matrix.clear();
-        patch_stiffness_matrix.reinit(CPSM, 1e-20, true, nullptr);
-        computing_timer.leave_subsection();
+        // SparseMatrix<double> CPSM;
+        // CPSM.reinit(patch_sparsity_pattern);
+        // CPSM.copy_from(patch_stiffness_matrix);
+        // domain_boundary_constraints.condense(CPSM);
+        // semi_costrained_patch_stiffness_matrix.reinit(CPSM);
+        // semi_costrained_patch_stiffness_matrix.copy_from(CPSM);
+        // patch_boundary_constraints.condense(CPSM);
+        // patch_stiffness_matrix.clear();
+        // patch_stiffness_matrix.reinit(CPSM, 1e-20, true, nullptr);
+        for (auto j : domain_boundary_dofs_fine)
+          patch_stiffness_matrix.clear_row(j, 1);
+        semi_costrained_patch_stiffness_matrix.reinit(patch_sparsity_pattern);
+        semi_costrained_patch_stiffness_matrix.copy_from(
+          patch_stiffness_matrix);
+        for (auto j : boundary_dofs_fine)
+          patch_stiffness_matrix.clear_row(j, 1);
 
-        //         if (patch_size == pow((2*par.oversampling + 1), dim))
-        //           presaved_constrained_patch_stiffness_matrix.copy_from(patch_stiffness_matrix);
-        //       }
-        //       else{
-        //         patch_stiffness_matrix.clear();
-        //         patch_stiffness_matrix.copy_from(presaved_patch_stiffness_matrix);
+
+        computing_timer.leave_subsection();
       }
 
       computing_timer.enter_subsection(
@@ -641,10 +644,8 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       Vector<double>          internal_selected_basis_function(N_internal_dofs);
 
 
-      if (!par.LOD_stabilization // || par.oversampling == 0 ||
-                                 // tria.n_active_cells() ==
-                                 // current_patch->sub_tria.n_active_cells()
-      )
+      if (!par.LOD_stabilization || par.oversampling == 0 ||
+          tria.n_active_cells() == current_patch->sub_tria.n_active_cells())
         {
           computing_timer.enter_subsection(
             "2: compute basis function 7: non stabilizaziona & assignemnt");
@@ -686,8 +687,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           FullMatrix<double>       B_full(N_boundary_dofs, Ndofs_coarse);
           LAPACKFullMatrix<double> SVD(considered_candidates,
                                        considered_candidates);
-          FullMatrix<double>       Ainv_PT_internal(
-            N_internal_dofs, Ndofs_coarse); // same as old a inv pt
+          FullMatrix<double> Ainv_PT_internal(N_internal_dofs, Ndofs_coarse);
 
           selected_basis_function          = 0.0;
           internal_selected_basis_function = 0.0;
@@ -846,8 +846,9 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                                                dh_fine_patch,
                                                selected_basis_function);
 
-
               computing_timer.leave_subsection();
+
+              selected_basis_function /= selected_basis_function.l2_norm();
 
               current_patch->basis_function.push_back(selected_basis_function);
             }
@@ -855,51 +856,16 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
 
       computing_timer.enter_subsection(
         "2: compute basis function 5d: asign premultiplied");
-      selected_basis_function /= selected_basis_function.l2_norm();
-
-      Ac_i = 0;
-
-      VectorType Ac_i_0(Ndofs_fine);
-      // TODO :: to fix
-      // here we assign the values to "premultipled" which are not acutally used
-      // since we assemble the matrix using A_fem,
-      // to avoid the dependancy on A_fem we either have to use
-      // internal_patch-stiffness (which is not assembled rn) or understand
-      // where to set the zeros to make this work
-      if (false)
-        { // to use this set diagonal of boundary to zero
-          for (auto i : boundary_dofs_fine)
-            selected_basis_function[i] = 0.0;
-          for (auto i : domain_boundary_dofs_fine)
-            selected_basis_function[i] = 0.0;
-          for (auto i : boundary_dofs_fine)
-            patch_stiffness_matrix.clear_row(i);
-          for (auto i : domain_boundary_dofs_fine)
-            patch_stiffness_matrix.clear_row(i);
-
-          patch_stiffness_matrix.vmult(Ac_i_0, selected_basis_function);
-          double sum = 0;
-          for (auto i : boundary_dofs_fine)
-            sum += Ac_i_0[i];
-          for (auto i : domain_boundary_dofs_fine)
-            sum += Ac_i_0[i];
-          if (sum > 0)
-            std::cout << sum << std::endl;
-        }
-      else
+      for (unsigned int d = 0; d < spacedim; ++d)
         {
-          // internal_patch_stiffness_matrix.vmult(Ac_i,
-          //                                       internal_selected_basis_function);
-          //   extend_vector_to_boundary_values(Ac_i, dh_fine_patch, Ac_i_0);
+          VectorType Ac_i_0(Ndofs_fine);
+
+          semi_costrained_patch_stiffness_matrix.vmult(
+            Ac_i_0, current_patch->basis_function[d]);
+          current_patch->basis_function_premultiplied.push_back(Ac_i_0);
         }
-
-      current_patch->basis_function_premultiplied.push_back(Ac_i_0);
-      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      current_patch->basis_function_premultiplied.push_back(Ac_i_0);
-
-      dh_fine_patch.clear();
-
       computing_timer.leave_subsection();
+      dh_fine_patch.clear();
     }
 }
 
@@ -1103,11 +1069,9 @@ LOD<dim, spacedim>::assemble_global_matrix()
   premultiplied_basis_matrix.compress(VectorOperation::insert);
   basis_matrix_transposed.compress(VectorOperation::insert);
 
-  // basis_matrix_transposed.print(std::cout);
-
-  // basis_matrix_transposed.Tmmult(global_stiffness_matrix,
-  // premultiplied_basis_matrix);
-  //  global_stiffness_matrix.compress(VectorOperation::add);
+  basis_matrix_transposed.Tmmult(global_stiffness_matrix,
+                                 premultiplied_basis_matrix);
+  global_stiffness_matrix.compress(VectorOperation::add);
 }
 
 
@@ -1200,16 +1164,14 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
   computing_timer.leave_subsection();
-  computing_timer.enter_subsection("4: solve LOD w extraction");
-
-  LA::MPI::SparseMatrix A_lod_temp;
-  fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
-  basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
-  // // basis_matrix.mmult(A_lod_temp, fem_stiffness_matrix);
-  // // A_lod_temp.mmult(global_stiffness_matrix, basis_matrix_transposed);
-  global_stiffness_matrix.compress(VectorOperation::add);
-
-  computing_timer.leave_subsection();
+  /*
+    computing_timer.enter_subsection("4: solve LOD w A_fem");
+    LA::MPI::SparseMatrix A_lod_temp;
+    fem_stiffness_matrix.mmult(A_lod_temp, basis_matrix_transposed);
+    basis_matrix_transposed.Tmmult(global_stiffness_matrix, A_lod_temp);
+    global_stiffness_matrix.compress(VectorOperation::add);
+    computing_timer.leave_subsection();
+    */
 }
 
 template <int dim, int spacedim>
@@ -1225,7 +1187,7 @@ LOD<dim, spacedim>::compare_lod_with_fem()
 
   basis_matrix_transposed.vmult(lod_solution, solution);
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
-  if (false)
+  if (true)
     {
       par.convergence_table_FEM.error_from_exact(dh,
                                                  fem_solution,
@@ -1391,7 +1353,7 @@ LOD<dim, spacedim>::run()
 
   if (pcout.is_active())
     {
-      if (false)
+      if (true)
         {
           pcout << "LOD vs exact solution (fine mesh)" << std::endl;
           par.convergence_table_LOD.output_table(pcout.get_stream());
