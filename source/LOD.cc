@@ -1079,8 +1079,9 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::solve()
 {
-  TimerOutput::Scope       t(computing_timer, "4: Solve LOD");
-  LA::MPI::PreconditionAMG prec_A;
+  TimerOutput::Scope t(computing_timer, "4: Solve LOD");
+  // LA::MPI::PreconditionAMG prec_A;
+  LA::MPI::PreconditionSSOR prec_A;
   prec_A.initialize(global_stiffness_matrix, 1.2);
 
   SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
@@ -1113,9 +1114,9 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
   fem_constraints.close();
 
   LA::MPI::SparseMatrix fem_stiffness_matrix;
-  SparsityPattern       sparsity_pattern;
 
   {
+    SparsityPattern        sparsity_pattern;
     DynamicSparsityPattern dsp(dh.n_dofs());
 
     std::vector<types::global_dof_index> dofs_on_this_cell;
@@ -1172,6 +1173,100 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
     global_stiffness_matrix.compress(VectorOperation::add);
     computing_timer.leave_subsection();
     */
+
+  computing_timer.enter_subsection("4: assemble solve & compare coarse fem");
+  const unsigned int                  coarse_fem_subdivisions = 1;
+  DoFHandler<dim>                     dof_handler(tria);
+  std::unique_ptr<FiniteElement<dim>> fe =
+    std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(coarse_fem_subdivisions),
+                                    spacedim);
+  dof_handler.distribute_dofs(*fe);
+  std::unique_ptr<Quadrature<dim>> quadrature =
+    std::make_unique<Quadrature<dim>>(
+      QIterated<dim>(QGauss<1>(2), coarse_fem_subdivisions));
+
+  Table<2, bool> coarse_bool_dof_mask =
+    create_bool_dof_mask_Q_iso_Q1(*fe, *quadrature, coarse_fem_subdivisions);
+
+  auto     lod = dof_handler.locally_owned_dofs();
+  IndexSet lrd;
+  DoFTools::extract_locally_relevant_dofs(dof_handler, lrd);
+
+  // create sparsity pattern fr global fine matrix
+  AffineConstraints<double> fem_coarse_constraints(lrd);
+  // DoFTools::make_hanging_node_constraints(dh, fem_constraints); // not needed
+  // with global refinemnt
+  VectorTools::interpolate_boundary_values(dof_handler,
+                                           0,
+                                           par.bc,
+                                           fem_coarse_constraints);
+  fem_coarse_constraints.close();
+
+  LA::MPI::SparseMatrix fem_coarse_stiffness_matrix;
+  LA::MPI::Vector       fem_coarse_rhs;
+  LA::MPI::Vector       fem_coarse_solution;
+
+  {
+    SparsityPattern        sparsity_pattern;
+    DynamicSparsityPattern dsp(dof_handler.n_dofs());
+
+    std::vector<types::global_dof_index> dofs_on_this_cell;
+
+    for (const auto &cell : dof_handler.active_cell_iterators())
+      if (cell->is_locally_owned())
+        {
+          const unsigned int dofs_per_cell = cell->get_fe().n_dofs_per_cell();
+          dofs_on_this_cell.resize(dofs_per_cell);
+          cell->get_dof_indices(dofs_on_this_cell);
+
+          fem_coarse_constraints.add_entries_local_to_global(
+            dofs_on_this_cell,
+            dsp,
+            true,
+            coarse_bool_dof_mask); // keep constrained entries must be true
+        }
+
+    dsp.compress();
+    sparsity_pattern.copy_from(dsp);
+    fem_coarse_stiffness_matrix.reinit(sparsity_pattern);
+  }
+
+  fem_coarse_rhs.reinit(lod, mpi_communicator);
+  fem_coarse_solution.reinit(lod, mpi_communicator);
+
+  assemble_stiffness_coarse(fem_coarse_stiffness_matrix,
+                            fem_coarse_rhs,
+                            dof_handler,
+                            fem_coarse_constraints,
+                            *fe,
+                            *quadrature,
+                            coarse_fem_subdivisions);
+  // solve
+  LA::MPI::PreconditionAMG prec_SH;
+  prec_SH.initialize(fem_coarse_stiffness_matrix, 1.2);
+
+  auto fem_fine_rhs(fem_coarse_rhs);
+  FETools::interpolate(dof_handler_fine, fem_rhs, dof_handler, fem_fine_rhs);
+
+  SolverCG<LA::MPI::Vector> solver_coarse(par.fine_solver_control);
+  solver_coarse.solve(fem_coarse_stiffness_matrix,
+                      fem_coarse_solution,
+                      fem_coarse_rhs,
+                      prec_SH);
+  fem_coarse_constraints.distribute(fem_coarse_solution);
+
+  auto fem_coarse_solution_interpolated(fem_solution);
+
+  FETools::interpolate(dof_handler,
+                       fem_coarse_solution,
+                       dof_handler_fine,
+                       fem_coarse_solution_interpolated);
+
+  par.convergence_table_FEM_coarse.difference(dof_handler_fine,
+                                              fem_solution,
+                                              fem_coarse_solution_interpolated);
+
+  computing_timer.leave_subsection();
 }
 
 template <int dim, int spacedim>
@@ -1187,11 +1282,13 @@ LOD<dim, spacedim>::compare_lod_with_fem()
 
   basis_matrix_transposed.vmult(lod_solution, solution);
   par.convergence_table_compare.difference(dh, fem_solution, lod_solution);
-  if (true)
+  if (par.constant_coefficients) // for random coefficients it makes no sense to
+                                 // compare with the exact solution as it's not
+                                 // known anyway
     {
-      par.convergence_table_FEM.error_from_exact(dh,
-                                                 fem_solution,
-                                                 par.exact_solution);
+      par.convergence_table_FEM_fine.error_from_exact(dh,
+                                                      fem_solution,
+                                                      par.exact_solution);
       par.convergence_table_LOD.error_from_exact(dh,
                                                  lod_solution,
                                                  par.exact_solution);
@@ -1353,15 +1450,21 @@ LOD<dim, spacedim>::run()
 
   if (pcout.is_active())
     {
-      if (true)
+      if (par.constant_coefficients) // for random coefficients it makes no
+                                     // sense to compare with the exact solution
+                                     // as it's not known anyway
         {
-          pcout << "LOD vs exact solution (fine mesh)" << std::endl;
+          pcout << "LOD vs exact solution" << std::endl;
           par.convergence_table_LOD.output_table(pcout.get_stream());
-          pcout << "FEM vs exact solution (fine mesh)" << std::endl;
-          par.convergence_table_FEM.output_table(pcout.get_stream());
+          pcout << "FEM(h) vs exact solution" << std::endl;
+          par.convergence_table_FEM_fine.output_table(pcout.get_stream());
         }
+
+      pcout << "FEM(H) vs FEM(h)" << std::endl;
+      par.convergence_table_FEM_coarse.output_table(pcout.get_stream());
+
       if (!par.LOD_stabilization)
-        pcout << "LOD vs FEM (fine mesh)" << std::endl;
+        pcout << "LOD vs reference FEM" << std::endl;
       else
         pcout << "SLOD vs FEM (fine mesh)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());

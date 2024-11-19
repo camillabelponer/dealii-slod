@@ -106,7 +106,8 @@ public:
   mutable ParameterAcceptorProxy<ReductionControl> patch_solver_control;
 
   mutable ParsedConvergenceTable convergence_table_LOD;
-  mutable ParsedConvergenceTable convergence_table_FEM;
+  mutable ParsedConvergenceTable convergence_table_FEM_fine;
+  mutable ParsedConvergenceTable convergence_table_FEM_coarse;
   mutable ParsedConvergenceTable convergence_table_compare;
 };
 
@@ -121,9 +122,10 @@ LODParameters<dim, spacedim>::LODParameters()
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
   , patch_solver_control("/Problem/Solver/Patch solver control")
-  , convergence_table_LOD(std::vector<std::string>(spacedim, "u"))
-  , convergence_table_FEM(std::vector<std::string>(spacedim, "u"))
-  , convergence_table_compare(std::vector<std::string>(spacedim, "u"))
+  , convergence_table_LOD(std::vector<std::string>(spacedim, "errLODh"))
+  , convergence_table_FEM_fine(std::vector<std::string>(spacedim, "errFEMh"))
+  , convergence_table_FEM_coarse(std::vector<std::string>(spacedim, "errFEMH"))
+  , convergence_table_compare(std::vector<std::string>(spacedim, "eh"))
 {
   add_parameter("Output directory", output_directory);
   add_parameter("Output name", output_name);
@@ -135,7 +137,8 @@ LODParameters<dim, spacedim>::LODParameters()
   add_parameter("Constant unitary coefficients", constant_coefficients);
   this->prm.enter_subsection("Error");
   convergence_table_LOD.add_parameters(this->prm);
-  convergence_table_FEM.add_parameters(this->prm);
+  convergence_table_FEM_fine.add_parameters(this->prm);
+  convergence_table_FEM_coarse.add_parameters(this->prm);
   convergence_table_compare.add_parameters(this->prm);
   this->prm.leave_subsection();
 }
@@ -193,6 +196,14 @@ protected:
                      AffineConstraints<double> &){
     // TODO: assert that lod is never called
   };
+  virtual void
+  assemble_stiffness_coarse(LA::MPI::SparseMatrix &,
+                            LA::MPI::Vector &,
+                            const DoFHandler<dim> &,
+                            AffineConstraints<double> &,
+                            const FiniteElement<dim> &,
+                            const Quadrature<dim> &,
+                            const unsigned int){};
 
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
