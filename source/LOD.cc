@@ -1266,6 +1266,14 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
                                               fem_solution,
                                               fem_coarse_solution_interpolated);
 
+  if (par.constant_coefficients) // for random coefficients it makes no sense to
+                                 // compare with the exact solution as it's not
+                                 // known anyway
+    {
+      par.convergence_table_FEM.error_from_exact(
+        dof_handler_fine, fem_coarse_solution_interpolated, par.exact_solution);
+    }
+
   computing_timer.leave_subsection();
 }
 
@@ -1286,9 +1294,9 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                                  // compare with the exact solution as it's not
                                  // known anyway
     {
-      par.convergence_table_FEM_fine.error_from_exact(dh,
-                                                      fem_solution,
-                                                      par.exact_solution);
+      // par.convergence_table_FEM_fine.error_from_exact(dh,
+      //                                                fem_solution,
+      //                                                par.exact_solution);
       par.convergence_table_LOD.error_from_exact(dh,
                                                  lod_solution,
                                                  par.exact_solution);
@@ -1456,17 +1464,15 @@ LOD<dim, spacedim>::run()
         {
           pcout << "LOD vs exact solution" << std::endl;
           par.convergence_table_LOD.output_table(pcout.get_stream());
-          pcout << "FEM(h) vs exact solution" << std::endl;
-          par.convergence_table_FEM_fine.output_table(pcout.get_stream());
+          pcout << "FEM(H) vs exact solution" << std::endl;
+          par.convergence_table_FEM.output_table(pcout.get_stream());
         }
 
-      pcout << "FEM(H) vs FEM(h)" << std::endl;
+      pcout << "FEM(H) vs reference FEM(h)" << std::endl;
       par.convergence_table_FEM_coarse.output_table(pcout.get_stream());
 
-      if (!par.LOD_stabilization)
-        pcout << "LOD vs reference FEM" << std::endl;
-      else
-        pcout << "SLOD vs FEM (fine mesh)" << std::endl;
+
+      pcout << "SLOD vs reference FEM(h)" << std::endl;
       par.convergence_table_compare.output_table(pcout.get_stream());
     }
 }

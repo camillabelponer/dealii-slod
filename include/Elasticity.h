@@ -117,7 +117,7 @@ protected:
         for (unsigned int i = 0; i < N_fine_cells; ++i)
           {
             mu[i]     = 1.0;
-            lambda[i] = 1.0;
+            lambda[i] = 1000.0;
           }
       }
   }
