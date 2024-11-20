@@ -1085,7 +1085,7 @@ LOD<dim, spacedim>::solve()
   prec_A.initialize(global_stiffness_matrix, 1.2);
 
   // SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
-  TrlinosWrapper::SolverDirect(par.coarse_solver_control);
+  TrilinosWrappers::SolverDirect solver(par.coarse_solver_control);
 
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
