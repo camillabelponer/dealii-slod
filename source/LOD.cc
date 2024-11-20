@@ -1084,12 +1084,15 @@ LOD<dim, spacedim>::solve()
   LA::MPI::PreconditionSSOR prec_A;
   prec_A.initialize(global_stiffness_matrix, 1.2);
 
-  SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
+  // SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
+  TrlinosWrapper::SolverDirect(par.coarse_solver_control);
 
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
-  solver.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
+  // solver.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
+  solver.initialize(global_stiffness_matrix);
+  solver.solve(global_stiffness_matrix, solution, system_rhs);
   pcout << "   size of u " << solution.size() << std::endl;
   coarse_boundary_constraints.distribute(solution);
 }
