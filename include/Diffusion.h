@@ -16,7 +16,7 @@ public:
 
 
 protected:
-  Vector<double> alpha;
+  // Vector<double> alpha;
 
   virtual void
   create_random_problem_coefficients() override
@@ -35,70 +35,102 @@ protected:
     DoFHandler<dim> dh_fine(fine_tria);
     dh_fine.distribute_dofs(FE_Q<dim>(1));
 
-    double       H                = pow(0.5, lod::par.n_global_refinements);
-    double       h                = H / (lod::par.n_subdivisions);
-    unsigned int N_cells_per_line = (int)1 / h;
-    unsigned int N_fine_cells     = pow(N_cells_per_line, dim);
-    alpha.reinit(N_fine_cells);
+    //   double       H                = pow(0.5,
+    //   lod::par.n_global_refinements); double       h                = H /
+    //   (lod::par.n_subdivisions); unsigned int N_cells_per_line = (int)1 / h;
+    //   unsigned int N_fine_cells     = pow(N_cells_per_line, dim);
+    //   alpha.reinit(N_fine_cells);
 
-    if (!lod::par.constant_coefficients)
-      {
-        // cells are on all processors (parallel::shared triangulation)
-        // but they are on a 1 to 1 correspondence with the patches
-        // we want to create a different coefficient for any fine cell !
-        // we can use the same logic as used to create the patches but with
-        // small h
-        for (const auto &cell : lod::dof_handler_coarse.active_cell_iterators())
-          // if locally owned but on the patch!!
-          {
-            // coordinates of the bottom left corner of the coarse cell
-            const double x0 = cell->barycenter()(0) - H / 2;
-            const double y0 = cell->barycenter()(1) - H / 2;
+    //   if (!lod::par.constant_coefficients)
+    //     {
+    //       // cells are on all processors (parallel::shared triangulation)
+    //       // but they are on a 1 to 1 correspondence with the patches
+    //       // we want to create a different coefficient for any fine cell !
+    //       // we can use the same logic as used to create the patches but with
+    //       // small h
+    //       for (const auto &cell :
+    //       lod::dof_handler_coarse.active_cell_iterators())
+    //         // if locally owned but on the patch!!
+    //         {
+    //           // coordinates of the bottom left corner of the coarse cell
+    //           const double x0 = cell->barycenter()(0) - H / 2;
+    //           const double y0 = cell->barycenter()(1) - H / 2;
 
-            double x = x0 + h / 2;
-            while (x < (x0 + H))
-              {
-                double y = y0 + h / 2;
-                while (y < (y0 + H))
-                  {
-                    const unsigned int vector_cell_index =
-                      (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
+    //           double x = x0 + h / 2;
+    //           while (x < (x0 + H))
+    //             {
+    //               double y = y0 + h / 2;
+    //               while (y < (y0 + H))
+    //                 {
+    //                   const unsigned int vector_cell_index =
+    //                     (int)floor(x / h) + N_cells_per_line * (int)floor(y /
+    //                     h);
 
-                    alpha[vector_cell_index] =
-                      1.0 + static_cast<float>(rand()) /
-                              (static_cast<float>(RAND_MAX / (100.0 - 1.0)));
-                    y += h;
-                  }
-                x += h;
-              }
-          }
+    //                   alpha[vector_cell_index] =
+    //                     1.0 + static_cast<float>(rand()) /
+    //                             (static_cast<float>(RAND_MAX / (100.0
+    //                             - 1.0)));
+    //                   y += h;
+    //                 }
+    //               x += h;
+    //             }
+    //         }
 
-        lod::data_out.attach_dof_handler(dh_fine);
+    //       lod::data_out.attach_dof_handler(dh_fine);
 
-        lod::data_out.add_data_vector(alpha,
-                                      "alpha",
-                                      DataOut<dim>::type_cell_data,
-                                      lod::data_component_interpretation);
+    //       lod::data_out.add_data_vector(alpha,
+    //                                     "alpha",
+    //                                     DataOut<dim>::type_cell_data,
+    //                                     lod::data_component_interpretation);
 
-        lod::data_out.build_patches();
-        const std::string filename = lod::par.output_name + "_coefficients.vtu";
-        lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/" +
-                                              filename,
-                                            lod::mpi_communicator);
+    //       lod::data_out.build_patches();
+    //       const std::string filename = lod::par.output_name +
+    //       "_coefficients.vtu";
+    //       lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/"
+    //       +
+    //                                             filename,
+    //                                           lod::mpi_communicator);
 
-        // std::ofstream pvd_solutions(lod::par.output_directory + "/" +
-        // filename +
-        //                             "_fine.pvd");
+    //       // std::ofstream pvd_solutions(lod::par.output_directory + "/" +
+    //       // filename +
+    //       //                             "_fine.pvd");
 
-        lod::data_out.clear();
-      }
-    else
-      {
-        for (unsigned int i = 0; i < N_fine_cells; ++i)
-          {
-            alpha[i] = 1.0;
-          }
-      }
+    //       lod::data_out.clear();
+    //     }
+    //   else
+    //     {
+    //       for (unsigned int i = 0; i < N_fine_cells; ++i)
+    //         {
+    //           alpha[i] = 1.0;
+    //         }
+    //     }
+
+
+    std::vector<std::string> coefficients_names(spacedim, "alpha");
+    Vector<double>           alpha;
+    alpha.reinit(dh_fine.n_dofs());
+    //     for (const auto &cell : dh_fine.active_cell_iterators())
+    //     // if locally owned but on the patch!!
+    // {
+    //       const double x0 = cell->barycenter()(0);
+    //       const double y0 = cell->barycenter()(1);
+    //       alpha
+    // }
+    VectorTools::interpolate(dh_fine, lod::par.coefficients, alpha);
+
+    lod::data_out.attach_dof_handler(dh_fine);
+    lod::data_out.add_data_vector(alpha,
+                                  "alpha",
+                                  DataOut<dim>::type_dof_data,
+                                  lod::data_component_interpretation);
+
+    lod::data_out.build_patches();
+    const std::string filename = lod::par.output_name + "_coefficients.vtu";
+    lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/" +
+                                          filename,
+                                        lod::mpi_communicator);
+
+    lod::data_out.clear();
   }
 
 
@@ -125,14 +157,17 @@ protected:
 
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
     std::vector<double>                  rhs_values(n_q_points);
+    std::vector<double>                  alpha_values(n_q_points);
+    // using n_q_points gives us a vectore much larger than what we need due to
+    // the Q_iso_Q1 nature
 
     const auto lexicographic_to_hierarchic_numbering =
       FETools::lexicographic_to_hierarchic_numbering<dim>(
         lod::par.n_subdivisions);
 
-    double       H                = pow(0.5, lod::par.n_global_refinements);
-    double       h                = H / (lod::par.n_subdivisions);
-    unsigned int N_cells_per_line = (int)1 / h;
+    // double       H                = pow(0.5, lod::par.n_global_refinements);
+    // double       h                = H / (lod::par.n_subdivisions);
+    // unsigned int N_cells_per_line = (int)1 / h;
 
     for (const auto &cell : dh.active_cell_iterators())
       // if (cell->is_locally_owned())
@@ -141,16 +176,18 @@ protected:
         cell_rhs    = 0;
         fe_values.reinit(cell);
 
-        const double       x = cell->barycenter()(0);
-        const double       y = cell->barycenter()(1);
-        const unsigned int vector_cell_index =
-          (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
+        // const double       x = cell->barycenter()(0);
+        // const double       y = cell->barycenter()(1);
+        // const unsigned int vector_cell_index =
+        //   (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
 
         if (rhs.size())
           {
             lod::par.rhs.value_list(fe_values.get_quadrature_points(),
                                     rhs_values);
           }
+        lod::par.coefficients.value_list(fe_values.get_quadrature_points(),
+                                         alpha_values);
 
         for (unsigned int c_1 = 0; c_1 < lod::par.n_subdivisions; ++c_1)
           for (unsigned int c_0 = 0; c_0 < lod::par.n_subdivisions; ++c_0)
@@ -178,7 +215,8 @@ protected:
                                    (c_1 + j_1) * (lod::par.n_subdivisions + 1)];
 
                               cell_matrix(i, j) +=
-                                alpha[vector_cell_index] *
+                                // alpha[vector_cell_index] *
+                                alpha_values[q_index] *
                                 (fe_values.shape_grad(i, q_index) *
                                  fe_values.shape_grad(j, q_index) *
                                  fe_values.JxW(q_index));

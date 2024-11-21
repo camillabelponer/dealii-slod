@@ -91,7 +91,7 @@ public:
   std::string  output_directory      = ".";
   std::string  output_name           = "solution";
   unsigned int oversampling          = 1;
-  unsigned int n_subdivisions        = 5;
+  unsigned int n_subdivisions        = 2;
   unsigned int n_global_refinements  = 2;
   bool         solve_fine_problem    = false;
   bool         LOD_stabilization     = false;
@@ -100,15 +100,16 @@ public:
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> bc;
+  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> coefficients;
 
   mutable ParameterAcceptorProxy<ReductionControl> fine_solver_control;
   mutable ParameterAcceptorProxy<ReductionControl> coarse_solver_control;
   mutable ParameterAcceptorProxy<ReductionControl> patch_solver_control;
 
-  mutable ParsedConvergenceTable convergence_table_LOD;
-  mutable ParsedConvergenceTable convergence_table_FEM;
-  mutable ParsedConvergenceTable convergence_table_FEM_coarse;
-  mutable ParsedConvergenceTable convergence_table_compare;
+  mutable ParsedConvergenceTable error_LOD_exact;
+  mutable ParsedConvergenceTable error_FEMH_exact;
+  mutable ParsedConvergenceTable error_FEMH_FEMh;
+  mutable ParsedConvergenceTable error_LOD_FEMh;
 };
 
 
@@ -119,13 +120,14 @@ LODParameters<dim, spacedim>::LODParameters()
   , rhs("/Problem/Right hand side", spacedim)
   , exact_solution("/Problem/Exact solution", spacedim)
   , bc("/Problem/Dirichlet boundary conditions", spacedim)
+  , coefficients("/Problem/Problem parameters", spacedim)
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
   , patch_solver_control("/Problem/Solver/Patch solver control")
-  , convergence_table_LOD(std::vector<std::string>(spacedim, "errLODh"))
-  , convergence_table_FEM(std::vector<std::string>(spacedim, "errFEMh"))
-  , convergence_table_FEM_coarse(std::vector<std::string>(spacedim, "errFEMH"))
-  , convergence_table_compare(std::vector<std::string>(spacedim, "eh"))
+  , error_LOD_exact(std::vector<std::string>(spacedim, "errLODh"))
+  , error_FEMH_exact(std::vector<std::string>(spacedim, "errFEMh"))
+  , error_FEMH_FEMh(std::vector<std::string>(spacedim, "errFEMH"))
+  , error_LOD_FEMh(std::vector<std::string>(spacedim, "eh"))
 {
   add_parameter("Output directory", output_directory);
   add_parameter("Output name", output_name);
@@ -134,12 +136,12 @@ LODParameters<dim, spacedim>::LODParameters()
   add_parameter("Number of global refinements", n_global_refinements);
   add_parameter("Compare with fine global solution", solve_fine_problem);
   add_parameter("Stabilize phi_LOD candidates", LOD_stabilization);
-  add_parameter("Constant unitary coefficients", constant_coefficients);
+  add_parameter("Constant problem coefficients", constant_coefficients);
   this->prm.enter_subsection("Error");
-  convergence_table_LOD.add_parameters(this->prm);
-  convergence_table_FEM.add_parameters(this->prm);
-  convergence_table_FEM_coarse.add_parameters(this->prm);
-  convergence_table_compare.add_parameters(this->prm);
+  error_LOD_exact.add_parameters(this->prm);
+  error_FEMH_exact.add_parameters(this->prm);
+  error_FEMH_FEMh.add_parameters(this->prm);
+  error_LOD_FEMh.add_parameters(this->prm);
   this->prm.leave_subsection();
 }
 
@@ -204,7 +206,9 @@ protected:
                             const FiniteElement<dim> &,
                             const Quadrature<dim> &,
                             const unsigned int){};
-
+  // TODO: assemble stiffness coarse is not actually needed becasue when we have
+  // only one subdivision in Q_ISO_Q1 we might as well use the ormal procedure,
+  // so go back to that one
   parallel::shared::Triangulation<dim> tria;
   // chek ghost layer, needs to be set to whole domain
   // shared not distributed bc we want all processors to get access to all cells

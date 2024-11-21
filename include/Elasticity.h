@@ -14,113 +14,183 @@ public:
 
 
 protected:
-  Vector<double> mu;
-  Vector<double> lambda;
+  // Vector<double> mu;
+  // Vector<double> lambda;
 
-  virtual void
-  create_random_problem_coefficients() override
-  // untested: i think we should set the parameters such that they always
-  // respect a certain case, eg. poisson ration = 0.5, right now they are
-  // randomly creted in the same interval (1,100) ad the diffusion parameter
-  {
-    TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
+  //   virtual void
+  //   create_random_problem_coefficients() override
+  //   // untested: i think we should set the parameters such that they always
+  //   // respect a certain case, eg. poisson ration < 0.5, right now they are
+  //   // randomly creted in the same interval (1,100) ad the diffusion
+  //   parameter
+  //   {
+  //     TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
 
-    Triangulation<dim> fine_tria;
-    GridGenerator::hyper_cube(fine_tria);
-    const unsigned int ref = (int)log2(lod::par.n_subdivisions);
-    Assert(
-      pow(2, ref) == lod::par.n_subdivisions,
-      ExcNotImplemented(
-        "for consistency, choose a number of subdivisions that's a power of 2 when asking for random coefficients"));
-    fine_tria.refine_global((lod::par.n_global_refinements + ref));
+  //     Triangulation<dim> triangulation_h;
+  //     GridGenerator::hyper_cube(triangulation_h);
+  //     const unsigned int ref = (int)log2(lod::par.n_subdivisions);
+  //         Assert(
+  //       pow(2, ref) == lod::par.n_subdivisions,
+  //       ExcNotImplemented(
+  //         "for consistency, choose a number of subdivisions that's a power of
+  //         2"));
+  //     triangulation_h.refine_global((lod::par.n_global_refinements + ref));
 
-    DoFHandler<dim> dh_fine(fine_tria);
-    dh_fine.distribute_dofs(FE_Q<dim>(1));
+  //     DoFHandler<dim> dh_h(triangulation_h);
+  //     dh_h.distribute_dofs(FE_Q<dim>(1));
 
-    double       H                = pow(0.5, lod::par.n_global_refinements);
-    double       h                = H / (lod::par.n_subdivisions);
-    unsigned int N_cells_per_line = (int)1 / h;
-    unsigned int N_fine_cells     = pow(N_cells_per_line, dim);
-    mu.reinit(N_fine_cells);
-    lambda.reinit(N_fine_cells);
+  //     double       H                = pow(0.5,
+  //     lod::par.n_global_refinements); double       h                = H /
+  //     (lod::par.n_subdivisions); double       eta              = h*2; //
+  //     !!!hard coded !! unsigned int N_h_cells_per_line = (int)1 / h; unsigned
+  //     int N_eta_cells_per_line = (int)1 / eta; std::cout <<
+  //     N_eta_cells_per_line << std::endl; unsigned int N_h_cells     =
+  //     pow(N_h_cells_per_line, dim);
+  //     // unsigned int N_cells     = pow(N_cells_per_side, dim);
+  //     // std::cout << N_cells << std::endl;
+  //     // std::cout <<  coefficient_tria.n_active_cells() << std::endl;
+  //     // Assert(N_cells == coefficient_tria.n_active_cells(),
+  //     ExcNotImplemented()); mu.reinit(N_h_cells); lambda.reinit(N_h_cells);
 
-    const double min_val = 0.1;
-    const double max_val = 1;
+  //     const double min_val = 0.1;
+  //     const double max_val = 1;
 
-    if (!lod::par.constant_coefficients)
-      {
-        // cells are on all processors (parallel::shared triangulation)
-        // but they are on a 1 to 1 correspondence with the patches
-        // we want to create a different coefficient for any fine cell !
-        // we can use the same logic as used to create the patches but with
-        // small h
-        for (const auto &cell : lod::dof_handler_coarse.active_cell_iterators())
-          // if locally owned but on the patch!!
-          {
-            // coordinates of the bottom left corner of the coarse cell
-            const double x0 = cell->barycenter()(0) - H / 2;
-            const double y0 = cell->barycenter()(1) - H / 2;
+  //     if (!lod::par.constant_coefficients)
+  //       {
+  //         // cells are on all processors (parallel::shared triangulation)
+  //         // but they are on a 1 to 1 correspondence with the patches
+  //         // we want to create a different coefficient for any fine cell !
+  //         // we can use the same logic as used to create the patches but with
+  //         // small h
+  //         for (const auto &cell :
+  //         lod::dof_handler_coarse.active_cell_iterators())
+  //           // if locally owned but on the patch!!
+  //           {
+  //             // coordinates of the bottom left corner of the coarse cell
+  //             const double x0 = cell->barycenter()(0) - H / 2;
+  //             const double y0 = cell->barycenter()(1) - H / 2;
+  //             std::cout << "x0, y0: " << x0 << " " << y0 << std::endl;
 
-            double x = x0 + h / 2;
-            while (x < (x0 + H))
-              {
-                double y = y0 + h / 2;
-                while (y < (y0 + H))
-                  {
-                    const unsigned int vector_cell_index =
-                      (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
 
-                    mu[vector_cell_index] =
-                      min_val +
-                      static_cast<float>(rand()) /
-                        (static_cast<float>(RAND_MAX / (max_val - min_val)));
-                    lambda[vector_cell_index] =
-                      min_val +
-                      static_cast<float>(rand()) /
-                        (static_cast<float>(RAND_MAX / (max_val - min_val)));
+  //             double x = x0 + eta / 2; // h
+  //             while (x < (x0 + H))
+  //               {
+  //                 double y = y0 + eta / 2; // h
+  //                 while (y < (y0 + H))
+  //                   {
+  //             std::cout << "  x, y: " << x << " " << y << std::endl;
 
-                    y += h;
-                  }
-                x += h;
-              }
-          }
+  //                     const double cell_mu = min_val +
+  //                       static_cast<float>(rand()) /
+  //                         (static_cast<float>(RAND_MAX / (max_val -
+  //                         min_val)));
 
-        std::vector<DataComponentInterpretation::DataComponentInterpretation>
-          scalar_component_interpretation(
-            1, DataComponentInterpretation::component_is_scalar);
+  //                     const double cell_lambda = min_val +
+  //                       static_cast<float>(rand()) /
+  //                         (static_cast<float>(RAND_MAX / (max_val -
+  //                         min_val)));
 
-        lod::data_out.attach_dof_handler(dh_fine);
+  // //// following lines only work for eta = 2*h
+  // // if that's not the case i need to go over more cells
+  //                     double x_h = x+h/2;
+  //                     double y_h = y+h/2;
+  //                     unsigned int vector_cell_index =
+  //                       (int)floor(x_h/h) + N_h_cells_per_line *
+  //                       (int)floor(y_h/h);
+  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
+  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
+  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
 
-        lod::data_out.add_data_vector(mu,
-                                      "lame_mu",
-                                      DataOut<dim>::type_cell_data,
-                                      scalar_component_interpretation);
-        lod::data_out.add_data_vector(lambda,
-                                      "lame_lambda",
-                                      DataOut<dim>::type_cell_data,
-                                      scalar_component_interpretation);
+  //                     mu[vector_cell_index] = cell_mu;
+  //                     lambda[vector_cell_index] = vector_cell_index;
+  //                     //cell_lambda;
 
-        lod::data_out.build_patches();
-        const std::string filename = lod::par.output_name + "_coefficients.vtu";
-        lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/" +
-                                              filename,
-                                            lod::mpi_communicator);
+  //                     x_h = x+h/2;
+  //                     y_h = y-h/2;
+  //                     vector_cell_index =
+  //                       (int)floor(x_h/h) + N_h_cells_per_line *
+  //                       (int)floor(y_h/h);
+  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
+  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
+  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
 
-        // std::ofstream pvd_solutions(lod::par.output_directory + "/" +
-        // filename +
-        //                             "_fine.pvd");
 
-        lod::data_out.clear();
-      }
-    else
-      {
-        for (unsigned int i = 0; i < N_fine_cells; ++i)
-          {
-            mu[i]     = 1.0;
-            lambda[i] = 1000.0;
-          }
-      }
-  }
+  //                     mu[vector_cell_index] = cell_mu;
+  //                     lambda[vector_cell_index] = vector_cell_index;
+  //                     //cell_lambda;
+
+  //                     x_h = x-h/2;
+  //                     y_h = y+h/2;
+  //                     vector_cell_index =
+  //                       (int)floor(x_h/h) + N_h_cells_per_line *
+  //                       (int)floor(y_h/h);
+  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
+  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
+  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
+
+
+  //                     mu[vector_cell_index] = cell_mu;
+  //                     lambda[vector_cell_index] = vector_cell_index;
+  //                     //cell_lambda;
+
+  //                     x_h = x-h/2;
+  //                     y_h = y-h/2;
+  //                     vector_cell_index =
+  //                       (int)floor(x_h/h) + N_h_cells_per_line *
+  //                       (int)floor(y_h/h);
+  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
+  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
+  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
+
+
+  //                     mu[vector_cell_index] = cell_mu;
+  //                     lambda[vector_cell_index] = vector_cell_index;
+  //                     //cell_lambda;
+
+  //                     y += eta;
+  //                   }
+  //                 x += eta;
+  //               }
+  //           }
+
+  //         std::vector<DataComponentInterpretation::DataComponentInterpretation>
+  //           scalar_component_interpretation(
+  //             1, DataComponentInterpretation::component_is_scalar);
+
+  //         lod::data_out.attach_dof_handler(dh_h);
+
+  //         lod::data_out.add_data_vector(mu,
+  //                                       "lame_mu",
+  //                                       DataOut<dim>::type_cell_data,
+  //                                       scalar_component_interpretation);
+  //         lod::data_out.add_data_vector(lambda,
+  //                                       "lame_lambda",
+  //                                       DataOut<dim>::type_cell_data,
+  //                                       scalar_component_interpretation);
+
+  //         lod::data_out.build_patches();
+  //         const std::string filename = lod::par.output_name +
+  //         "_coefficients.vtu";
+  //         lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/"
+  //         +
+  //                                               filename,
+  //                                             lod::mpi_communicator);
+
+  //         // std::ofstream pvd_solutions(lod::par.output_directory + "/" +
+  //         // filename +
+  //         //                             "_fine.pvd");
+
+  //         lod::data_out.clear();
+  //       }
+  //     else
+  //       {
+  //         for (unsigned int i = 0; i < N_h_cells; ++i)
+  //           {
+  //             mu[i]     = 1.0;
+  //             lambda[i] = 1000.0;
+  //           }
+  //       }
+  //   }
 
   virtual void
   assemble_stiffness(LA::MPI::SparseMatrix &    stiffness_matrix,
@@ -152,9 +222,9 @@ protected:
       FETools::lexicographic_to_hierarchic_numbering<dim>(
         lod::par.n_subdivisions);
 
-    double       H                = pow(0.5, lod::par.n_global_refinements);
-    double       h                = H / (lod::par.n_subdivisions);
-    unsigned int N_cells_per_line = (int)1 / h;
+    // double       H                = pow(0.5, lod::par.n_global_refinements);
+    // double       h                = H / (lod::par.n_subdivisions);
+    // unsigned int N_cells_per_line = (int)1 / h;
 
     for (const auto &cell : dh.active_cell_iterators())
       {
@@ -162,10 +232,10 @@ protected:
         cell_rhs    = 0;
         fe_values.reinit(cell);
 
-        const double       x = cell->barycenter()(0);
-        const double       y = cell->barycenter()(1);
-        const unsigned int vector_cell_index =
-          (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
+        // const double       x = cell->barycenter()(0);
+        // const double       y = cell->barycenter()(1);
+        // const unsigned int vector_cell_index =
+        //   (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
 
         if (rhs.size())
           {
@@ -210,15 +280,14 @@ protected:
                                   // lod::fe_fine->system_to_component_index(j).first;
 
                                   cell_matrix(i, j) +=
-                                    (2 * mu[vector_cell_index] *
+                                    (2 * // mu[vector_cell_index] *
                                        scalar_product(
                                          fe_values[displacement]
                                            .symmetric_gradient(i, q),
                                          fe_values[displacement]
                                            .symmetric_gradient(j, q)) +
-                                     lambda[vector_cell_index] *
-                                       fe_values[displacement].divergence(i,
-                                                                          q) *
+                                     // lambda[vector_cell_index] *
+                                     fe_values[displacement].divergence(i, q) *
                                        fe_values[displacement].divergence(j,
                                                                           q)) *
                                     fe_values.JxW(q);
@@ -374,15 +443,14 @@ protected:
                                   // lod::fe_fine->system_to_component_index(j).first;
 
                                   cell_matrix(i, j) +=
-                                    (2 * mu[vector_cell_index] *
+                                    (2 * // mu[vector_cell_index] *
                                        scalar_product(
                                          fe_values[displacement]
                                            .symmetric_gradient(i, q),
                                          fe_values[displacement]
                                            .symmetric_gradient(j, q)) +
-                                     lambda[vector_cell_index] *
-                                       fe_values[displacement].divergence(i,
-                                                                          q) *
+                                     // lambda[vector_cell_index] *
+                                     fe_values[displacement].divergence(i, q) *
                                        fe_values[displacement].divergence(j,
                                                                           q)) *
                                     fe_values.JxW(q);
