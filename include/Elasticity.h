@@ -3,194 +3,124 @@
 
 #include <LOD.h>
 
+
+template <int dim>
+class problem_parameter : public Function<dim, double>
+{
+private:
+  const double        min_val;
+  const double        max_val;
+  const unsigned int  refinement;
+  std::vector<double> random_values;
+  unsigned int        N_cells_per_line;
+  double              eta;
+
+public:
+  problem_parameter(double min, double max, unsigned int r)
+    : min_val(min)
+    , max_val(max)
+    , refinement(r)
+  {
+    N_cells_per_line     = pow(2, refinement);
+    eta                  = (double)1 / N_cells_per_line;
+    unsigned int N_cells = pow(N_cells_per_line, dim);
+    // random_values.reinit(N_cells);
+    if (max_val != min_val)
+      {
+        for (unsigned int i = 0; i < N_cells; ++i)
+          {
+            const double v =
+              min_val + static_cast<float>(rand()) /
+                          (static_cast<float>(RAND_MAX / (max_val - min_val)));
+            random_values.push_back(v);
+          }
+      }
+  };
+
+  double
+  value(const Point<dim> &p, const unsigned int) const override
+  {
+    if (max_val == min_val) // constant coefficients
+      return min_val;
+    else
+      {
+        const double x = p(0);
+        const double y = p(1);
+        unsigned int vector_cell_index =
+          (int)floor(x / eta) + N_cells_per_line * (int)floor(y / eta);
+        return random_values[vector_cell_index];
+      }
+  }
+};
+
+
 template <int dim, int spacedim = dim>
 class ElasticityProblem : public LOD<dim, spacedim>
 {
 public:
   ElasticityProblem(const LODParameters<dim, spacedim> &par)
-    : LOD<dim, spacedim>(par){};
+    : LOD<dim, spacedim>(par)
+    , Lambda(lod::par.random_value_min,
+             lod::par.random_value_max,
+             lod::par.random_value_refinement)
+    , Mu(lod::par.random_value_min,
+         lod::par.random_value_max,
+         lod::par.random_value_refinement){};
 
   typedef LOD<dim, spacedim> lod;
 
 
 protected:
-  // Vector<double> mu;
-  // Vector<double> lambda;
+  problem_parameter<dim> Lambda;
+  problem_parameter<dim> Mu;
 
-  //   virtual void
-  //   create_random_problem_coefficients() override
-  //   // untested: i think we should set the parameters such that they always
-  //   // respect a certain case, eg. poisson ration < 0.5, right now they are
-  //   // randomly creted in the same interval (1,100) ad the diffusion
-  //   parameter
-  //   {
-  //     TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
+  virtual void
+  create_random_problem_coefficients() override
+  {
+    // TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
 
-  //     Triangulation<dim> triangulation_h;
-  //     GridGenerator::hyper_cube(triangulation_h);
-  //     const unsigned int ref = (int)log2(lod::par.n_subdivisions);
-  //         Assert(
-  //       pow(2, ref) == lod::par.n_subdivisions,
-  //       ExcNotImplemented(
-  //         "for consistency, choose a number of subdivisions that's a power of
-  //         2"));
-  //     triangulation_h.refine_global((lod::par.n_global_refinements + ref));
+    Triangulation<dim> triangulation_h;
+    GridGenerator::hyper_cube(triangulation_h);
+    const unsigned int ref = (int)log2(lod::par.n_subdivisions);
+    Assert(
+      pow(2, ref) == lod::par.n_subdivisions,
+      ExcNotImplemented(
+        "for consistency, choose a number of subdivisions that's a power of 2"));
+    triangulation_h.refine_global((lod::par.n_global_refinements + ref));
 
-  //     DoFHandler<dim> dh_h(triangulation_h);
-  //     dh_h.distribute_dofs(FE_Q<dim>(1));
+    DoFHandler<dim> dh_h(triangulation_h);
+    dh_h.distribute_dofs(FE_DGQ<dim>(0)); //(FE_Q<dim>(1), spacedim);
 
-  //     double       H                = pow(0.5,
-  //     lod::par.n_global_refinements); double       h                = H /
-  //     (lod::par.n_subdivisions); double       eta              = h*2; //
-  //     !!!hard coded !! unsigned int N_h_cells_per_line = (int)1 / h; unsigned
-  //     int N_eta_cells_per_line = (int)1 / eta; std::cout <<
-  //     N_eta_cells_per_line << std::endl; unsigned int N_h_cells     =
-  //     pow(N_h_cells_per_line, dim);
-  //     // unsigned int N_cells     = pow(N_cells_per_side, dim);
-  //     // std::cout << N_cells << std::endl;
-  //     // std::cout <<  coefficient_tria.n_active_cells() << std::endl;
-  //     // Assert(N_cells == coefficient_tria.n_active_cells(),
-  //     ExcNotImplemented()); mu.reinit(N_h_cells); lambda.reinit(N_h_cells);
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      scalar_component_interpretation(
+        1, DataComponentInterpretation::component_is_scalar);
+    Vector<double> lambda_values;
+    Vector<double> mu_values;
+    lambda_values.reinit(dh_h.n_dofs());
+    mu_values.reinit(dh_h.n_dofs());
 
-  //     const double min_val = 0.1;
-  //     const double max_val = 1;
+    VectorTools::interpolate(dh_h, Lambda, lambda_values);
+    VectorTools::interpolate(dh_h, Mu, mu_values);
 
-  //     if (!lod::par.constant_coefficients)
-  //       {
-  //         // cells are on all processors (parallel::shared triangulation)
-  //         // but they are on a 1 to 1 correspondence with the patches
-  //         // we want to create a different coefficient for any fine cell !
-  //         // we can use the same logic as used to create the patches but with
-  //         // small h
-  //         for (const auto &cell :
-  //         lod::dof_handler_coarse.active_cell_iterators())
-  //           // if locally owned but on the patch!!
-  //           {
-  //             // coordinates of the bottom left corner of the coarse cell
-  //             const double x0 = cell->barycenter()(0) - H / 2;
-  //             const double y0 = cell->barycenter()(1) - H / 2;
-  //             std::cout << "x0, y0: " << x0 << " " << y0 << std::endl;
+    lod::data_out.attach_dof_handler(dh_h);
+    lod::data_out.add_data_vector(lambda_values,
+                                  "lambda",
+                                  DataOut<dim>::type_dof_data,
+                                  scalar_component_interpretation);
+    lod::data_out.add_data_vector(mu_values,
+                                  "mu",
+                                  DataOut<dim>::type_dof_data,
+                                  scalar_component_interpretation);
 
+    lod::data_out.build_patches();
+    const std::string filename = lod::par.output_name + "_coefficients.vtu";
+    lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/" +
+                                          filename,
+                                        lod::mpi_communicator);
 
-  //             double x = x0 + eta / 2; // h
-  //             while (x < (x0 + H))
-  //               {
-  //                 double y = y0 + eta / 2; // h
-  //                 while (y < (y0 + H))
-  //                   {
-  //             std::cout << "  x, y: " << x << " " << y << std::endl;
+    lod::data_out.clear();
+  }
 
-  //                     const double cell_mu = min_val +
-  //                       static_cast<float>(rand()) /
-  //                         (static_cast<float>(RAND_MAX / (max_val -
-  //                         min_val)));
-
-  //                     const double cell_lambda = min_val +
-  //                       static_cast<float>(rand()) /
-  //                         (static_cast<float>(RAND_MAX / (max_val -
-  //                         min_val)));
-
-  // //// following lines only work for eta = 2*h
-  // // if that's not the case i need to go over more cells
-  //                     double x_h = x+h/2;
-  //                     double y_h = y+h/2;
-  //                     unsigned int vector_cell_index =
-  //                       (int)floor(x_h/h) + N_h_cells_per_line *
-  //                       (int)floor(y_h/h);
-  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
-  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
-  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
-
-  //                     mu[vector_cell_index] = cell_mu;
-  //                     lambda[vector_cell_index] = vector_cell_index;
-  //                     //cell_lambda;
-
-  //                     x_h = x+h/2;
-  //                     y_h = y-h/2;
-  //                     vector_cell_index =
-  //                       (int)floor(x_h/h) + N_h_cells_per_line *
-  //                       (int)floor(y_h/h);
-  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
-  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
-  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
-
-
-  //                     mu[vector_cell_index] = cell_mu;
-  //                     lambda[vector_cell_index] = vector_cell_index;
-  //                     //cell_lambda;
-
-  //                     x_h = x-h/2;
-  //                     y_h = y+h/2;
-  //                     vector_cell_index =
-  //                       (int)floor(x_h/h) + N_h_cells_per_line *
-  //                       (int)floor(y_h/h);
-  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
-  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
-  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
-
-
-  //                     mu[vector_cell_index] = cell_mu;
-  //                     lambda[vector_cell_index] = vector_cell_index;
-  //                     //cell_lambda;
-
-  //                     x_h = x-h/2;
-  //                     y_h = y-h/2;
-  //                     vector_cell_index =
-  //                       (int)floor(x_h/h) + N_h_cells_per_line *
-  //                       (int)floor(y_h/h);
-  //                     std::cout << "    x, y: " << x_h << " " << y_h <<
-  //                     std::endl; std::cout << "    " << floor(x_h/h)<< " " <<
-  //                     floor(y_h/h) << ": " << vector_cell_index << std::endl;
-
-
-  //                     mu[vector_cell_index] = cell_mu;
-  //                     lambda[vector_cell_index] = vector_cell_index;
-  //                     //cell_lambda;
-
-  //                     y += eta;
-  //                   }
-  //                 x += eta;
-  //               }
-  //           }
-
-  //         std::vector<DataComponentInterpretation::DataComponentInterpretation>
-  //           scalar_component_interpretation(
-  //             1, DataComponentInterpretation::component_is_scalar);
-
-  //         lod::data_out.attach_dof_handler(dh_h);
-
-  //         lod::data_out.add_data_vector(mu,
-  //                                       "lame_mu",
-  //                                       DataOut<dim>::type_cell_data,
-  //                                       scalar_component_interpretation);
-  //         lod::data_out.add_data_vector(lambda,
-  //                                       "lame_lambda",
-  //                                       DataOut<dim>::type_cell_data,
-  //                                       scalar_component_interpretation);
-
-  //         lod::data_out.build_patches();
-  //         const std::string filename = lod::par.output_name +
-  //         "_coefficients.vtu";
-  //         lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/"
-  //         +
-  //                                               filename,
-  //                                             lod::mpi_communicator);
-
-  //         // std::ofstream pvd_solutions(lod::par.output_directory + "/" +
-  //         // filename +
-  //         //                             "_fine.pvd");
-
-  //         lod::data_out.clear();
-  //       }
-  //     else
-  //       {
-  //         for (unsigned int i = 0; i < N_h_cells; ++i)
-  //           {
-  //             mu[i]     = 1.0;
-  //             lambda[i] = 1000.0;
-  //           }
-  //       }
-  //   }
 
   virtual void
   assemble_stiffness(LA::MPI::SparseMatrix &    stiffness_matrix,
@@ -218,13 +148,13 @@ protected:
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
     std::vector<Vector<double>>          rhs_values(n_q_points,
                                            Vector<double>(spacedim));
-    const auto                           lexicographic_to_hierarchic_numbering =
+    std::vector<double>                  lambda_values(n_q_points);
+    std::vector<double>                  mu_values(n_q_points);
+
+    const auto lexicographic_to_hierarchic_numbering =
       FETools::lexicographic_to_hierarchic_numbering<dim>(
         lod::par.n_subdivisions);
 
-    // double       H                = pow(0.5, lod::par.n_global_refinements);
-    // double       h                = H / (lod::par.n_subdivisions);
-    // unsigned int N_cells_per_line = (int)1 / h;
 
     for (const auto &cell : dh.active_cell_iterators())
       {
@@ -232,16 +162,13 @@ protected:
         cell_rhs    = 0;
         fe_values.reinit(cell);
 
-        // const double       x = cell->barycenter()(0);
-        // const double       y = cell->barycenter()(1);
-        // const unsigned int vector_cell_index =
-        //   (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
-
         if (rhs.size())
           {
             lod::par.rhs.vector_value_list(fe_values.get_quadrature_points(),
                                            rhs_values);
           }
+        Lambda.value_list(fe_values.get_quadrature_points(), lambda_values);
+        Mu.value_list(fe_values.get_quadrature_points(), mu_values, 1);
 
         for (unsigned int c_1 = 0; c_1 < lod::par.n_subdivisions; ++c_1)
           for (unsigned int c_0 = 0; c_0 < lod::par.n_subdivisions; ++c_0)
@@ -278,16 +205,16 @@ protected:
                                            (lod::par.n_subdivisions + 1)]);
                                   // const unsigned int component_j =
                                   // lod::fe_fine->system_to_component_index(j).first;
-
                                   cell_matrix(i, j) +=
-                                    (2 * // mu[vector_cell_index] *
+                                    (2 * mu_values[q] *
                                        scalar_product(
                                          fe_values[displacement]
                                            .symmetric_gradient(i, q),
                                          fe_values[displacement]
                                            .symmetric_gradient(j, q)) +
-                                     // lambda[vector_cell_index] *
-                                     fe_values[displacement].divergence(i, q) *
+                                     lambda_values[q] *
+                                       fe_values[displacement].divergence(i,
+                                                                          q) *
                                        fe_values[displacement].divergence(j,
                                                                           q)) *
                                     fe_values.JxW(q);
@@ -364,12 +291,12 @@ protected:
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
     std::vector<Vector<double>>          rhs_values(n_q_points,
                                            Vector<double>(spacedim));
-    const auto                           lexicographic_to_hierarchic_numbering =
+    std::vector<double>                  lambda_values(n_q_points);
+    std::vector<double>                  mu_values(n_q_points);
+
+    const auto lexicographic_to_hierarchic_numbering =
       FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
 
-    double       H                = pow(0.5, lod::par.n_global_refinements);
-    double       h                = H / (lod::par.n_subdivisions);
-    unsigned int N_cells_per_line = (int)1 / h;
 
     for (const auto &cell : dh.active_cell_iterators())
       {
@@ -377,38 +304,14 @@ protected:
         cell_rhs    = 0;
         fe_values.reinit(cell);
 
-        const double       x = cell->barycenter()(0);
-        const double       y = cell->barycenter()(1);
-        const unsigned int vector_cell_index =
-          (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
-
         if (rhs.size())
           {
             lod::par.rhs.vector_value_list(fe_values.get_quadrature_points(),
                                            rhs_values);
           }
+        Lambda.value_list(fe_values.get_quadrature_points(), lambda_values);
+        Mu.value_list(fe_values.get_quadrature_points(), mu_values, 1);
 
-        // for (unsigned int q = 0; q < n_q_points; ++q)
-        //   {
-        //     for (unsigned int i = 0; i < dofs_per_cell; ++i)
-        //       {
-        //         for (unsigned int j = 0; j < dofs_per_cell; ++j)
-        //           {
-        //             cell_matrix(i, j) +=
-        //               (2 * mu[vector_cell_index] *
-        //                  scalar_product(fe_values[displacement].symmetric_gradient(i,
-        //                  q),
-        //                   fe_values[displacement].symmetric_gradient(j, q)) +
-        //                lambda[vector_cell_index] *
-        //                fe_values[displacement].symmetric_gradient(i, q)
-        //                 * fe_values[displacement].symmetric_gradient(j, q)) *
-        //               fe_values.JxW(q);
-        //           }
-        //         const auto comp_i = fe.system_to_component_index(i).first;
-        //         cell_rhs(i) += fe_values.shape_value(i, q) *
-        //                        rhs_values[q][comp_i] * fe_values.JxW(q);
-        //       }
-        //   }
         for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
           for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
 
@@ -441,16 +344,16 @@ protected:
                                          (c_1 + j_1) * (n_subdivisions + 1)]);
                                   // const unsigned int component_j =
                                   // lod::fe_fine->system_to_component_index(j).first;
-
                                   cell_matrix(i, j) +=
-                                    (2 * // mu[vector_cell_index] *
+                                    (2 * mu_values[q] *
                                        scalar_product(
                                          fe_values[displacement]
                                            .symmetric_gradient(i, q),
                                          fe_values[displacement]
                                            .symmetric_gradient(j, q)) +
-                                     // lambda[vector_cell_index] *
-                                     fe_values[displacement].divergence(i, q) *
+                                     lambda_values[q] *
+                                       fe_values[displacement].divergence(i,
+                                                                          q) *
                                        fe_values[displacement].divergence(j,
                                                                           q)) *
                                     fe_values.JxW(q);

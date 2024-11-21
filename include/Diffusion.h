@@ -4,125 +4,100 @@
 #include <LOD.h>
 
 
+template <int dim>
+class problem_parameter : public Function<dim, double>
+{
+private:
+  const double        min_val;
+  const double        max_val;
+  const double        eta;
+  std::vector<double> random_values;
+  unsigned int        N_cells_per_line;
+
+public:
+  // problem_parameter(){};
+
+  problem_parameter(double min, double max, double e)
+    : min_val(min)
+    , max_val(max)
+    , eta(e)
+  {
+    N_cells_per_line     = (int)1 / eta;
+    unsigned int N_cells = pow(N_cells_per_line, dim);
+    // random_values.reinit(N_cells);
+    if (max_val != min_val)
+      {
+        for (unsigned int i = 0; i < N_cells; ++i)
+          {
+            const double v =
+              min_val + static_cast<float>(rand()) /
+                          (static_cast<float>(RAND_MAX / (max_val - min_val)));
+            random_values.push_back(v);
+          }
+      }
+  };
+
+  double
+  value(const Point<dim> &p, const unsigned int) const override
+  {
+    if (max_val == min_val) // constant coefficients
+      return min_val;
+    else
+      {
+        const double x = p(0);
+        const double y = p(1);
+        unsigned int vector_cell_index =
+          (int)floor(x / eta) + N_cells_per_line * (int)floor(y / eta);
+        return random_values[vector_cell_index];
+      }
+  }
+};
 
 template <int dim, int spacedim>
 class DiffusionProblem : public LOD<dim, spacedim>
 {
 public:
   DiffusionProblem(const LODParameters<dim, spacedim> &par)
-    : LOD<dim, spacedim>(par){};
+    : LOD<dim, spacedim>(par)
+    , Alpha(1, 20, 0.25){};
 
   typedef LOD<dim, spacedim> lod;
 
 
 protected:
-  // Vector<double> alpha;
+  problem_parameter<dim> Alpha;
 
   virtual void
   create_random_problem_coefficients() override
   {
     TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
 
-    Triangulation<dim> fine_tria;
-    GridGenerator::hyper_cube(fine_tria);
+    Triangulation<dim> triangulation_h;
+    GridGenerator::hyper_cube(triangulation_h);
     const unsigned int ref = (int)log2(lod::par.n_subdivisions);
     Assert(
       pow(2, ref) == lod::par.n_subdivisions,
       ExcNotImplemented(
-        "for consistency, choose a number of subdivisions that's a power of 2 when asking for random coefficients"));
-    fine_tria.refine_global((lod::par.n_global_refinements + ref));
+        "for consistency, choose a number of subdivisions that's a power of 2"));
+    triangulation_h.refine_global((lod::par.n_global_refinements + ref));
 
-    DoFHandler<dim> dh_fine(fine_tria);
-    dh_fine.distribute_dofs(FE_Q<dim>(1));
+    DoFHandler<dim> dh_h(triangulation_h);
+    dh_h.distribute_dofs(FE_DGQ<dim>(0)); //(FE_Q<dim>(1), spacedim);
 
-    //   double       H                = pow(0.5,
-    //   lod::par.n_global_refinements); double       h                = H /
-    //   (lod::par.n_subdivisions); unsigned int N_cells_per_line = (int)1 / h;
-    //   unsigned int N_fine_cells     = pow(N_cells_per_line, dim);
-    //   alpha.reinit(N_fine_cells);
+    std::vector<DataComponentInterpretation::DataComponentInterpretation>
+      scalar_component_interpretation(
+        1, DataComponentInterpretation::component_is_scalar);
+    Vector<double> alpha_values;
+    alpha_values.reinit(dh_h.n_dofs());
 
-    //   if (!lod::par.constant_coefficients)
-    //     {
-    //       // cells are on all processors (parallel::shared triangulation)
-    //       // but they are on a 1 to 1 correspondence with the patches
-    //       // we want to create a different coefficient for any fine cell !
-    //       // we can use the same logic as used to create the patches but with
-    //       // small h
-    //       for (const auto &cell :
-    //       lod::dof_handler_coarse.active_cell_iterators())
-    //         // if locally owned but on the patch!!
-    //         {
-    //           // coordinates of the bottom left corner of the coarse cell
-    //           const double x0 = cell->barycenter()(0) - H / 2;
-    //           const double y0 = cell->barycenter()(1) - H / 2;
+    VectorTools::interpolate(dh_h, Alpha, alpha_values);
 
-    //           double x = x0 + h / 2;
-    //           while (x < (x0 + H))
-    //             {
-    //               double y = y0 + h / 2;
-    //               while (y < (y0 + H))
-    //                 {
-    //                   const unsigned int vector_cell_index =
-    //                     (int)floor(x / h) + N_cells_per_line * (int)floor(y /
-    //                     h);
-
-    //                   alpha[vector_cell_index] =
-    //                     1.0 + static_cast<float>(rand()) /
-    //                             (static_cast<float>(RAND_MAX / (100.0
-    //                             - 1.0)));
-    //                   y += h;
-    //                 }
-    //               x += h;
-    //             }
-    //         }
-
-    //       lod::data_out.attach_dof_handler(dh_fine);
-
-    //       lod::data_out.add_data_vector(alpha,
-    //                                     "alpha",
-    //                                     DataOut<dim>::type_cell_data,
-    //                                     lod::data_component_interpretation);
-
-    //       lod::data_out.build_patches();
-    //       const std::string filename = lod::par.output_name +
-    //       "_coefficients.vtu";
-    //       lod::data_out.write_vtu_in_parallel(lod::par.output_directory + "/"
-    //       +
-    //                                             filename,
-    //                                           lod::mpi_communicator);
-
-    //       // std::ofstream pvd_solutions(lod::par.output_directory + "/" +
-    //       // filename +
-    //       //                             "_fine.pvd");
-
-    //       lod::data_out.clear();
-    //     }
-    //   else
-    //     {
-    //       for (unsigned int i = 0; i < N_fine_cells; ++i)
-    //         {
-    //           alpha[i] = 1.0;
-    //         }
-    //     }
-
-
-    std::vector<std::string> coefficients_names(spacedim, "alpha");
-    Vector<double>           alpha;
-    alpha.reinit(dh_fine.n_dofs());
-    //     for (const auto &cell : dh_fine.active_cell_iterators())
-    //     // if locally owned but on the patch!!
-    // {
-    //       const double x0 = cell->barycenter()(0);
-    //       const double y0 = cell->barycenter()(1);
-    //       alpha
-    // }
-    VectorTools::interpolate(dh_fine, lod::par.coefficients, alpha);
-
-    lod::data_out.attach_dof_handler(dh_fine);
-    lod::data_out.add_data_vector(alpha,
+    lod::data_out.attach_dof_handler(dh_h);
+    lod::data_out.add_data_vector(alpha_values,
                                   "alpha",
                                   DataOut<dim>::type_dof_data,
-                                  lod::data_component_interpretation);
+                                  scalar_component_interpretation);
+
 
     lod::data_out.build_patches();
     const std::string filename = lod::par.output_name + "_coefficients.vtu";
@@ -186,8 +161,7 @@ protected:
             lod::par.rhs.value_list(fe_values.get_quadrature_points(),
                                     rhs_values);
           }
-        lod::par.coefficients.value_list(fe_values.get_quadrature_points(),
-                                         alpha_values);
+        Alpha.value_list(fe_values.get_quadrature_points(), alpha_values);
 
         for (unsigned int c_1 = 0; c_1 < lod::par.n_subdivisions; ++c_1)
           for (unsigned int c_0 = 0; c_0 < lod::par.n_subdivisions; ++c_0)

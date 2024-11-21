@@ -88,23 +88,25 @@ class LODParameters : public ParameterAcceptor
 public:
   LODParameters();
 
-  std::string  output_directory      = ".";
-  std::string  output_name           = "solution";
-  unsigned int oversampling          = 1;
-  unsigned int n_subdivisions        = 2;
-  unsigned int n_global_refinements  = 2;
-  bool         solve_fine_problem    = false;
-  bool         LOD_stabilization     = false;
-  bool         constant_coefficients = true;
+  std::string  output_directory     = ".";
+  std::string  output_name          = "solution";
+  unsigned int oversampling         = 1;
+  unsigned int n_subdivisions       = 2;
+  unsigned int n_global_refinements = 2;
+  bool         solve_fine_problem   = false;
+  bool         LOD_stabilization    = false;
+
+  bool         constant_coefficients   = true;
+  double       random_value_min        = 1;
+  double       random_value_max        = 1;
+  unsigned int random_value_refinement = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> bc;
-  mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> coefficients;
 
   mutable ParameterAcceptorProxy<ReductionControl> fine_solver_control;
   mutable ParameterAcceptorProxy<ReductionControl> coarse_solver_control;
-  mutable ParameterAcceptorProxy<ReductionControl> patch_solver_control;
 
   mutable ParsedConvergenceTable error_LOD_exact;
   mutable ParsedConvergenceTable error_FEMH_exact;
@@ -120,23 +122,29 @@ LODParameters<dim, spacedim>::LODParameters()
   , rhs("/Problem/Right hand side", spacedim)
   , exact_solution("/Problem/Exact solution", spacedim)
   , bc("/Problem/Dirichlet boundary conditions", spacedim)
-  , coefficients("/Problem/Problem parameters", spacedim)
   , fine_solver_control("/Problem/Solver/Fine solver control")
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
-  , patch_solver_control("/Problem/Solver/Patch solver control")
-  , error_LOD_exact(std::vector<std::string>(spacedim, "errLODh"))
-  , error_FEMH_exact(std::vector<std::string>(spacedim, "errFEMh"))
-  , error_FEMH_FEMh(std::vector<std::string>(spacedim, "errFEMH"))
-  , error_LOD_FEMh(std::vector<std::string>(spacedim, "eh"))
+  , error_LOD_exact(std::vector<std::string>(spacedim, "errLOD"))
+  , error_FEMH_exact(std::vector<std::string>(spacedim, "errFEM"))
+  , error_FEMH_FEMh(std::vector<std::string>(spacedim, "errFEM"))
+  , error_LOD_FEMh(std::vector<std::string>(spacedim, "errLOD"))
 {
   add_parameter("Output directory", output_directory);
   add_parameter("Output name", output_name);
-  add_parameter("oversampling", oversampling);
+  add_parameter("Oversampling", oversampling);
   add_parameter("Number of subdivisions", n_subdivisions);
   add_parameter("Number of global refinements", n_global_refinements);
   add_parameter("Compare with fine global solution", solve_fine_problem);
   add_parameter("Stabilize phi_LOD candidates", LOD_stabilization);
-  add_parameter("Constant problem coefficients", constant_coefficients);
+  enter_subsection("Coefficients");
+  {
+    add_parameter("Constant problem coefficients", constant_coefficients);
+    add_parameter("Minimum value for random coefficients", random_value_min);
+    add_parameter("Maximum value for random coefficients", random_value_max);
+    add_parameter("Refinement for random coefficients",
+                  random_value_refinement);
+  }
+  leave_subsection();
   this->prm.enter_subsection("Error");
   error_LOD_exact.add_parameters(this->prm);
   error_FEMH_exact.add_parameters(this->prm);
