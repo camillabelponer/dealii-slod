@@ -60,12 +60,14 @@ class ElasticityProblem : public LOD<dim, spacedim>
 public:
   ElasticityProblem(const LODParameters<dim, spacedim> &par)
     : LOD<dim, spacedim>(par)
-    , Lambda(lod::par.random_value_min,
-             lod::par.random_value_max,
-             lod::par.random_value_refinement)
-    , Mu(lod::par.random_value_min,
-         lod::par.random_value_max,
-         lod::par.random_value_refinement){};
+    // , Lambda(lod::par.random_value_min,
+    //          lod::par.random_value_max,
+    //          lod::par.random_value_refinement)
+    // , Mu(lod::par.random_value_min,
+    //      lod::par.random_value_max,
+    //      lod::par.random_value_refinement)
+    , Lambda(1, 100, 6)
+    , Mu(1, 100, 6){};
 
   typedef LOD<dim, spacedim> lod;
 

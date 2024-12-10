@@ -96,10 +96,10 @@ public:
   bool         solve_fine_problem   = false;
   bool         LOD_stabilization    = false;
 
-  bool         constant_coefficients   = true;
-  double       random_value_min        = 1;
-  double       random_value_max        = 1;
-  unsigned int random_value_refinement = 1;
+  bool constant_coefficients = true;
+  // double       random_value_min        = 1;
+  // double       random_value_max        = 1;
+  // unsigned int random_value_refinement = 1;
 
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> rhs;
   mutable ParameterAcceptorProxy<Functions::ParsedFunction<dim>> exact_solution;
@@ -110,6 +110,7 @@ public:
 
   mutable ParsedConvergenceTable error_LOD_exact;
   mutable ParsedConvergenceTable error_FEMH_exact;
+  mutable ParsedConvergenceTable error_FEMh_exact;
   mutable ParsedConvergenceTable error_FEMH_FEMh;
   mutable ParsedConvergenceTable error_LOD_FEMh;
 };
@@ -126,6 +127,7 @@ LODParameters<dim, spacedim>::LODParameters()
   , coarse_solver_control("/Problem/Solver/Coarse solver control")
   , error_LOD_exact(std::vector<std::string>(spacedim, "errLOD"))
   , error_FEMH_exact(std::vector<std::string>(spacedim, "errFEM"))
+  , error_FEMh_exact(std::vector<std::string>(spacedim, "errFEMh"))
   , error_FEMH_FEMh(std::vector<std::string>(spacedim, "errFEM"))
   , error_LOD_FEMh(std::vector<std::string>(spacedim, "errLOD"))
 {
@@ -139,15 +141,16 @@ LODParameters<dim, spacedim>::LODParameters()
   enter_subsection("Coefficients");
   {
     add_parameter("Constant problem coefficients", constant_coefficients);
-    add_parameter("Minimum value for random coefficients", random_value_min);
-    add_parameter("Maximum value for random coefficients", random_value_max);
-    add_parameter("Refinement for random coefficients",
-                  random_value_refinement);
+    // add_parameter("Minimum value for random coefficients", random_value_min);
+    // add_parameter("Maximum value for random coefficients", random_value_max);
+    // add_parameter("Refinement for random coefficients",
+    //               random_value_refinement);
   }
   leave_subsection();
   this->prm.enter_subsection("Error");
   error_LOD_exact.add_parameters(this->prm);
   error_FEMH_exact.add_parameters(this->prm);
+  error_FEMh_exact.add_parameters(this->prm);
   error_FEMH_FEMh.add_parameters(this->prm);
   error_LOD_FEMh.add_parameters(this->prm);
   this->prm.leave_subsection();
@@ -214,11 +217,11 @@ protected:
                             const FiniteElement<dim> &,
                             const Quadrature<dim> &,
                             const unsigned int){};
-  // TODO: assemble stiffness coarse is not actually needed becasue when we have
-  // only one subdivision in Q_ISO_Q1 we might as well use the ormal procedure,
+  // TODO: assemble stiffness coarse is not actually needed because when we have
+  // only one subdivision in Q_ISO_Q1 we might as well use the normal procedure,
   // so go back to that one
   parallel::shared::Triangulation<dim> tria;
-  // chek ghost layer, needs to be set to whole domain
+  // check ghost layer, needs to be set to whole domain
   // shared not distributed bc we want all processors to get access to all cells
   DoFHandler<dim> dof_handler_coarse;
   DoFHandler<dim> dof_handler_fine;
@@ -234,6 +237,7 @@ protected:
   LA::MPI::Vector       system_rhs;
   LA::MPI::Vector       fem_rhs;
   LA::MPI::Vector       fem_solution;
+  LA::MPI::Vector       fem_coarse_solution_interpolated;
   LA::MPI::SparseMatrix presaved_patch_stiffness_matrix;
   LA::MPI::SparseMatrix presaved_constrained_patch_stiffness_matrix;
 

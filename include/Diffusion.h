@@ -10,19 +10,19 @@ class problem_parameter : public Function<dim, double>
 private:
   const double        min_val;
   const double        max_val;
-  const double        eta;
+  const unsigned int  refinement;
   std::vector<double> random_values;
   unsigned int        N_cells_per_line;
+  double              eta;
 
 public:
-  // problem_parameter(){};
-
-  problem_parameter(double min, double max, double e)
+  problem_parameter(double min, double max, unsigned int r)
     : min_val(min)
     , max_val(max)
-    , eta(e)
+    , refinement(r)
   {
-    N_cells_per_line     = (int)1 / eta;
+    N_cells_per_line     = pow(2, refinement);
+    eta                  = (double)1 / N_cells_per_line;
     unsigned int N_cells = pow(N_cells_per_line, dim);
     // random_values.reinit(N_cells);
     if (max_val != min_val)
@@ -59,7 +59,7 @@ class DiffusionProblem : public LOD<dim, spacedim>
 public:
   DiffusionProblem(const LODParameters<dim, spacedim> &par)
     : LOD<dim, spacedim>(par)
-    , Alpha(1, 20, 0.25){};
+    , Alpha(1, 100, 8){};
 
   typedef LOD<dim, spacedim> lod;
 
@@ -70,7 +70,7 @@ protected:
   virtual void
   create_random_problem_coefficients() override
   {
-    TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
+    // TimerOutput::Scope t(lod::computing_timer, "1: create random coeff");
 
     Triangulation<dim> triangulation_h;
     GridGenerator::hyper_cube(triangulation_h);
@@ -97,7 +97,6 @@ protected:
                                   "alpha",
                                   DataOut<dim>::type_dof_data,
                                   scalar_component_interpretation);
-
 
     lod::data_out.build_patches();
     const std::string filename = lod::par.output_name + "_coefficients.vtu";
@@ -140,21 +139,12 @@ protected:
       FETools::lexicographic_to_hierarchic_numbering<dim>(
         lod::par.n_subdivisions);
 
-    // double       H                = pow(0.5, lod::par.n_global_refinements);
-    // double       h                = H / (lod::par.n_subdivisions);
-    // unsigned int N_cells_per_line = (int)1 / h;
 
     for (const auto &cell : dh.active_cell_iterators())
-      // if (cell->is_locally_owned())
       {
         cell_matrix = 0;
         cell_rhs    = 0;
         fe_values.reinit(cell);
-
-        // const double       x = cell->barycenter()(0);
-        // const double       y = cell->barycenter()(1);
-        // const unsigned int vector_cell_index =
-        //   (int)floor(x / h) + N_cells_per_line * (int)floor(y / h);
 
         if (rhs.size())
           {
@@ -187,6 +177,104 @@ protected:
                                 lexicographic_to_hierarchic_numbering
                                   [(c_0 + j_0) +
                                    (c_1 + j_1) * (lod::par.n_subdivisions + 1)];
+
+                              cell_matrix(i, j) +=
+                                // alpha[vector_cell_index] *
+                                alpha_values[q_index] *
+                                (fe_values.shape_grad(i, q_index) *
+                                 fe_values.shape_grad(j, q_index) *
+                                 fe_values.JxW(q_index));
+                            }
+                        if (rhs.size())
+                          cell_rhs(i) += fe_values.shape_value(i, q_index) *
+                                         rhs_values[q_index] *
+                                         fe_values.JxW(q_index);
+                      }
+                }
+
+        cell->get_dof_indices(local_dof_indices);
+
+        if (rhs.size())
+          stiffness_constraints.distribute_local_to_global(
+            cell_matrix, cell_rhs, local_dof_indices, stiffness_matrix, rhs);
+        else
+          stiffness_constraints.distribute_local_to_global(cell_matrix,
+                                                           local_dof_indices,
+                                                           stiffness_matrix);
+      }
+    stiffness_matrix.compress(VectorOperation::add);
+    rhs.compress(VectorOperation::add);
+  };
+
+
+  virtual void
+  assemble_stiffness_coarse(LA::MPI::SparseMatrix &    stiffness_matrix,
+                            LA::MPI::Vector &          rhs,
+                            const DoFHandler<dim> &    dh,
+                            AffineConstraints<double> &stiffness_constraints,
+                            const FiniteElement<dim> & fe,
+                            const Quadrature<dim> &    quadrature,
+                            const unsigned int         n_subdivisions) override
+  {
+    stiffness_matrix = 0;
+    if (rhs.size())
+      rhs = 0;
+
+    FEValues<dim> fe_values(fe,
+                            quadrature,
+                            update_values | update_gradients |
+                              update_quadrature_points | update_JxW_values);
+
+    const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+    const unsigned int n_q_points    = quadrature.size();
+
+    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+    Vector<double>     cell_rhs(dofs_per_cell);
+
+    std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
+    std::vector<double>                  rhs_values(n_q_points);
+    std::vector<double>                  alpha_values(n_q_points);
+
+
+    const auto lexicographic_to_hierarchic_numbering =
+      FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
+
+
+    for (const auto &cell : dh.active_cell_iterators())
+      {
+        cell_matrix = 0;
+        cell_rhs    = 0;
+        fe_values.reinit(cell);
+
+        if (rhs.size())
+          {
+            lod::par.rhs.value_list(fe_values.get_quadrature_points(),
+                                    rhs_values);
+          }
+        Alpha.value_list(fe_values.get_quadrature_points(), alpha_values);
+
+        for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
+          for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
+            for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+              for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                {
+                  const unsigned int q_index =
+                    (c_0 * 2 + q_0) + (c_1 * 2 + q_1) * (2 * n_subdivisions);
+
+                  for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                    for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                      {
+                        const unsigned int i =
+                          lexicographic_to_hierarchic_numbering
+                            [(c_0 + i_0) + (c_1 + i_1) * (n_subdivisions + 1)];
+
+                        for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                          for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                            {
+                              const unsigned int j =
+                                lexicographic_to_hierarchic_numbering
+                                  [(c_0 + j_0) +
+                                   (c_1 + j_1) * (n_subdivisions + 1)];
 
                               cell_matrix(i, j) +=
                                 // alpha[vector_cell_index] *

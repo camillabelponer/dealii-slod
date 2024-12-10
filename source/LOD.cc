@@ -40,19 +40,22 @@ LOD<dim, spacedim>::print_parameters() const
   else // spacedim == dim (3D case not yet implemented)
     pcout << "Running LOD Elasticity problem in " << dim << "D" << std::endl;
 
-  if (par.constant_coefficients)
-    Assert(
-      par.random_value_max == par.random_value_min,
-      ExcNotImplemented(
-        "cannot select non constant coefficients with minimun value different than maximum one"));
-  else // random coefficients
-    {
-      Assert(
-        par.n_global_refinements > par.random_value_refinement,
-        ExcNotImplemented(
-          "eta (refinement for the random coefficients), should be larger than h"));
-      Assert(par.random_value_max >= par.random_value_min, ExcNotImplemented());
-    }
+  // if (par.constant_coefficients)
+  //   Assert(
+  //     par.random_value_max == par.random_value_min,
+  //     ExcNotImplemented(
+  //       "cannot select non constant coefficients with minimum value different
+  //       than maximum one"));
+  // else // random coefficients
+  //   {
+  //     Assert(
+  //       par.n_global_refinements > par.random_value_refinement,
+  //       ExcNotImplemented(
+  //         "eta (refinement for the random coefficients), should be larger
+  //         than h"));
+  //     Assert(par.random_value_max >= par.random_value_min,
+  //     ExcNotImplemented());
+  //   }
 
   par.prm.print_parameters(par.output_directory + "/" + "used_parameters_" +
                              std::to_string(dim) + ".prm",
@@ -98,7 +101,7 @@ LOD<dim, spacedim>::make_fe()
   bool_dof_mask = create_bool_dof_mask_Q_iso_Q1(*fe_fine,
                                                 *quadrature_fine,
                                                 par.n_subdivisions);
-  // MPI: instead of having every processor compute it we could just comunicate
+  // MPI: instead of having every processor compute it we could just communicate
   // it
 }
 
@@ -485,7 +488,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               coarse_dofs_on_this_cell,
               PT);
             // here we cannot use any other constraint than empty, or we would
-            // lose the boundary values that are needed for PT_boudnary
+            // lose the boundary values that are needed for PT_boundary
 
             for (unsigned int d = 0; d < spacedim; d++)
               coarse_dofs_on_this_cell[d] += spacedim;
@@ -502,7 +505,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           // computing_timer.leave_subsection();
         }
 
-      // we set the fod correspoinding to boundary nods = 0 in PT because when
+      // we set the fod corresponding to boundary nods = 0 in PT because when
       // we apply the boundary conditions on unconstrained_stiffness we will
       // still have values on the diagonal of the constrained nodes setting
       // those values to zero would result in a gauss_elimination not converging
@@ -525,7 +528,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
         }
       // if(!use_presaved)
       {
-        // todo: idea to make LOD faster, thiw following lines are only needed
+        // todo: idea to make LOD faster, this following lines are only needed
         // if we use empty_contraints in assemble_stiffness we should first of
         // all merge the two constrains (patch and domain) and then decide if
         // pass to assemble empty ( SLOD case) or the merged one (LOD) then
@@ -561,7 +564,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           tria.n_active_cells() == current_patch->sub_tria.n_active_cells())
         {
           computing_timer.enter_subsection("2: compute basis function 3: LOD");
-          // if we are not stabilizing then we only take candiadates related to
+          // if we are not stabilizing then we only take candidates related to
           // the central cell of the patch 0 is the index of the central cell
           // (this is also the central dof because we use P0 elements)
           for (unsigned int d = 0; d < spacedim; ++d)
@@ -609,7 +612,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
           S_boundary.mmult(B_full, Ainv_PT_internal);
 
           // creating the matrix B_full using all components from all
-          // candidatesl
+          // candidates
           PT_boundary *= -1;
           B_full.mmult(BD, P_Ainv_PT);
           PT_boundary.mmult(BD, P_Ainv_PT, true);
@@ -775,7 +778,7 @@ LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
   //   if (i != numbers::flat_manifold_id)
   //     current_patch.sub_tria.set_manifold(i, tria.get_manifold(i));
 
-  // renumerate vertices
+  // re-enumerate vertices
   std::vector<unsigned int> new_vertex_indices(tria.n_vertices(), 0);
 
   for (const auto &cell : current_patch.cells)
@@ -871,7 +874,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
   //                     patches_pattern_fine,
   //                     mpi_communicator);
 
-  // if we don't want to use the operator to compute the global_stiffnes matrix
+  // if we don't want to use the operator to compute the global_stiffness matrix
   // as a multiplication then we need the transpose of the patches_pattern_fine
   // and in this case the matrix premultiplied_basis_matrix will saved already
   // in the transposed form
@@ -975,19 +978,25 @@ void
 LOD<dim, spacedim>::solve()
 {
   TimerOutput::Scope t(computing_timer, "4: Solve LOD");
-  // LA::MPI::PreconditionAMG prec_A;
-  LA::MPI::PreconditionSSOR prec_A;
-  prec_A.initialize(global_stiffness_matrix, 1.2);
-
-  // SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
-  TrilinosWrappers::SolverDirect solver(par.coarse_solver_control);
 
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
-  // solver.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
-  solver.initialize(global_stiffness_matrix);
-  solver.solve(global_stiffness_matrix, solution, system_rhs);
+  if (false) // debugging
+    {
+      TrilinosWrappers::SolverDirect solver(par.coarse_solver_control);
+      solver.initialize(global_stiffness_matrix);
+      solver.solve(global_stiffness_matrix, solution, system_rhs);
+    }
+  else
+    {
+      LA::MPI::PreconditionSSOR prec_A;
+      prec_A.initialize(global_stiffness_matrix, 1.2);
+
+      SolverCG<LA::MPI::Vector> solver(par.coarse_solver_control);
+
+      solver.solve(global_stiffness_matrix, solution, system_rhs, prec_A);
+    }
   pcout << "   size of u " << solution.size() << std::endl;
   coarse_boundary_constraints.distribute(solution);
 }
@@ -1054,14 +1063,34 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;
 
   // solve
-  LA::MPI::PreconditionAMG prec_Sh;
-  prec_Sh.initialize(fem_stiffness_matrix, 1.2);
+  if (false)
+    {
+      TrilinosWrappers::SolverDirect solver(par.fine_solver_control);
+      solver.initialize(fem_stiffness_matrix);
+      solver.solve(fem_stiffness_matrix, fem_solution, fem_rhs);
+    }
+  else
+    {
+      LA::MPI::PreconditionAMG prec_Sh;
+      prec_Sh.initialize(fem_stiffness_matrix, 1.2);
 
-  SolverCG<LA::MPI::Vector> solver(par.fine_solver_control);
-  solver.solve(fem_stiffness_matrix, fem_solution, fem_rhs, prec_Sh);
+      SolverCG<LA::MPI::Vector> solver(par.fine_solver_control);
+      solver.solve(fem_stiffness_matrix, fem_solution, fem_rhs, prec_Sh);
+    }
+
 
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
+
+  if (par.constant_coefficients) // for random coefficients it makes no
+                                   // sense to compare with the exact solution
+                                   // as it's not known anyway
+      {
+        par.error_FEMh_exact.error_from_exact(dh,
+                                              fem_solution,
+                                              par.exact_solution);
+      }
+
   computing_timer.leave_subsection();
   /*
     computing_timer.enter_subsection("4: solve LOD w A_fem");
@@ -1071,109 +1100,136 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
     global_stiffness_matrix.compress(VectorOperation::add);
     computing_timer.leave_subsection();
     */
-
-  computing_timer.enter_subsection("4: assemble solve & compare coarse fem");
-  const unsigned int                  coarse_fem_subdivisions = 1;
-  DoFHandler<dim>                     dof_handler(tria);
-  std::unique_ptr<FiniteElement<dim>> fe =
-    std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(coarse_fem_subdivisions),
-                                    spacedim);
-  dof_handler.distribute_dofs(*fe);
-  std::unique_ptr<Quadrature<dim>> quadrature =
-    std::make_unique<Quadrature<dim>>(
-      QIterated<dim>(QGauss<1>(2), coarse_fem_subdivisions));
-
-  Table<2, bool> coarse_bool_dof_mask =
-    create_bool_dof_mask_Q_iso_Q1(*fe, *quadrature, coarse_fem_subdivisions);
-
-  auto     lod = dof_handler.locally_owned_dofs();
-  IndexSet lrd;
-  DoFTools::extract_locally_relevant_dofs(dof_handler, lrd);
-
-  // create sparsity pattern fr global fine matrix
-  AffineConstraints<double> fem_coarse_constraints(lrd);
-  // DoFTools::make_hanging_node_constraints(dh, fem_constraints); // not needed
-  // with global refinemnt
-  VectorTools::interpolate_boundary_values(dof_handler,
-                                           0,
-                                           par.bc,
-                                           fem_coarse_constraints);
-  fem_coarse_constraints.close();
-
-  LA::MPI::SparseMatrix fem_coarse_stiffness_matrix;
-  LA::MPI::Vector       fem_coarse_rhs;
-  LA::MPI::Vector       fem_coarse_solution;
-
+  if constexpr (spacedim == 2)
   {
-    SparsityPattern        sparsity_pattern;
-    DynamicSparsityPattern dsp(dof_handler.n_dofs());
+    computing_timer.enter_subsection(
+      "4: assemble, solve, compare & output coarse fem");
+    const unsigned int                  coarse_fem_subdivisions = 1;
+    DoFHandler<dim>                     dof_handler(tria);
+    std::unique_ptr<FiniteElement<dim>> fe =
+      std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(coarse_fem_subdivisions),
+                                      spacedim);
+    dof_handler.distribute_dofs(*fe);
+    std::unique_ptr<Quadrature<dim>> quadrature =
+      std::make_unique<Quadrature<dim>>(
+        QIterated<dim>(QGauss<1>(2), coarse_fem_subdivisions));
 
-    std::vector<types::global_dof_index> dofs_on_this_cell;
+    Table<2, bool> coarse_bool_dof_mask =
+      create_bool_dof_mask_Q_iso_Q1(*fe, *quadrature, coarse_fem_subdivisions);
 
-    for (const auto &cell : dof_handler.active_cell_iterators())
-      if (cell->is_locally_owned())
-        {
-          const unsigned int dofs_per_cell = cell->get_fe().n_dofs_per_cell();
-          dofs_on_this_cell.resize(dofs_per_cell);
-          cell->get_dof_indices(dofs_on_this_cell);
+    auto     lod = dof_handler.locally_owned_dofs();
+    IndexSet lrd;
+    DoFTools::extract_locally_relevant_dofs(dof_handler, lrd);
 
-          fem_coarse_constraints.add_entries_local_to_global(
-            dofs_on_this_cell,
-            dsp,
-            true,
-            coarse_bool_dof_mask); // keep constrained entries must be true
-        }
+    // create sparsity pattern fr global fine matrix
+    AffineConstraints<double> fem_coarse_constraints(lrd);
+    // DoFTools::make_hanging_node_constraints(dh, fem_constraints); // not
+    // needed with global refinemnt
+    VectorTools::interpolate_boundary_values(dof_handler,
+                                             0,
+                                             par.bc,
+                                             fem_coarse_constraints);
+    fem_coarse_constraints.close();
 
-    dsp.compress();
-    sparsity_pattern.copy_from(dsp);
-    fem_coarse_stiffness_matrix.reinit(sparsity_pattern);
-  }
+    LA::MPI::SparseMatrix fem_coarse_stiffness_matrix;
+    LA::MPI::Vector       fem_coarse_rhs;
+    LA::MPI::Vector       fem_coarse_solution;
 
-  fem_coarse_rhs.reinit(lod, mpi_communicator);
-  fem_coarse_solution.reinit(lod, mpi_communicator);
-
-  assemble_stiffness_coarse(fem_coarse_stiffness_matrix,
-                            fem_coarse_rhs,
-                            dof_handler,
-                            fem_coarse_constraints,
-                            *fe,
-                            *quadrature,
-                            coarse_fem_subdivisions);
-  // solve
-  LA::MPI::PreconditionAMG prec_SH;
-  prec_SH.initialize(fem_coarse_stiffness_matrix, 1.2);
-
-  auto fem_fine_rhs(fem_coarse_rhs);
-  FETools::interpolate(dof_handler_fine, fem_rhs, dof_handler, fem_fine_rhs);
-
-  SolverCG<LA::MPI::Vector> solver_coarse(par.fine_solver_control);
-  solver_coarse.solve(fem_coarse_stiffness_matrix,
-                      fem_coarse_solution,
-                      fem_coarse_rhs,
-                      prec_SH);
-  fem_coarse_constraints.distribute(fem_coarse_solution);
-
-  auto fem_coarse_solution_interpolated(fem_solution);
-
-  FETools::interpolate(dof_handler,
-                       fem_coarse_solution,
-                       dof_handler_fine,
-                       fem_coarse_solution_interpolated);
-
-  par.error_FEMH_FEMh.difference(dof_handler_fine,
-                                 fem_solution,
-                                 fem_coarse_solution_interpolated);
-
-  if (par.constant_coefficients) // for random coefficients it makes no sense to
-                                 // compare with the exact solution as it's not
-                                 // known anyway
     {
-      par.error_FEMH_exact.error_from_exact(dof_handler_fine,
-                                            fem_coarse_solution_interpolated,
-                                            par.exact_solution);
+      SparsityPattern        sparsity_pattern;
+      DynamicSparsityPattern dsp(dof_handler.n_dofs());
+
+      std::vector<types::global_dof_index> dofs_on_this_cell;
+
+      for (const auto &cell : dof_handler.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            const unsigned int dofs_per_cell = cell->get_fe().n_dofs_per_cell();
+            dofs_on_this_cell.resize(dofs_per_cell);
+            cell->get_dof_indices(dofs_on_this_cell);
+
+            fem_coarse_constraints.add_entries_local_to_global(
+              dofs_on_this_cell,
+              dsp,
+              true,
+              coarse_bool_dof_mask); // keep constrained entries must be true
+          }
+
+      dsp.compress();
+      sparsity_pattern.copy_from(dsp);
+      fem_coarse_stiffness_matrix.reinit(sparsity_pattern);
     }
 
-  computing_timer.leave_subsection();
+    fem_coarse_rhs.reinit(lod, mpi_communicator);
+    fem_coarse_solution.reinit(lod, mpi_communicator);
+
+    assemble_stiffness_coarse(fem_coarse_stiffness_matrix,
+                              fem_coarse_rhs,
+                              dof_handler,
+                              fem_coarse_constraints,
+                              *fe,
+                              *quadrature,
+                              coarse_fem_subdivisions);
+    // solve
+    // LA::MPI::PreconditionAMG prec_SH;
+    // prec_SH.initialize(fem_coarse_stiffness_matrix, 1.2);
+
+    auto fem_fine_rhs(fem_coarse_rhs);
+    FETools::interpolate(dof_handler_fine, fem_rhs, dof_handler, fem_fine_rhs);
+
+    // SolverCG<LA::MPI::Vector> solver_coarse(par.fine_solver_control);
+    // solver_coarse.solve(fem_coarse_stiffness_matrix,
+    //                     fem_coarse_solution,
+    //                     fem_coarse_rhs,
+    //                     prec_SH);
+
+    TrilinosWrappers::SolverDirect solver(par.fine_solver_control);
+    solver.initialize(fem_coarse_stiffness_matrix);
+    solver.solve(fem_coarse_stiffness_matrix,
+                 fem_coarse_solution,
+                 fem_coarse_rhs);
+
+    fem_coarse_constraints.distribute(fem_coarse_solution);
+
+    fem_coarse_solution_interpolated = fem_solution;
+
+    FETools::interpolate(dof_handler,
+                         fem_coarse_solution,
+                         dof_handler_fine,
+                         fem_coarse_solution_interpolated);
+
+    par.error_FEMH_FEMh.difference(dof_handler_fine,
+                                   fem_solution,
+                                   fem_coarse_solution_interpolated);
+
+    if (par.constant_coefficients) // for random coefficients it makes no
+                                   // sense to compare with the exact solution
+                                   // as it's not known anyway
+      {
+        par.error_FEMH_exact.error_from_exact(dof_handler,
+                                              fem_coarse_solution,
+                                              par.exact_solution);
+      }
+
+    //     std::vector<std::string> fem_coarse_names(spacedim,
+    //     "fem_coarse_solution");
+
+    // data_out.attach_dof_handler(dof_handler_fine);
+
+    // data_out.add_data_vector(fem_coarse_solution_interpolated,
+    //                          fem_coarse_names,
+    //                          DataOut<dim>::type_dof_data,
+    //                          data_component_interpretation);
+
+
+    // data_out.build_patches();
+    // const std::string filename = par.output_name + "_fem_coarse.vtu";
+    // data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
+    //                                mpi_communicator);
+    // data_out.clear();
+
+    computing_timer.leave_subsection();
+  }
 }
 
 template <int dim, int spacedim>
@@ -1201,10 +1257,11 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   computing_timer.enter_subsection("6: fine output");
 
   // output fem solution
-  std::vector<std::string> fem_names(spacedim, "fem_solution");
+  std::vector<std::string> fem_names(spacedim, "fem_reference");
   std::vector<std::string> exact_solution_names(spacedim, "exact_solution");
   std::vector<std::string> exact_rhs_names(spacedim, "exact_rhs");
   std::vector<std::string> lod_names(spacedim, "lod_solution");
+  std::vector<std::string> fem_coarse_names(spacedim, "fem_coarse_solution");
 
   auto exact_vec(fem_solution);
   VectorTools::interpolate(dh, par.exact_solution, exact_vec);
@@ -1230,6 +1287,10 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                            data_component_interpretation);
   data_out.add_data_vector(lod_solution,
                            lod_names,
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+  data_out.add_data_vector(fem_coarse_solution_interpolated,
+                           fem_coarse_names,
                            DataOut<dim>::type_dof_data,
                            data_component_interpretation);
 
@@ -1317,7 +1378,7 @@ LOD<dim, spacedim>::initialize_patches()
   //     for (const auto &cell_it : tria.active_cell_iterators())
   //       {
   //         auto cell = cell_it->active_cell_index();
-  //         file << "- cell " << cell << " (baricenter " <<
+  //         file << "- cell " << cell << " (barycenter " <<
   //         cell_it->barycenter()
   //              << ") is connected to patches/cells: {";
   //         for (unsigned int j = 0; j < patches_pattern.row_length(cell); j++)
@@ -1360,13 +1421,19 @@ LOD<dim, spacedim>::run()
         {
           pcout << "SLOD vs exact solution" << std::endl;
           par.error_LOD_exact.output_table(pcout.get_stream());
-          pcout << "FEM(H) vs exact solution" << std::endl;
-          par.error_FEMH_exact.output_table(pcout.get_stream());
+          if constexpr (spacedim == 2) // TODO !!!
+            {
+              pcout << "FEM(H) vs exact solution" << std::endl;
+              par.error_FEMH_exact.output_table(pcout.get_stream());
+            }
+          pcout << "FEMh vs exact solution" << std::endl;
+          par.error_FEMh_exact.output_table(pcout.get_stream());
         }
-
-      pcout << "FEM(H) vs reference FEM(h)" << std::endl;
-      par.error_FEMH_FEMh.output_table(pcout.get_stream());
-
+      if constexpr (spacedim == 2) // TODO !!!
+        {
+          pcout << "FEM(H) vs reference FEM(h)" << std::endl;
+          par.error_FEMH_FEMh.output_table(pcout.get_stream());
+        }
 
       pcout << "SLOD vs reference FEM(h)" << std::endl;
       par.error_LOD_FEMh.output_table(pcout.get_stream());

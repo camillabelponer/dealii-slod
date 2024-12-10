@@ -14,7 +14,7 @@ output/
 *.pdf
 *.sh
 *.csv
-oldcode_untracked/
+untracked/
 .vscode/
 *.prm
 *.vtu
