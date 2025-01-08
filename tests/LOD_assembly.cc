@@ -135,8 +135,7 @@ main(int argc, char **argv)
 
   // Queue for patches for which neighbours should be added
   std::vector<typename DoFHandler<dim>::active_cell_iterator> patch_iterators;
-  size_t size_biggest_patch = 0;
-  size_t size_tiniest_patch = tria.n_active_cells();
+
   for (const auto &cell : dof_handler_coarse.active_cell_iterators())
     {
       auto cell_index = cell->active_cell_index();

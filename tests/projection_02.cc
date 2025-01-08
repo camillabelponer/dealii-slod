@@ -43,6 +43,7 @@ public:
 };
 
 
+/*
 template <int dim>
 void
 test()
@@ -50,10 +51,10 @@ test()
   Triangulation<dim> square;
 
   GridGenerator::hyper_cube(square);
-  square.refine_global(par.n_global_refinements);
+  square.refine_global(n_global_refinements);
 
   FE_DGQ<dim>      fe1(0);
-  FE_Q_iso_Q1<dim> fe2(par.n_subdivisions);
+  FE_Q_iso_Q1<dim> fe2(n_subdivisions);
 
   DoFHandler<dim> dof_handler_1(square);
   DoFHandler<dim> dof_handler_2(square);
@@ -78,7 +79,7 @@ test()
   projection_P0_P1<dim>(projection_matrix);
   projection_matrix.print(std::cout);
 }
-
+*/
 
 int
 main(int argc, char **argv)
@@ -382,7 +383,7 @@ main(int argc, char **argv)
             cell->get_dof_indices(local_dof_indices);
 
             internal_boundary_constraints.distribute_local_to_global(
-              projection_matrixT, local_dof_indices, P);
+              projection_matrix, local_dof_indices, P);
           }
       }
 
