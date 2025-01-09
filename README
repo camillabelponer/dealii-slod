@@ -1,9 +1,15 @@
-branch to have the LOD as a base class and elasticity and diffusion as derived
+implementation of SLOD for poisson problem and elasticity
+
+to run the code an input file is needed: run the code once without argument to create an input file
 
 
+
+
+  
+    
 todo:
 - make svd a function to make the code more readable
 - how to avoid ( or speed up) the extraction for S_boundary ?
 - move the parameter class into LODtools.h
 - read val_min, val_max, eta from input file
-- fix assemble coarse: doeas not need to be Q_iso_Q1 since we only use it as a comparison
+- fix assemble coarse: does not need to be Q_iso_Q1 since we only use it as a comparison

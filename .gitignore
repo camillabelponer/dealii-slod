@@ -1,3 +1,4 @@
+# results of compilation
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
@@ -9,18 +10,24 @@ install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
 _deps
+
+# folders
 build/
 output/
-*.pdf
-*.sh
-*.csv
 untracked/
-.vscode/
-*.prm
-*.vtu
-*.pvd
 prm/
+
+# vsc
+.vscode/
 */.project
 */.cproject
 .project
 .cproject
+
+# simulation files
+*.pdf
+*.sh
+*.csv
+*.prm
+*.vtu
+*.pvd
