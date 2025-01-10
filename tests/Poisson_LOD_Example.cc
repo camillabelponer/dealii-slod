@@ -1391,6 +1391,44 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
   fem_constraints.distribute(fem_solution);
 }
 
+
+template <int dim, int spacedim>
+void
+LOD<dim, spacedim>::compare_lod_with_fem()
+{
+  const auto &dh = dof_handler_fine;
+
+  LA::MPI::Vector lod_solution(patches_pattern_fine.nonempty_cols(),
+                               mpi_communicator);
+  lod_solution = 0;
+
+  basis_matrix_transposed.vmult(lod_solution, solution);
+
+  // output fem solution
+  std::vector<std::string> fem_names(spacedim, "fem_reference");
+  std::vector<std::string> lod_names(spacedim, "lod_solution");
+
+  data_out.attach_dof_handler(dh);
+
+  data_out.add_data_vector(fem_solution,
+                           fem_names,
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+  data_out.add_data_vector(lod_solution,
+                           lod_names,
+                           DataOut<dim>::type_dof_data,
+                           data_component_interpretation);
+
+  data_out.build_patches();
+  const std::string filename = "solution_fine.vtu";
+  data_out.write_vtu_in_parallel(filename,
+                                 mpi_communicator);
+
+  // std::ofstream pvd_solutions(par.output_directory + "/" + par.output_name +
+  //                             "_fine.pvd");
+  data_out.clear();
+}
+
 template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::initialize_patches()
