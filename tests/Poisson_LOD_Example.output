@@ -1,0 +1,6 @@
+Number of coarse cell = 16, number of patches = 16 (locally owned: 16) 
+Patches size in (4, 9)
+     fem rhs l2 norm = 0.109375
+   size of fem u 81
+     rhs l2 norm = 0.0808367
+   size of u 16
