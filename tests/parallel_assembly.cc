@@ -1,55 +1,55 @@
-#include <deal.II/base/conditional_ostream.h>
-#include <deal.II/base/exceptions.h>
-#include <deal.II/base/parameter_acceptor.h>
-#include <deal.II/base/parsed_convergence_table.h>
-#include <deal.II/base/parsed_function.h>
-#include <deal.II/base/quadrature.h>
-#include <deal.II/base/types.h>
+// #include <deal.II/base/conditional_ostream.h>
+// #include <deal.II/base/exceptions.h>
+// #include <deal.II/base/parameter_acceptor.h>
+// #include <deal.II/base/parsed_convergence_table.h>
+// #include <deal.II/base/parsed_function.h>
+// #include <deal.II/base/quadrature.h>
+// #include <deal.II/base/types.h>
 
-#include <deal.II/distributed/grid_refinement.h>
-#include <deal.II/distributed/solution_transfer.h>
-#include <deal.II/distributed/tria.h>
+// #include <deal.II/distributed/grid_refinement.h>
+// #include <deal.II/distributed/solution_transfer.h>
+// #include <deal.II/distributed/tria.h>
 
 #include <deal.II/dofs/dof_tools.h>
 
-#include <deal.II/fe/fe_dgq.h>
-#include <deal.II/fe/fe_nothing.h>
-#include <deal.II/fe/fe_q.h>
-#include <deal.II/fe/fe_q_iso_q1.h>
+// #include <deal.II/fe/fe_dgq.h>
+// #include <deal.II/fe/fe_nothing.h>
+// #include <deal.II/fe/fe_q.h>
+// #include <deal.II/fe/fe_q_iso_q1.h>
 #include <deal.II/fe/fe_system.h>
-#include <deal.II/fe/fe_values.h>
-#include <deal.II/fe/mapping_fe_field.h>
-#include <deal.II/fe/mapping_q.h>
+// #include <deal.II/fe/fe_values.h>
+// #include <deal.II/fe/mapping_fe_field.h>
+// #include <deal.II/fe/mapping_q.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
-#include <deal.II/grid/intergrid_map.h>
+// #include <deal.II/grid/intergrid_map.h>
 
-#include <deal.II/lac/arpack_solver.h>
-#include <deal.II/lac/dynamic_sparsity_pattern.h>
-#include <deal.II/lac/full_matrix.h>
+// #include <deal.II/lac/arpack_solver.h>
+// #include <deal.II/lac/dynamic_sparsity_pattern.h>
+// #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/generic_linear_algebra.h>
-#include <deal.II/lac/la_parallel_vector.h>
-#include <deal.II/lac/lapack_full_matrix.h>
-#include <deal.II/lac/linear_operator.h>
-#include <deal.II/lac/linear_operator_tools.h>
-#include <deal.II/lac/petsc_full_matrix.h>
-#include <deal.II/lac/petsc_matrix_free.h>
-#include <deal.II/lac/petsc_vector.h>
-#include <deal.II/lac/slepc_solver.h>
-#include <deal.II/lac/solver_control.h>
-#include <deal.II/lac/solver_minres.h>
-#include <deal.II/lac/sparse_direct.h>
-#include <deal.II/lac/sparsity_tools.h>
-#include <deal.II/lac/trilinos_vector.h>
+// #include <deal.II/lac/la_parallel_vector.h>
+// #include <deal.II/lac/lapack_full_matrix.h>
+// #include <deal.II/lac/linear_operator.h>
+// #include <deal.II/lac/linear_operator_tools.h>
+// #include <deal.II/lac/petsc_full_matrix.h>
+// #include <deal.II/lac/petsc_matrix_free.h>
+// #include <deal.II/lac/petsc_vector.h>
+// #include <deal.II/lac/slepc_solver.h>
+// #include <deal.II/lac/solver_control.h>
+// #include <deal.II/lac/solver_minres.h>
+// #include <deal.II/lac/sparse_direct.h>
+// #include <deal.II/lac/sparsity_tools.h>
+// #include <deal.II/lac/trilinos_vector.h>
 
 #include <deal.II/multigrid/mg_transfer_global_coarsening.h>
 
-#include <deal.II/numerics/data_out.h>
-#include <deal.II/numerics/matrix_tools.h>
-#include <deal.II/numerics/vector_tools.h>
+// #include <deal.II/numerics/data_out.h>
+// #include <deal.II/numerics/matrix_tools.h>
+// #include <deal.II/numerics/vector_tools.h>
 
-#include <memory>
+// #include <memory>
 
 
 namespace LA
@@ -165,8 +165,6 @@ LOD<dim, spacedim>::make_fe()
   patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
                               dof_handler_fine.n_dofs(),
                               locally_relevant_dofs);
-  // MPI: instead of having every processor compute it we could just communicate
-  // it
 }
 
 template <int dim, int spacedim>
@@ -308,6 +306,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       dh_fine_patch.distribute_dofs(*fe_fine);
     auto N_dofs_fine   = dh_fine_patch.n_dofs();
           Vector<double>          selected_basis_function(N_dofs_fine);
+          selected_basis_function.add(1);
       for (unsigned int d = 0; d < spacedim; ++d)
         {
           current_patch->basis_function.push_back(selected_basis_function);
@@ -486,6 +485,8 @@ LOD<dim, spacedim>::assemble_global_matrix()
   basis_matrix_transposed.Tmmult(global_stiffness_matrix,
                                  premultiplied_basis_matrix);
   global_stiffness_matrix.compress(VectorOperation::add);
+
+  global_stiffness_matrix.print(std::cout);
 }
 
 template <int dim, int spacedim>
