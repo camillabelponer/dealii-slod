@@ -1389,6 +1389,8 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
 
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
+
+  compare_lod_with_fem();
 }
 
 
@@ -1524,7 +1526,7 @@ class DiffusionProblem : public LOD<dim, spacedim>
 public:
   DiffusionProblem()
     : LOD<dim, spacedim>()
-    , Alpha(1, 100, 8){};
+    , Alpha(1.0, 1.0, 8){};
 
   typedef LOD<dim, spacedim> lod;
 
