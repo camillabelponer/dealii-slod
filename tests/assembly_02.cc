@@ -121,7 +121,12 @@ main(int argc, char **argv)
       {
         patch.reinit(cell, n_overlap);
 
-        const auto                           n_dofs_patch = patch.n_dofs();
+        const double H = 0.0; // TODO
+        const double h = 0.0; // TODO
+
+        const auto                           n_dofs_patch  = patch.n_dofs();
+        const unsigned int                   N_dofs_coarse = 0; // TODO
+        const unsigned int                   N_dofs_fine   = 0; // TODO
         std::vector<types::global_dof_index> local_dof_indices_fine(
           n_dofs_patch);
         patch.get_dof_indices(local_dof_indices_fine);
@@ -132,7 +137,85 @@ main(int argc, char **argv)
         patch_constraints.close();
 
         Vector<double> selected_basis_function(n_dofs_patch);
-        selected_basis_function = 1.0; // (TODO: adjust for LOD)
+
+        TrilinosWrappers::SparseMatrix patch_stiffness_matrix;
+        FullMatrix<double>             PT(N_dofs_fine, N_dofs_coarse);
+        FullMatrix<double>             P_Ainv_PT(N_dofs_coarse);
+        FullMatrix<double>             Ainv_PT(N_dofs_fine, N_dofs_coarse);
+
+        Vector<double> PT_counter(N_dofs_fine);
+
+        FE_Q_iso_Q1<dim>     fe(fe_degree);
+        const QIterated<dim> quadrature(QGauss<1>(2), fe_degree);
+        FEValues<dim>        fe_values(
+          fe, quadrature, update_values | update_gradients | update_JxW_values);
+
+        // ... by looping over cells in patch
+        for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+          {
+            fe_values.reinit(patch.create_cell_iterator(tria, cell));
+
+            const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+
+            FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+
+            for (const unsigned int q_index :
+                 fe_values.quadrature_point_indices())
+              {
+                for (const unsigned int i : fe_values.dof_indices())
+                  for (const unsigned int j : fe_values.dof_indices())
+                    cell_matrix(i, j) += (fe_values.shape_grad(i, q_index) *
+                                          fe_values.shape_grad(j, q_index) *
+                                          fe_values.JxW(q_index));
+              }
+
+            std::vector<types::global_dof_index> indices(dofs_per_cell);
+            patch.get_dof_indices_of_cell(cell, indices);
+
+            AffineConstraints<double>().distribute_local_to_global(
+              cell_matrix, indices, patch_stiffness_matrix);
+
+            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+              {
+                PT[i][cell] = h * h;
+                PT_counter[i] += 1;
+              }
+          }
+
+        patch_stiffness_matrix.compress(VectorOperation::values::add);
+
+        for (auto &i : PT_counter)
+          i = 1.0 / i;
+
+        for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+          for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+            PT[i][cell] *= PT_counter[i];
+
+        const auto &patch_constraints_is = patch_constraints.get_local_lines();
+
+        for (unsigned int i = 0; i < patch.n_cells(); ++i)
+          for (const auto j : patch_constraints_is)
+            PT(j, i) = 0.0;
+
+        for (const auto j : patch_constraints_is)
+          patch_stiffness_matrix.clear_row(j, 1);
+
+        Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
+
+        PT.Tmmult(P_Ainv_PT, Ainv_PT);
+        P_Ainv_PT /= pow(H, dim);
+        P_Ainv_PT.gauss_jordan();
+
+        Vector<double> e_i(N_dofs_coarse);
+        Vector<double> triple_product_inv_e_i(N_dofs_coarse);
+
+        e_i[0 /*TODO*/] = 1.0;
+        P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
+
+        Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
+
+        selected_basis_function /= selected_basis_function.l2_norm();
+
         patch_constraints.set_zero(selected_basis_function);
 
         for (unsigned int i = 0; i < n_dofs_patch; ++i)
