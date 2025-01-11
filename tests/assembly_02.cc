@@ -26,14 +26,15 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  const unsigned int dim       = 1;
-  const unsigned int fe_degree = 2;
-  const unsigned int n_overlap = 1; // numbers::invalid_unsigned_int
-  const MPI_Comm     comm      = MPI_COMM_WORLD;
+  const unsigned int dim            = 1;
+  const unsigned int fe_degree      = 2;
+  const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
+  const unsigned int n_subdivisions = 5;
+  const MPI_Comm     comm           = MPI_COMM_WORLD;
 
   AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
 
-  std::vector<unsigned int> repetitions(dim, 5);
+  std::vector<unsigned int> repetitions(dim, n_subdivisions);
   Point<dim>                p1;
   Point<dim>                p2;
 
@@ -121,12 +122,12 @@ main(int argc, char **argv)
       {
         patch.reinit(cell, n_overlap);
 
-        const double H = 0.0; // TODO
-        const double h = 0.0; // TODO
+        double H = 1.0 / n_subdivisions;
+        double h = H / fe_degree;
 
         const auto                           n_dofs_patch  = patch.n_dofs();
-        const unsigned int                   N_dofs_coarse = 0; // TODO
-        const unsigned int                   N_dofs_fine   = 0; // TODO
+        const unsigned int                   N_dofs_coarse = patch.n_cells();
+        const unsigned int                   N_dofs_fine   = n_dofs_patch;
         std::vector<types::global_dof_index> local_dof_indices_fine(
           n_dofs_patch);
         patch.get_dof_indices(local_dof_indices_fine);
@@ -188,7 +189,7 @@ main(int argc, char **argv)
           i = 1.0 / i;
 
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
-          for (unsigned int i = 0; i < fe.dofs_per_cell; ++i)
+          for (unsigned int i = 0; i < n_dofs_patch; ++i)
             PT[i][cell] *= PT_counter[i];
 
         const auto &patch_constraints_is = patch_constraints.get_local_lines();
