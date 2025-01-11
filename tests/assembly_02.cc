@@ -21,12 +21,100 @@
 
 using namespace dealii;
 
+
+
+void
+my_Gauss_elimination(const FullMatrix<double> &            rhs,
+                  const TrilinosWrappers::SparseMatrix &sparse_matrix,
+                  FullMatrix<double> &                  solution,
+                  double                                reduce    = 1.e-16,
+                  double                                tolerance = 1.e-18,
+                  double                                iter      = 100)
+{
+  // create preconditioner
+  TrilinosWrappers::PreconditionILU ilu;
+  ilu.initialize(sparse_matrix);
+
+  Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
+  Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
+  Assert(rhs.m() == solution.m(), ExcInternalError());
+  Assert(rhs.n() == solution.n(), ExcInternalError());
+
+  solution = 0.0;
+
+  const unsigned int n_dofs       = rhs.m();
+  const unsigned int Ndofs_coarse = rhs.n();
+
+  const unsigned int n_blocks        = Ndofs_coarse;
+  const unsigned int n_blocks_stride = n_blocks;
+
+
+  for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
+    {
+      const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
+
+      std::vector<double> rhs_temp(n_dofs * (bend - b));
+      std::vector<double> solution_temp(n_dofs * (bend - b));
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < n_dofs; ++j)
+          {
+            rhs_temp[i * n_dofs + j] = rhs(j, i + b); // rhs[i + b][j];
+            solution_temp[i * n_dofs + j] =
+              0.0; // solution(i+b,j); //solution[i + b][j];
+          }
+
+      std::vector<double *> rhs_ptrs(bend - b);
+      std::vector<double *> sultion_ptrs(bend - b);
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        {
+          rhs_ptrs[i]     = &rhs_temp[i * n_dofs];      //&rhs[i + b][0];
+          sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
+        }
+
+      const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
+      const Epetra_Operator & prec = ilu.trilinos_operator();
+
+      Epetra_MultiVector trilinos_dst(View,
+                                      mat.OperatorRangeMap(),
+                                      sultion_ptrs.data(),
+                                      sultion_ptrs.size());
+      Epetra_MultiVector trilinos_src(View,
+                                      mat.OperatorDomainMap(),
+                                      rhs_ptrs.data(),
+                                      rhs_ptrs.size());
+
+
+      if (false)
+        {
+          ReductionControl solver_control(
+            iter, tolerance, reduce, false, false);
+          TrilinosWrappers::SolverCG solver(solver_control);
+          solver.solve(mat, trilinos_dst, trilinos_src, prec);
+        }
+      else
+        {
+          SolverControl solver_control(iter, tolerance, false, false);
+          TrilinosWrappers::MySolverDirect solver(solver_control);
+          solver.initialize(sparse_matrix);
+          solver.solve(mat, trilinos_dst, trilinos_src);
+        }
+
+      for (unsigned int i = 0; i < (bend - b); ++i)
+        for (unsigned int j = 0; j < n_dofs; ++j)
+          {
+            solution(j, i + b) = solution_temp[i * n_dofs + j];
+          }
+    }
+}
+
 int
 main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  const unsigned int dim            = 1;
+  const unsigned int dim            = 2;
   const unsigned int fe_degree      = 2;
   const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
   const unsigned int n_subdivisions = 2;
@@ -181,7 +269,7 @@ main(int argc, char **argv)
             AffineConstraints<double>().distribute_local_to_global(
               cell_matrix, indices, patch_stiffness_matrix);
 
-            for (unsigned int i = 0; i < dofs_per_cell; ++i)
+            for (const auto i : indices)
               {
                 PT[i][cell] = h * h;
                 PT_counter[i] += 1;
@@ -197,7 +285,9 @@ main(int argc, char **argv)
           for (unsigned int i = 0; i < n_dofs_patch; ++i)
             PT[i][cell] *= PT_counter[i];
 
-        const auto &patch_constraints_is = patch_constraints.get_local_lines();
+        IndexSet patch_constraints_is(n_dofs_patch);
+        for(const auto & l : patch_constraints.get_lines())
+          patch_constraints_is.add_index(l.index);
 
         for (unsigned int i = 0; i < patch.n_cells(); ++i)
           for (const auto j : patch_constraints_is)
@@ -206,7 +296,7 @@ main(int argc, char **argv)
         for (const auto j : patch_constraints_is)
           patch_stiffness_matrix.clear_row(j, 1);
 
-        Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
+        my_Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
 
         PT.Tmmult(P_Ainv_PT, Ainv_PT);
         P_Ainv_PT /= pow(H, dim);
