@@ -550,7 +550,7 @@ class LOD
 public:
   LOD();
 
-  unsigned int oversampling         = 1;
+  unsigned int oversampling         = 3;
   unsigned int n_subdivisions       = 2;
   unsigned int n_global_refinements = 3;
   bool constant_coefficients = true;

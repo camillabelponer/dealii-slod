@@ -116,7 +116,7 @@ main(int argc, char **argv)
 
   const unsigned int dim            = 2;
   const unsigned int fe_degree      = 2;
-  const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
+  const unsigned int n_overlap      = 3; // numbers::invalid_unsigned_int
   const unsigned int n_subdivisions = 8;
   const MPI_Comm     comm           = MPI_COMM_WORLD;
 
@@ -473,8 +473,8 @@ main(int argc, char **argv)
 
   DataOutBase::VtkFlags flags;
 
-  // if (dim > 1)
-  //   flags.write_higher_order_cells = true; // TODO
+  if (dim > 1)
+    flags.write_higher_order_cells = true;
 
   DataOut<dim> data_out;
   data_out.set_flags(flags);
