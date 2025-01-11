@@ -29,7 +29,7 @@ main(int argc, char **argv)
   const unsigned int dim            = 1;
   const unsigned int fe_degree      = 2;
   const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions = 5;
+  const unsigned int n_subdivisions = 2;
   const MPI_Comm     comm           = MPI_COMM_WORLD;
 
   AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
@@ -139,7 +139,12 @@ main(int argc, char **argv)
 
         Vector<double> selected_basis_function(n_dofs_patch);
 
-        TrilinosWrappers::SparseMatrix patch_stiffness_matrix;
+        TrilinosWrappers::SparsityPattern sparsity_pattern(n_dofs_patch,
+                                                           n_dofs_patch);
+        patch.create_sparsity_pattern(patch_constraints, sparsity_pattern);
+        sparsity_pattern.compress();
+
+        TrilinosWrappers::SparseMatrix patch_stiffness_matrix(sparsity_pattern);
         FullMatrix<double>             PT(N_dofs_fine, N_dofs_coarse);
         FullMatrix<double>             P_Ainv_PT(N_dofs_coarse);
         FullMatrix<double>             Ainv_PT(N_dofs_fine, N_dofs_coarse);
