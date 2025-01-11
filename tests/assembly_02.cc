@@ -120,7 +120,8 @@ main(int argc, char **argv)
   const unsigned int n_subdivisions = 8;
   const MPI_Comm     comm           = MPI_COMM_WORLD;
 
-  AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
+  AssertThrow(Utilities::MPI::n_mpi_processes(comm) <= n_subdivisions,
+              ExcNotImplemented());
 
   std::vector<unsigned int> repetitions(dim, n_subdivisions);
   Point<dim>                p1;
@@ -129,7 +130,35 @@ main(int argc, char **argv)
   for (unsigned int d = 0; d < dim; ++d)
     p2[d] = 1.0;
 
-  parallel::shared::Triangulation<dim> tria(comm);
+  parallel::shared::Triangulation<dim> tria(
+    comm,
+    Triangulation<dim>::none,
+    true,
+    parallel::shared::Triangulation<dim>::partition_custom_signal);
+
+  const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
+  const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
+  const unsigned int stride  = (repetitions[dim - 1] + n_procs - 1) / n_procs;
+  unsigned int       range_start =
+    (my_rank == 0) ? 0 : ((stride * my_rank) * fe_degree + 1);
+  unsigned int range_end = stride * (my_rank + 1) * fe_degree + 1;
+
+  unsigned int face_dofs = 1;
+  for (unsigned int d = 0; d < dim - 1; ++d)
+    face_dofs *= repetitions[d] * fe_degree + 1;
+
+  tria.signals.create.connect([&, stride, repetitions]() {
+    for (const auto &cell : tria.active_cell_iterators())
+      {
+        unsigned int cell_index = cell->active_cell_index();
+
+        for (unsigned int i = 0; i < dim - 1; ++i)
+          cell_index /= repetitions[i];
+
+        cell->set_subdomain_id(cell_index / stride);
+      }
+  });
+
   GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
 
   types::global_dof_index n_dofs_coarse = 1;
@@ -142,11 +171,10 @@ main(int argc, char **argv)
 
   AssertDimension(n_dofs_coarse, tria.n_active_cells());
 
-  const auto locally_owned_fine_dofs =
-    Utilities::create_evenly_distributed_partitioning(
-      Utilities::MPI::this_mpi_process(comm),
-      Utilities::MPI::n_mpi_processes(comm),
-      n_dofs_fine);
+  IndexSet locally_owned_fine_dofs(n_dofs_fine);
+  locally_owned_fine_dofs.add_range(
+    face_dofs * std::min(range_start, repetitions[dim - 1] * fe_degree + 1),
+    face_dofs * std::min(range_end, repetitions[dim - 1] * fe_degree + 1));
 
   Patch<dim> patch(fe_degree, repetitions);
 
@@ -335,11 +363,15 @@ main(int argc, char **argv)
   IndexSet constraints_lod_fem_locally_stored_constraints =
     constraints_lod_fem_locally_owned_dofs;
 
+  IndexSet locally_relevant_cells = locally_owned_cells;
+
   for (const auto row : locally_owned_fine_dofs) // parallel for-loop
     {
       for (auto entry = C.begin(row); entry != C.end(row); ++entry)
-        constraints_lod_fem_locally_stored_constraints.add_index(
-          entry->column()); // coarse
+        {
+          constraints_lod_fem_locally_stored_constraints.add_index(
+            entry->column()); // coarse
+        }
     }
 
   for (const auto &cell : tria.active_cell_iterators())
@@ -377,8 +409,18 @@ main(int argc, char **argv)
     comm);
   constraints_lod_fem.close();
 
-  LinearAlgebra::distributed::Vector<double> rhs_lod(
-    n_dofs_coarse); // TODO: parallel
+  for (const auto row :
+       constraints_lod_fem_locally_stored_constraints) // parallel for-loop
+    if (const auto constraint_entries =
+          constraints_lod_fem.get_constraint_entries(row))
+      {
+        for (const auto &[j, _] : *constraint_entries)
+          locally_relevant_cells.add_index(j);
+      }
+
+  LinearAlgebra::distributed::Vector<double> rhs_lod(locally_owned_cells,
+                                                     locally_relevant_cells,
+                                                     comm);
 
   // 6) assembly LOD matrix
   FE_Q_iso_Q1<dim>     fe(fe_degree);
@@ -434,8 +476,6 @@ main(int argc, char **argv)
   A_lod.compress(VectorOperation::values::add);
   rhs_lod.compress(VectorOperation::values::add);
 
-  std::cout << A_lod.frobenius_norm() << std::endl; // TODO
-
   // 7) solve LOD system
   LinearAlgebra::distributed::Vector<double> solution_lod;
   solution_lod.reinit(rhs_lod);
@@ -443,13 +483,11 @@ main(int argc, char **argv)
   TrilinosWrappers::SolverDirect solver;
   solver.solve(A_lod, solution_lod, rhs_lod);
 
-  rhs_lod.print(std::cout);      // TODO
-  solution_lod.print(std::cout); // TODO
-
   // 8) convert to FEM solution
   LinearAlgebra::distributed::Vector<double> solution_fem(
-    n_dofs_fine); // TODO: parallel
+    locally_owned_fine_dofs, comm);
 
+  solution_lod.update_ghost_values();
   for (const auto i : locally_owned_fine_dofs)
     if (const auto constraint_entries =
           constraints_lod_fem.get_constraint_entries(i + n_dofs_coarse))
@@ -460,8 +498,6 @@ main(int argc, char **argv)
 
         solution_fem[i] = new_value;
       }
-
-  solution_fem.print(std::cout); // TODO
 
   // 8) output LOD and FEM results
 
@@ -483,10 +519,13 @@ main(int argc, char **argv)
   data_out.add_data_vector(solution_lod, "solution_lod");
   data_out.add_data_vector(solution_fem, "solution_fem");
 
+  Vector<double> ranks(tria.n_active_cells());
+  ranks = my_rank;
+  data_out.add_data_vector(ranks, "rank");
+
   data_out.build_patches(mapping, fe_degree);
 
   const std::string file_name = "solution.vtu";
 
-  std::ofstream file(file_name);
-  data_out.write_vtu(file);
+  data_out.write_vtu_in_parallel(file_name, comm);
 }
