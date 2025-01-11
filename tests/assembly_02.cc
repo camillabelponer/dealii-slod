@@ -24,12 +24,12 @@ using namespace dealii;
 
 
 void
-my_Gauss_elimination(const FullMatrix<double> &            rhs,
-                  const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                  FullMatrix<double> &                  solution,
-                  double                                reduce    = 1.e-16,
-                  double                                tolerance = 1.e-18,
-                  double                                iter      = 100)
+my_Gauss_elimination(const FullMatrix<double>             &rhs,
+                     const TrilinosWrappers::SparseMatrix &sparse_matrix,
+                     FullMatrix<double>                   &solution,
+                     double                                reduce    = 1.e-16,
+                     double                                tolerance = 1.e-18,
+                     double                                iter      = 100)
 {
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
@@ -74,7 +74,7 @@ my_Gauss_elimination(const FullMatrix<double> &            rhs,
         }
 
       const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
-      const Epetra_Operator & prec = ilu.trilinos_operator();
+      const Epetra_Operator  &prec = ilu.trilinos_operator();
 
       Epetra_MultiVector trilinos_dst(View,
                                       mat.OperatorRangeMap(),
@@ -117,7 +117,7 @@ main(int argc, char **argv)
   const unsigned int dim            = 2;
   const unsigned int fe_degree      = 2;
   const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions = 2;
+  const unsigned int n_subdivisions = 4;
   const MPI_Comm     comm           = MPI_COMM_WORLD;
 
   AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
@@ -279,14 +279,17 @@ main(int argc, char **argv)
         patch_stiffness_matrix.compress(VectorOperation::values::add);
 
         for (auto &i : PT_counter)
-          i = 1.0 / i;
+          {
+            Assert(i >= 1.0, ExcInternalError());
+            i = 1.0 / i;
+          }
 
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
           for (unsigned int i = 0; i < n_dofs_patch; ++i)
             PT[i][cell] *= PT_counter[i];
 
         IndexSet patch_constraints_is(n_dofs_patch);
-        for(const auto & l : patch_constraints.get_lines())
+        for (const auto &l : patch_constraints.get_lines())
           patch_constraints_is.add_index(l.index);
 
         for (unsigned int i = 0; i < patch.n_cells(); ++i)
