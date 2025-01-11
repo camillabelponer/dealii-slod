@@ -117,7 +117,7 @@ main(int argc, char **argv)
   const unsigned int dim            = 2;
   const unsigned int fe_degree      = 2;
   const unsigned int n_overlap      = 1; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions = 4;
+  const unsigned int n_subdivisions = 8;
   const MPI_Comm     comm           = MPI_COMM_WORLD;
 
   AssertDimension(Utilities::MPI::n_mpi_processes(comm), 1);
@@ -453,8 +453,15 @@ main(int argc, char **argv)
   for (const auto i : locally_owned_fine_dofs)
     if (const auto constraint_entries =
           constraints_lod_fem.get_constraint_entries(i + n_dofs_coarse))
-      for (const auto &[j, weight] : *constraint_entries)
-        solution_fem[i] += weight * solution_lod[j];
+      {
+        double new_value = 0.0;
+        for (const auto &[j, weight] : *constraint_entries)
+          new_value += weight * solution_lod[j];
+
+        solution_fem[i] = new_value;
+      }
+
+  solution_fem.print(std::cout); // TODO
 
   // 8) output LOD and FEM results
 
@@ -466,8 +473,8 @@ main(int argc, char **argv)
 
   DataOutBase::VtkFlags flags;
 
-  if (dim > 1)
-    flags.write_higher_order_cells = true;
+  // if (dim > 1)
+  //   flags.write_higher_order_cells = true; // TODO
 
   DataOut<dim> data_out;
   data_out.set_flags(flags);
