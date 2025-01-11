@@ -1389,8 +1389,6 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
 
   pcout << "   size of fem u " << fem_solution.size() << std::endl;
   fem_constraints.distribute(fem_solution);
-
-  compare_lod_with_fem();
 }
 
 
@@ -1464,6 +1462,7 @@ LOD<dim, spacedim>::run()
   assemble_global_matrix();
   assemble_and_solve_fem_problem();
   solve();
+  compare_lod_with_fem();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
