@@ -125,7 +125,7 @@ namespace dealii::TrilinosWrappers
     /**
      * Constructor. Takes the solver control object and creates the solver.
      */
-    MySolverDirect(SolverControl &       cn,
+    MySolverDirect(SolverControl        &cn,
                    const AdditionalData &data = AdditionalData())
       : SolverDirect(cn, data)
       , solver_control(cn)
@@ -137,8 +137,8 @@ namespace dealii::TrilinosWrappers
     virtual ~MySolverDirect() = default;
 
     void
-    solve(const Epetra_Operator &   A,
-          Epetra_MultiVector &      x,
+    solve(const Epetra_Operator    &A,
+          Epetra_MultiVector       &x,
           const Epetra_MultiVector &b)
     {
       linear_problem = std::make_unique<Epetra_LinearProblem>(
@@ -293,9 +293,9 @@ compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
 }
 
 void
-Gauss_elimination(const FullMatrix<double> &            rhs,
+Gauss_elimination(const FullMatrix<double>             &rhs,
                   const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                  FullMatrix<double> &                  solution)
+                  FullMatrix<double>                   &solution)
 {
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
@@ -340,7 +340,7 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
         }
 
       const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
-      const Epetra_Operator & prec = ilu.trilinos_operator();
+      const Epetra_Operator  &prec = ilu.trilinos_operator();
 
       Epetra_MultiVector trilinos_dst(View,
                                       mat.OperatorRangeMap(),
@@ -532,6 +532,17 @@ public:
       CellId(indices_to_index<dim>(indices, repetitions), {}));
   }
 
+  unsigned int
+  cell_index(
+    const typename Triangulation<dim>::active_cell_iterator &cell) const
+  {
+    for (unsigned int i = 0; i < n_cells(); ++i)
+      if (create_cell_iterator(cell->get_triangulation(), i) == cell)
+        return i;
+
+    return numbers::invalid_unsigned_int;
+  }
+
   void
   get_dof_indices_of_cell(
     const unsigned int                    index,
@@ -559,7 +570,7 @@ public:
   template <typename Number, typename SparsityPatternType>
   void
   create_sparsity_pattern(const AffineConstraints<Number> &constraints,
-                          SparsityPatternType &            dsp) const
+                          SparsityPatternType             &dsp) const
   {
     for (unsigned int cell = 0; cell < this->n_cells(); ++cell)
       {
@@ -586,7 +597,7 @@ private:
 template <int dim>
 const Table<2, bool>
 create_bool_dof_mask(const FiniteElement<dim> &fe,
-                     const Quadrature<dim> &   quadrature)
+                     const Quadrature<dim>    &quadrature)
 {
   const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe) {
     Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
