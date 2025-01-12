@@ -1,3 +1,21 @@
+// LOD as triple-matrix multiplication:
+//   A^LOD = C^T A^FEM C
+//
+// implemented as block system
+//
+// | A^LOD  0 |
+// |   0    0 |
+//                =
+// | 0  C^T | | 0    0   | | 0 0 |
+// | 0   0  | | 0  A^FEM | | C 0 |
+//
+// via cell loop
+//
+// A^LOD = ∑ C_i^T A_i^FEM C_i
+//
+// Needed: C (computed column-wise, for AffineConstraints
+// we need to access the full row)
+
 #include <deal.II/distributed/shared_tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
