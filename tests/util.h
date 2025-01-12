@@ -492,21 +492,13 @@ public:
 
     const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
 
-    Vector<int> dofs_to_constrain(n0 * n1);
-    unsigned    index = 0;
     for (unsigned int i = 0; i < n0; ++i)
       for (unsigned int j = 0; j < n1; ++j)
         {
           const unsigned i0 =
             i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
-          dofs_to_constrain(index) = i0;
-          index++;
-          //}
-          // constraints.constrain_dof_to_zero(i0);
-          // constraints.add_constraint(i0, {}, 0.0);
           constraints.add_line(i0);
         }
-    // constraints.set_zero(dofs_to_constrain);
   }
 
   unsigned int
