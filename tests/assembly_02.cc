@@ -53,59 +53,41 @@ my_Gauss_elimination(const FullMatrix<double>             &rhs,
 
   solution = 0.0;
 
-  const unsigned int n_dofs       = rhs.m();
-  const unsigned int Ndofs_coarse = rhs.n();
+  const unsigned int m = rhs.m();
+  const unsigned int n = rhs.n();
 
-  const unsigned int n_blocks        = Ndofs_coarse;
-  const unsigned int n_blocks_stride = n_blocks;
+  FullMatrix<double> rhs_t(n, m);
+  FullMatrix<double> solution_t(n, m);
 
+  rhs_t.copy_transposed(rhs);
+  solution_t.copy_transposed(solution);
 
-  for (unsigned int b = 0; b < n_blocks; b += n_blocks_stride)
+  std::vector<double *> rhs_ptrs(n);
+  std::vector<double *> sultion_ptrs(n);
+
+  for (unsigned int i = 0; i < n; ++i)
     {
-      const unsigned int bend = std::min(n_blocks, b + n_blocks_stride);
-
-      std::vector<double> rhs_temp(n_dofs * (bend - b));
-      std::vector<double> solution_temp(n_dofs * (bend - b));
-
-      for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < n_dofs; ++j)
-          {
-            rhs_temp[i * n_dofs + j] = rhs(j, i + b); // rhs[i + b][j];
-            solution_temp[i * n_dofs + j] =
-              0.0; // solution(i+b,j); //solution[i + b][j];
-          }
-
-      std::vector<double *> rhs_ptrs(bend - b);
-      std::vector<double *> sultion_ptrs(bend - b);
-
-      for (unsigned int i = 0; i < (bend - b); ++i)
-        {
-          rhs_ptrs[i]     = &rhs_temp[i * n_dofs];      //&rhs[i + b][0];
-          sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
-        }
-
-      const Epetra_CrsMatrix &mat = sparse_matrix.trilinos_matrix();
-
-      Epetra_MultiVector trilinos_dst(View,
-                                      mat.OperatorRangeMap(),
-                                      sultion_ptrs.data(),
-                                      sultion_ptrs.size());
-      Epetra_MultiVector trilinos_src(View,
-                                      mat.OperatorDomainMap(),
-                                      rhs_ptrs.data(),
-                                      rhs_ptrs.size());
-
-      SolverControl solver_control(100, 1.e-18, false, false);
-      TrilinosWrappers::MySolverDirect solver(solver_control);
-      solver.initialize(sparse_matrix);
-      solver.solve(mat, trilinos_dst, trilinos_src);
-
-      for (unsigned int i = 0; i < (bend - b); ++i)
-        for (unsigned int j = 0; j < n_dofs; ++j)
-          {
-            solution(j, i + b) = solution_temp[i * n_dofs + j];
-          }
+      rhs_ptrs[i]     = &rhs_t[i][0];
+      sultion_ptrs[i] = &solution_t[i][0];
     }
+
+  const Epetra_CrsMatrix &mat = sparse_matrix.trilinos_matrix();
+
+  Epetra_MultiVector trilinos_dst(View,
+                                  mat.OperatorRangeMap(),
+                                  sultion_ptrs.data(),
+                                  sultion_ptrs.size());
+  Epetra_MultiVector trilinos_src(View,
+                                  mat.OperatorDomainMap(),
+                                  rhs_ptrs.data(),
+                                  rhs_ptrs.size());
+
+  SolverControl                    solver_control(100, 1.e-18, false, false);
+  TrilinosWrappers::MySolverDirect solver(solver_control);
+  solver.initialize(sparse_matrix);
+  solver.solve(mat, trilinos_dst, trilinos_src);
+
+  solution.copy_transposed(solution_t);
 }
 
 int
