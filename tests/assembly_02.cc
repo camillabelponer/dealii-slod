@@ -44,15 +44,8 @@ using namespace dealii;
 void
 my_Gauss_elimination(const FullMatrix<double>             &rhs,
                      const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                     FullMatrix<double>                   &solution,
-                     double                                reduce    = 1.e-16,
-                     double                                tolerance = 1.e-18,
-                     double                                iter      = 100)
+                     FullMatrix<double>                   &solution)
 {
-  // create preconditioner
-  TrilinosWrappers::PreconditionILU ilu;
-  ilu.initialize(sparse_matrix);
-
   Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
   Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
   Assert(rhs.m() == solution.m(), ExcInternalError());
@@ -91,8 +84,7 @@ my_Gauss_elimination(const FullMatrix<double>             &rhs,
           sultion_ptrs[i] = &solution_temp[i * n_dofs]; //&solution[i + b][0];
         }
 
-      const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
-      const Epetra_Operator  &prec = ilu.trilinos_operator();
+      const Epetra_CrsMatrix &mat = sparse_matrix.trilinos_matrix();
 
       Epetra_MultiVector trilinos_dst(View,
                                       mat.OperatorRangeMap(),
@@ -103,21 +95,10 @@ my_Gauss_elimination(const FullMatrix<double>             &rhs,
                                       rhs_ptrs.data(),
                                       rhs_ptrs.size());
 
-
-      if (false)
-        {
-          ReductionControl solver_control(
-            iter, tolerance, reduce, false, false);
-          TrilinosWrappers::SolverCG solver(solver_control);
-          solver.solve(mat, trilinos_dst, trilinos_src, prec);
-        }
-      else
-        {
-          SolverControl solver_control(iter, tolerance, false, false);
-          TrilinosWrappers::MySolverDirect solver(solver_control);
-          solver.initialize(sparse_matrix);
-          solver.solve(mat, trilinos_dst, trilinos_src);
-        }
+      SolverControl solver_control(100, 1.e-18, false, false);
+      TrilinosWrappers::MySolverDirect solver(solver_control);
+      solver.initialize(sparse_matrix);
+      solver.solve(mat, trilinos_dst, trilinos_src);
 
       for (unsigned int i = 0; i < (bend - b); ++i)
         for (unsigned int j = 0; j < n_dofs; ++j)
