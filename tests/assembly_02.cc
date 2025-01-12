@@ -336,10 +336,16 @@ main(int argc, char **argv)
         Vector<double> e_i(N_dofs_coarse);
         Vector<double> triple_product_inv_e_i(N_dofs_coarse);
 
-        e_i[patch.cell_index(cell)] = 1.0;
-        P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
-
-        Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
+        if (true /*TODO*/) // LOD
+          {
+            e_i[patch.cell_index(cell)] = 1.0;
+            P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
+            Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
+          }
+        else // SLOD
+          {
+            AssertThrow(false, ExcNotImplemented());
+          }
 
         selected_basis_function /= selected_basis_function.l2_norm();
 
