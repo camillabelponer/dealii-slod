@@ -438,6 +438,19 @@ public:
     this->reinit(patch_start, patch_size);
   }
 
+  bool
+  at_boundary(const unsigned int surface) const
+  {
+    const unsigned int d = surface / 2; // direction
+    const unsigned int s = surface % 2; // left or right surface
+
+    if (s == 0)
+      return patch_subdivions_start[d] == 0;
+    else // (s == 1)
+      return this->repetitions[d] ==
+             patch_subdivions_start[d] + this->patch_size[d];
+  }
+
   unsigned int
   n_dofs() const
   {

@@ -250,8 +250,15 @@ main(int argc, char **argv)
 
         AffineConstraints<double> patch_constraints;
         for (unsigned int d = 0; d < 2 * dim; ++d)
-          patch.make_zero_boundary_constraints<double>(d, patch_constraints);
+          if (patch.at_boundary(d))
+            patch.make_zero_boundary_constraints<double>(d, patch_constraints);
+          else
+            patch.make_zero_boundary_constraints<double>(d, patch_constraints);
         patch_constraints.close();
+
+        IndexSet patch_constraints_is(n_dofs_patch);
+        for (const auto &l : patch_constraints.get_lines())
+          patch_constraints_is.add_index(l.index);
 
         Vector<double> selected_basis_function(n_dofs_patch);
 
@@ -315,10 +322,6 @@ main(int argc, char **argv)
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
           for (unsigned int i = 0; i < n_dofs_patch; ++i)
             PT[i][cell] *= PT_counter[i];
-
-        IndexSet patch_constraints_is(n_dofs_patch);
-        for (const auto &l : patch_constraints.get_lines())
-          patch_constraints_is.add_index(l.index);
 
         for (unsigned int i = 0; i < patch.n_cells(); ++i)
           for (const auto j : patch_constraints_is)
