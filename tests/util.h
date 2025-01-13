@@ -586,6 +586,49 @@ public:
       }
   }
 
+  void
+  get_internal_dofs(std::vector<unsigned int> &idx) const
+  {
+    idx.clear();
+    unsigned int N_boundary_dofs = 2 * dim * 1;
+    for (auto id = N_boundary_dofs; id < 1; ++id)
+      idx.push_back(id);
+  }
+
+  void
+  get_boundary_dofs(std::vector<unsigned int> &internal_boundary_idx,
+                    std::vector<unsigned int> &domain_boundary_idx) const
+  {
+    internal_boundary_idx.clear();
+    domain_boundary_idx.clear();
+
+    for (unsigned int surface = 0; surface < 2 * dim; ++surface)
+      {
+        const unsigned int d = surface / 2; // direction
+        const unsigned int s = surface % 2; // left or right surface
+
+        unsigned int n0 = 1;
+        for (unsigned int i = d + 1; i < dim; ++i)
+          n0 *= patch_subdivions_size[i] + 1;
+
+        unsigned int n1 = 1;
+        for (unsigned int i = 0; i < d; ++i)
+          n1 *= patch_subdivions_size[i] + 1;
+
+        const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
+
+        for (unsigned int i = 0; i < n0; ++i)
+          for (unsigned int j = 0; j < n1; ++j)
+            {
+              const unsigned i0 =
+                i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
+            }
+      }
+    unsigned int N_boundary_dofs = 4;
+    for (auto id = 0; id < 1; ++id)
+      internal_boundary_idx.push_back(id);
+  }
+
 private:
   const unsigned int        fe_degree;
   const unsigned int        dofs_per_cell;

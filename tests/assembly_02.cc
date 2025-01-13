@@ -28,6 +28,7 @@
 
 #include <deal.II/grid/grid_generator.h>
 
+#include <deal.II/lac/lapack_full_matrix.h>
 #include <deal.II/lac/trilinos_precondition.h>
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/lac/trilinos_sparse_matrix.h>
@@ -42,9 +43,9 @@ using namespace dealii;
 
 
 void
-my_Gauss_elimination(const FullMatrix<double>             &rhs,
+my_Gauss_elimination(const FullMatrix<double> &            rhs,
                      const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                     FullMatrix<double>                   &solution)
+                     FullMatrix<double> &                  solution)
 {
   Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
   Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
@@ -95,11 +96,12 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  const unsigned int dim            = 2;
-  const unsigned int fe_degree      = 2;
-  const unsigned int n_overlap      = 3; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions = 8;
-  const MPI_Comm     comm           = MPI_COMM_WORLD;
+  const unsigned int dim               = 2;
+  const unsigned int fe_degree         = 2;
+  const unsigned int n_overlap         = 3; // numbers::invalid_unsigned_int
+  const unsigned int n_subdivisions    = 8;
+  const bool         LOD_stabilization = false;
+  const MPI_Comm     comm              = MPI_COMM_WORLD;
 
   AssertThrow(Utilities::MPI::n_mpi_processes(comm) <= n_subdivisions,
               ExcNotImplemented());
@@ -252,6 +254,23 @@ main(int argc, char **argv)
         FullMatrix<double>             PT(N_dofs_fine, N_dofs_coarse);
         FullMatrix<double>             P_Ainv_PT(N_dofs_coarse);
         FullMatrix<double>             Ainv_PT(N_dofs_fine, N_dofs_coarse);
+        // SLOD matrices
+        std::vector<unsigned int>            internal_dofs_fine;
+        std::vector<unsigned int>            all_dofs_fine; // to be filled
+        std::vector<unsigned int> /*patch_*/ boundary_dofs_fine;
+        std::vector<unsigned int>            domain_boundary_dofs_fine;
+        std::vector<unsigned int>            all_dofs_coarse;
+
+        patch.get_internal_dofs(internal_dofs_fine); // todo
+        patch.get_boundary_dofs(boundary_dofs_fine,
+                                domain_boundary_dofs_fine); // todo
+
+        unsigned int       considered_candidates = N_dofs_coarse - 1;
+        const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
+        const unsigned int N_internal_dofs       = internal_dofs_fine.size();
+
+        FullMatrix<double> PT_boundary(N_boundary_dofs, N_dofs_coarse);
+        FullMatrix<double> S_boundary(N_boundary_dofs, N_internal_dofs);
 
         Vector<double> PT_counter(N_dofs_fine);
 
@@ -304,6 +323,23 @@ main(int argc, char **argv)
           for (unsigned int i = 0; i < n_dofs_patch; ++i)
             PT[i][cell] *= PT_counter[i];
 
+        if (LOD_stabilization && boundary_dofs_fine.size() > 0)
+          {
+            PT_boundary.extract_submatrix_from(PT,
+                                               boundary_dofs_fine,
+                                               all_dofs_coarse);
+            if (true)
+              S_boundary.extract_submatrix_from(patch_stiffness_matrix,
+                                              boundary_dofs_fine,
+                                              internal_dofs_fine);
+            else
+            {
+              for (unsigned int row_id = 0; row_id < boundary_dofs_fine.size(); ++row_id)
+                for (unsigned int col_id = 0; col_id < internal_dofs_fine.size(); ++col_id)
+                  S_boundary.set(row_id, col_id, patch_stiffness_matrix(boundary_dofs_fine[row_id], internal_dofs_fine[col_id]));
+            }
+          }
+
         for (unsigned int i = 0; i < patch.n_cells(); ++i)
           for (const auto j : patch_constraints_is)
             PT(j, i) = 0.0;
@@ -320,7 +356,9 @@ main(int argc, char **argv)
         Vector<double> e_i(N_dofs_coarse);
         Vector<double> triple_product_inv_e_i(N_dofs_coarse);
 
-        if (true /*TODO*/) // LOD
+        if (!LOD_stabilization) // LOD
+                                // also in the case of : oversampling == 0 ||
+                                // or if the patch is the whole domain
           {
             e_i[patch.cell_index(cell)] = 1.0;
             P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
@@ -328,7 +366,146 @@ main(int argc, char **argv)
           }
         else // SLOD
           {
-            AssertThrow(false, ExcNotImplemented());
+            FullMatrix<double>       BD(N_boundary_dofs, N_dofs_coarse);
+            FullMatrix<double>       B_full(N_boundary_dofs, N_dofs_coarse);
+            LAPACKFullMatrix<double> SVD(considered_candidates,
+                                         considered_candidates);
+            FullMatrix<double> Ainv_PT_internal(N_internal_dofs, N_dofs_coarse);
+
+            selected_basis_function = 0.0;
+
+            Vector<double> internal_selected_basis_function(N_internal_dofs);
+            Vector<double> c_i(N_internal_dofs);
+            internal_selected_basis_function = 0.0;
+
+            Ainv_PT_internal.extract_submatrix_from(Ainv_PT,
+                                                    internal_dofs_fine,
+                                                    all_dofs_coarse);
+            S_boundary.mmult(B_full, Ainv_PT_internal);
+
+            // creating the matrix B_full using all components from all
+            // candidates
+            PT_boundary *= -1;
+            B_full.mmult(BD, P_Ainv_PT);
+            PT_boundary.mmult(BD, P_Ainv_PT, true);
+
+            //    for (unsigned int d = 0; d < spacedim; ++d) // only for vector
+            //    case
+            unsigned int d = 0;
+            {
+              Vector<double> B_d0(N_boundary_dofs);
+
+              for (unsigned int i = 0; i < N_boundary_dofs; ++i)
+                {
+                  B_d0[i] = BD(i, d);
+                }
+
+              Vector<double> d_i(considered_candidates);
+              Vector<double> BDTBD0(considered_candidates);
+              d_i    = 0;
+              BDTBD0 = 0;
+
+              // std::vector<unsigned int> other_phi(all_dofs_fine.begin() + 1,
+              //                                     all_dofs_fine.begin() +
+              //                                       N_dofs_coarse);
+              std::vector<unsigned int> other_phi(all_dofs_fine.begin(),
+                                                  all_dofs_fine.begin() +
+                                                    N_dofs_coarse);
+              other_phi.erase(other_phi.begin() + d);
+
+              {
+                FullMatrix<double> newBD(N_boundary_dofs,
+                                         considered_candidates);
+                FullMatrix<double> BDTBD(considered_candidates,
+                                         considered_candidates);
+
+                Assert(
+                  other_phi.size() == considered_candidates,
+                  ExcNotImplemented(
+                    "inconsistent number of candidates basis function on the patch"));
+                std::vector<unsigned int> boundary_dofs_vector_temp(
+                  all_dofs_fine.begin(),
+                  all_dofs_fine.begin() + N_boundary_dofs);
+
+                newBD.extract_submatrix_from(BD,
+                                             boundary_dofs_vector_temp,
+                                             other_phi);
+
+                newBD.Tmmult(BDTBD, newBD);
+
+                newBD.Tvmult(BDTBD0, B_d0);
+
+                SVD.copy_from(BDTBD);
+              }
+
+              SVD.compute_inverse_svd(1e-15); // stores U V as normal, but
+                                              // 1/singular_value_i
+              d_i = 0.0;
+              SVD.vmult(d_i, BDTBD0);
+              d_i *= -1;
+              auto U  = SVD.get_svd_u();
+              auto Vt = SVD.get_svd_vt();
+
+              AssertDimension(SVD.m(), SVD.n());
+              AssertDimension(U.m(), U.n());
+              AssertDimension(Vt.m(), Vt.n());
+              AssertDimension(U.m(), Vt.n());
+              AssertDimension(U.m(), SVD.n());
+              AssertDimension(U.m(), considered_candidates);
+
+              for (int i = (considered_candidates - 1); i >= 0; --i)
+                {
+                  if (d_i.linfty_norm() < 0.5)
+                    break;
+                  Vector<double> uT(considered_candidates);
+                  Vector<double> v(considered_candidates);
+                  // for (auto j : all_dofs_coarse)
+                  for (unsigned int j = 0; j < considered_candidates; ++j)
+                    {
+                      uT[j] = U(j, i);
+                      v[j]  = Vt(i, j);
+                    }
+                  FullMatrix<double> vuT(considered_candidates,
+                                         considered_candidates);
+                  // do uT scalar BDTBD0 first
+                  vuT.outer_product(v, uT);
+                  Vector<double> correction(d_i.size());
+                  vuT.vmult(correction, BDTBD0);
+                  correction *= // Sigma_minus1(i, i); //
+                    SVD.singular_value(i);
+
+                  d_i += correction;
+                }
+
+              Vector<double> DeT(N_dofs_coarse);
+              e_i    = 0.0;
+              e_i[d] = 1.0;
+              P_Ainv_PT.vmult(DeT, e_i);
+              c_i = DeT;
+
+              // for (unsigned int index = 0; index < considered_candidates;
+              // ++index)
+              for (unsigned int index = 0; index < other_phi.size(); ++index)
+                {
+                  e_i                   = 0.0;
+                  e_i[other_phi[index]] = 1.0;
+
+                  P_Ainv_PT.vmult(DeT, e_i);
+
+                  DeT *= d_i[index];
+
+                  c_i += DeT;
+                }
+
+              Ainv_PT_internal.vmult(internal_selected_basis_function, c_i);
+              // Ainv_PT.vmult(selected_basis_function, c_i);
+
+              // extend_vector_to_boundary_values(internal_selected_basis_function,
+              //                                  dh_fine_patch,
+              //                                  selected_basis_function);
+
+              selected_basis_function /= selected_basis_function.l2_norm();
+            }
           }
 
         selected_basis_function /= selected_basis_function.l2_norm();
