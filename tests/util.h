@@ -601,7 +601,7 @@ public:
       all_dofs.push_back(id);
 
     AssertDimension(dim, 2);
-    unsigned int N_boundary_dofs = 2 * (repetitions[0] + repetitions[1]) - 2;
+    unsigned int N_boundary_dofs = 4 * fe_degree;
     for (auto id = N_boundary_dofs; id < n_dofs(); ++id)
       internal_dofs.push_back(id);
 
