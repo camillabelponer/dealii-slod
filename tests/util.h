@@ -587,20 +587,24 @@ public:
   }
 
   void
-  get_internal_dofs(std::vector<unsigned int> &idx) const
+  get_dofs_vectors(std::vector<unsigned int> &all_dofs,
+                   std::vector<unsigned int> &internal_dofs,
+                   std::vector<unsigned int> &internal_boundary_dofs,
+                   std::vector<unsigned int> &domain_boundary_dofs) const
   {
-    idx.clear();
-    unsigned int N_boundary_dofs = 2 * dim * 1;
-    for (auto id = N_boundary_dofs; id < 1; ++id)
-      idx.push_back(id);
-  }
+    all_dofs.clear();
+    internal_dofs.clear();
+    internal_boundary_dofs.clear();
+    domain_boundary_dofs.clear();
 
-  void
-  get_boundary_dofs(std::vector<unsigned int> &internal_boundary_idx,
-                    std::vector<unsigned int> &domain_boundary_idx) const
-  {
-    internal_boundary_idx.clear();
-    domain_boundary_idx.clear();
+    for (unsigned int id = 0; id < n_dofs(); ++id)
+      all_dofs.push_back(id);
+
+    AssertDimension(dim, 2);
+    unsigned int N_boundary_dofs = 2 * (repetitions[0] + repetitions[1]) - 2;
+    for (auto id = N_boundary_dofs; id < n_dofs(); ++id)
+      internal_dofs.push_back(id);
+
 
     for (unsigned int surface = 0; surface < 2 * dim; ++surface)
       {
@@ -622,11 +626,16 @@ public:
             {
               const unsigned i0 =
                 i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
+              if (at_boundary(surface))
+                domain_boundary_dofs.push_back(i0);
+              else
+                internal_boundary_dofs.push_back(i0);
             }
       }
-    unsigned int N_boundary_dofs = 4;
-    for (auto id = 0; id < 1; ++id)
-      internal_boundary_idx.push_back(id);
+
+    // corners that are the intersection of a surface at the boundary and an
+    // internal surface should be still part of internal_boundary_idx, while
+    // it doesn't really matter if they are still in domain_boundary_idx
   }
 
 private:

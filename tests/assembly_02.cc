@@ -261,9 +261,10 @@ main(int argc, char **argv)
         std::vector<unsigned int>            domain_boundary_dofs_fine;
         std::vector<unsigned int>            all_dofs_coarse;
 
-        patch.get_internal_dofs(internal_dofs_fine); // todo
-        patch.get_boundary_dofs(boundary_dofs_fine,
-                                domain_boundary_dofs_fine); // todo
+        patch.get_dofs_vectors(all_dofs_fine,
+                               internal_dofs_fine,
+                               /*patch_*/ boundary_dofs_fine,
+                               domain_boundary_dofs_fine);
 
         unsigned int       considered_candidates = N_dofs_coarse - 1;
         const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
@@ -330,14 +331,14 @@ main(int argc, char **argv)
                                                all_dofs_coarse);
             if (true)
               S_boundary.extract_submatrix_from(patch_stiffness_matrix,
-                                              boundary_dofs_fine,
-                                              internal_dofs_fine);
+                                                boundary_dofs_fine,
+                                                internal_dofs_fine);
             else
-            {
-              for (unsigned int row_id = 0; row_id < boundary_dofs_fine.size(); ++row_id)
-                for (unsigned int col_id = 0; col_id < internal_dofs_fine.size(); ++col_id)
-                  S_boundary.set(row_id, col_id, patch_stiffness_matrix(boundary_dofs_fine[row_id], internal_dofs_fine[col_id]));
-            }
+              {
+                for (unsigned int row_id = 0; row_id < boundary_dofs_fine.size(); ++row_id)
+                  for (unsigned int col_id = 0; col_id < internal_dofs_fine.size(); ++col_id)
+                    S_boundary.set(row_id, col_id, patch_stiffness_matrix(boundary_dofs_fine[row_id], internal_dofs_fine[col_id]));
+              }
           }
 
         for (unsigned int i = 0; i < patch.n_cells(); ++i)
@@ -356,9 +357,11 @@ main(int argc, char **argv)
         Vector<double> e_i(N_dofs_coarse);
         Vector<double> triple_product_inv_e_i(N_dofs_coarse);
 
-        if (!LOD_stabilization) // LOD
-                                // also in the case of : oversampling == 0 ||
-                                // or if the patch is the whole domain
+        if (!LOD_stabilization ||
+            (boundary_dofs_fine.size() == 0))
+            // LOD
+            // also in the case of : oversampling == 0 ||
+            // or if the patch is the whole domain
           {
             e_i[patch.cell_index(cell)] = 1.0;
             P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
