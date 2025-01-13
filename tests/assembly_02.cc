@@ -97,9 +97,9 @@ main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
   const unsigned int dim               = 2;
-  const unsigned int fe_degree         = 2;
-  const unsigned int n_overlap         = 3; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions    = 8;
+  const unsigned int fe_degree         = 4;
+  const unsigned int n_overlap         = 2; // numbers::invalid_unsigned_int
+  const unsigned int n_subdivisions    = 16;
   const bool         LOD_stabilization = false;
   const MPI_Comm     comm              = MPI_COMM_WORLD;
 
@@ -259,12 +259,15 @@ main(int argc, char **argv)
         std::vector<unsigned int>            all_dofs_fine; // to be filled
         std::vector<unsigned int> /*patch_*/ boundary_dofs_fine;
         std::vector<unsigned int>            domain_boundary_dofs_fine;
-        std::vector<unsigned int>            all_dofs_coarse;
 
         patch.get_dofs_vectors(all_dofs_fine,
                                internal_dofs_fine,
                                /*patch_*/ boundary_dofs_fine,
                                domain_boundary_dofs_fine);
+
+        std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
+                                                all_dofs_fine.begin() +
+                                                  N_dofs_coarse);
 
         unsigned int       considered_candidates = N_dofs_coarse - 1;
         const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
@@ -501,13 +504,11 @@ main(int argc, char **argv)
                 }
 
               Ainv_PT_internal.vmult(internal_selected_basis_function, c_i);
-              // Ainv_PT.vmult(selected_basis_function, c_i);
-
-              // extend_vector_to_boundary_values(internal_selected_basis_function,
-              //                                  dh_fine_patch,
-              //                                  selected_basis_function);
-
-              selected_basis_function /= selected_basis_function.l2_norm();
+              unsigned int N_boundary_dofs = 4 * fe_degree;
+              // somehow the following does not work
+              //internal_selected_basis_function.extract_subvector_to(internal_selected_basis_function.begin(), internal_selected_basis_function.end(), selected_basis_function.begin()+N_boundary_dofs);
+              for (unsigned int id = 0; id < (selected_basis_function.size() - N_boundary_dofs); ++id)
+                selected_basis_function[id+N_boundary_dofs] = internal_selected_basis_function[id];
             }
           }
 
