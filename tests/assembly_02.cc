@@ -97,10 +97,10 @@ main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
   const unsigned int dim               = 2;
-  const unsigned int fe_degree         = 4;
-  const unsigned int n_overlap         = 2; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions    = 16;
-  const bool         LOD_stabilization = false;
+  const unsigned int fe_degree         = 8;
+  const unsigned int n_overlap         = 1; // numbers::invalid_unsigned_int
+  const unsigned int n_subdivisions    = 32;
+  const bool         LOD_stabilization = true;
   const MPI_Comm     comm              = MPI_COMM_WORLD;
 
   AssertThrow(Utilities::MPI::n_mpi_processes(comm) <= n_subdivisions,
@@ -268,7 +268,7 @@ main(int argc, char **argv)
         std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
                                                 all_dofs_fine.begin() +
                                                   N_dofs_coarse);
-
+        
         unsigned int       considered_candidates = N_dofs_coarse - 1;
         const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
         const unsigned int N_internal_dofs       = internal_dofs_fine.size();
@@ -340,7 +340,7 @@ main(int argc, char **argv)
               {
                 for (unsigned int row_id = 0; row_id < boundary_dofs_fine.size(); ++row_id)
                   for (unsigned int col_id = 0; col_id < internal_dofs_fine.size(); ++col_id)
-                    S_boundary.set(row_id, col_id, patch_stiffness_matrix(boundary_dofs_fine[row_id], internal_dofs_fine[col_id]));
+                    S_boundary.set(row_id, col_id, patch_stiffness_matrix.el(boundary_dofs_fine[row_id], internal_dofs_fine[col_id]));
               }
           }
 
@@ -360,13 +360,15 @@ main(int argc, char **argv)
         Vector<double> e_i(N_dofs_coarse);
         Vector<double> triple_product_inv_e_i(N_dofs_coarse);
 
+        auto central_cell_id = patch.cell_index(cell);
+
         if (!LOD_stabilization ||
             (boundary_dofs_fine.size() == 0))
             // LOD
             // also in the case of : oversampling == 0 ||
             // or if the patch is the whole domain
           {
-            e_i[patch.cell_index(cell)] = 1.0;
+            e_i[central_cell_id] = 1.0;
             P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
             Ainv_PT.vmult(selected_basis_function, triple_product_inv_e_i);
           }
@@ -378,11 +380,10 @@ main(int argc, char **argv)
                                          considered_candidates);
             FullMatrix<double> Ainv_PT_internal(N_internal_dofs, N_dofs_coarse);
 
-            selected_basis_function = 0.0;
-
             Vector<double> internal_selected_basis_function(N_internal_dofs);
             Vector<double> c_i(N_internal_dofs);
             internal_selected_basis_function = 0.0;
+            selected_basis_function = 0.0;
 
             Ainv_PT_internal.extract_submatrix_from(Ainv_PT,
                                                     internal_dofs_fine,
@@ -403,7 +404,7 @@ main(int argc, char **argv)
 
               for (unsigned int i = 0; i < N_boundary_dofs; ++i)
                 {
-                  B_d0[i] = BD(i, d);
+                  B_d0[i] = BD(i, central_cell_id); //d);
                 }
 
               Vector<double> d_i(considered_candidates);
@@ -417,7 +418,7 @@ main(int argc, char **argv)
               std::vector<unsigned int> other_phi(all_dofs_fine.begin(),
                                                   all_dofs_fine.begin() +
                                                     N_dofs_coarse);
-              other_phi.erase(other_phi.begin() + d);
+              other_phi.erase(other_phi.begin() + central_cell_id); //d);
 
               {
                 FullMatrix<double> newBD(N_boundary_dofs,
@@ -485,7 +486,7 @@ main(int argc, char **argv)
 
               Vector<double> DeT(N_dofs_coarse);
               e_i    = 0.0;
-              e_i[d] = 1.0;
+              e_i[central_cell_id/*d*/] = 1.0;
               P_Ainv_PT.vmult(DeT, e_i);
               c_i = DeT;
 

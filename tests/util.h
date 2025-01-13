@@ -605,6 +605,9 @@ public:
     for (auto id = N_boundary_dofs; id < n_dofs(); ++id)
       internal_dofs.push_back(id);
 
+    std::set<unsigned int> internal_bd_set;
+    std::set<unsigned int> domain_bd_set;
+
 
     for (unsigned int surface = 0; surface < 2 * dim; ++surface)
       {
@@ -627,11 +630,13 @@ public:
               const unsigned i0 =
                 i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
               if (at_boundary(surface))
-                domain_boundary_dofs.push_back(i0);
+                domain_bd_set.insert(i0);
               else
-                internal_boundary_dofs.push_back(i0);
+                internal_bd_set.insert(i0);
             }
       }
+    internal_boundary_dofs.assign(internal_bd_set.begin(), internal_bd_set.end());
+    domain_boundary_dofs.assign(domain_bd_set.begin(), domain_bd_set.end());
 
     // corners that are the intersection of a surface at the boundary and an
     // internal surface should be still part of internal_boundary_idx, while
