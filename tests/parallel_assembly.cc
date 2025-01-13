@@ -1,64 +1,19 @@
-// #include <deal.II/base/conditional_ostream.h>
-// #include <deal.II/base/exceptions.h>
-// #include <deal.II/base/parameter_acceptor.h>
-// #include <deal.II/base/parsed_convergence_table.h>
-// #include <deal.II/base/parsed_function.h>
-// #include <deal.II/base/quadrature.h>
-// #include <deal.II/base/types.h>
-
-// #include <deal.II/distributed/grid_refinement.h>
-// #include <deal.II/distributed/solution_transfer.h>
-// #include <deal.II/distributed/tria.h>
-
 #include <deal.II/dofs/dof_tools.h>
 
-// #include <deal.II/fe/fe_dgq.h>
-// #include <deal.II/fe/fe_nothing.h>
-// #include <deal.II/fe/fe_q.h>
-// #include <deal.II/fe/fe_q_iso_q1.h>
 #include <deal.II/fe/fe_system.h>
-// #include <deal.II/fe/fe_values.h>
-// #include <deal.II/fe/mapping_fe_field.h>
-// #include <deal.II/fe/mapping_q.h>
 
 #include <deal.II/grid/grid_generator.h>
 #include <deal.II/grid/grid_tools.h>
-// #include <deal.II/grid/intergrid_map.h>
 
-// #include <deal.II/lac/arpack_solver.h>
-// #include <deal.II/lac/dynamic_sparsity_pattern.h>
-// #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/generic_linear_algebra.h>
-// #include <deal.II/lac/la_parallel_vector.h>
-// #include <deal.II/lac/lapack_full_matrix.h>
-// #include <deal.II/lac/linear_operator.h>
-// #include <deal.II/lac/linear_operator_tools.h>
-// #include <deal.II/lac/petsc_full_matrix.h>
-// #include <deal.II/lac/petsc_matrix_free.h>
-// #include <deal.II/lac/petsc_vector.h>
-// #include <deal.II/lac/slepc_solver.h>
-// #include <deal.II/lac/solver_control.h>
-// #include <deal.II/lac/solver_minres.h>
-// #include <deal.II/lac/sparse_direct.h>
-// #include <deal.II/lac/sparsity_tools.h>
-// #include <deal.II/lac/trilinos_vector.h>
 
 #include <deal.II/multigrid/mg_transfer_global_coarsening.h>
-
-// #include <deal.II/numerics/data_out.h>
-// #include <deal.II/numerics/matrix_tools.h>
-// #include <deal.II/numerics/vector_tools.h>
-
-// #include <memory>
 
 
 namespace LA
 {
   using namespace dealii::LinearAlgebraTrilinos;
 } // namespace LA
-
-const unsigned int SPECIAL_NUMBER = 99;
-
 
 using namespace dealii;
 
@@ -72,7 +27,6 @@ public:
 
   std::vector<Vector<double>> basis_function;
   std::vector<Vector<double>> basis_function_premultiplied;
-  unsigned int                contained_patches = 0;
 };
 
 
@@ -84,7 +38,7 @@ public:
   LOD();
 
   unsigned int oversampling         = 1;
-  unsigned int n_subdivisions       = 2;
+  unsigned int n_subdivisions       = 1;
   unsigned int n_global_refinements = 2;
 
   void
@@ -103,7 +57,7 @@ public:
   void
   initialize_patches();
 
-  MPI_Comm  mpi_communicator;
+  MPI_Comm mpi_communicator;
 
   void
   create_mesh_for_patch(Patch<dim> &current_patch);
@@ -113,24 +67,26 @@ public:
   DoFHandler<dim> dof_handler_coarse;
   DoFHandler<dim> dof_handler_fine;
 
-  LA::MPI::SparseMatrix basis_matrix_transposed;
-  LA::MPI::SparseMatrix premultiplied_basis_matrix;
+  LA::MPI::SparseMatrix basis_matrix_T;
+  LA::MPI::SparseMatrix premultiplied_basis_matrix_T;
   LA::MPI::SparseMatrix global_stiffness_matrix;
   LA::MPI::Vector       solution;
   LA::MPI::Vector       system_rhs;
-  
+
   std::unique_ptr<FiniteElement<dim>> fe_coarse;
   std::unique_ptr<FiniteElement<dim>> fe_fine;
-  std::unique_ptr<Quadrature<dim>>    quadrature_fine;
 
 
   std::vector<Patch<dim>> patches;
-  DynamicSparsityPattern  patches_pattern;
-  DynamicSparsityPattern  patches_pattern_fine;
+  DynamicSparsityPattern  coarse_to_coarse_pattern;
+  DynamicSparsityPattern  coarse_to_fine_pattern;
+  DynamicSparsityPattern  fine_to_coarse_pattern;
 
   IndexSet locally_owned_patches;
-  IndexSet locally_owned_dofs;
-  IndexSet locally_relevant_dofs;
+  IndexSet locally_owned_coarse_dofs;
+  IndexSet locally_relevant_coarse_dofs;
+  IndexSet locally_owned_fine_dofs;
+  IndexSet locally_relevant_fine_dofs;
 };
 
 template <int dim, int spacedim>
@@ -148,23 +104,26 @@ LOD<dim, spacedim>::make_fe()
   fe_coarse = std::make_unique<FESystem<dim>>(FE_DGQ<dim>(0), spacedim);
   dof_handler_coarse.distribute_dofs(*fe_coarse);
 
-  locally_owned_dofs = dof_handler_coarse.locally_owned_dofs();
-  locally_relevant_dofs =
+  locally_owned_coarse_dofs = dof_handler_coarse.locally_owned_dofs();
+  locally_relevant_coarse_dofs =
     DoFTools::extract_locally_relevant_dofs(dof_handler_coarse);
 
   fe_fine =
-    std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(n_subdivisions),
-                                    spacedim);
+    std::make_unique<FESystem<dim>>(FE_Q_iso_Q1<dim>(n_subdivisions), spacedim);
   dof_handler_fine.distribute_dofs(*fe_fine);
-  quadrature_fine = std::make_unique<Quadrature<dim>>(
-    QIterated<dim>(QGauss<1>(2), n_subdivisions));
+  locally_owned_fine_dofs = dof_handler_fine.locally_owned_dofs();
+  locally_relevant_fine_dofs =
+    DoFTools::extract_locally_relevant_dofs(dof_handler_fine);
 
-  patches_pattern.reinit(dof_handler_coarse.n_dofs(),
-                         dof_handler_coarse.n_dofs(),
-                         locally_relevant_dofs);
-  patches_pattern_fine.reinit(dof_handler_coarse.n_dofs(),
-                              dof_handler_fine.n_dofs(),
-                              locally_relevant_dofs);
+  coarse_to_coarse_pattern.reinit(dof_handler_coarse.n_dofs(),
+                                  dof_handler_coarse.n_dofs(),
+                                  locally_relevant_coarse_dofs);
+  coarse_to_fine_pattern.reinit(dof_handler_coarse.n_dofs(),
+                                dof_handler_fine.n_dofs(),
+                                locally_relevant_coarse_dofs);
+  fine_to_coarse_pattern.reinit(dof_handler_fine.n_dofs(),
+                                dof_handler_fine.n_dofs(),
+                                locally_relevant_fine_dofs);
 }
 
 template <int dim, int spacedim>
@@ -213,8 +172,7 @@ LOD<dim, spacedim>::create_patches()
         vector_cell_index); // we need the central cell to be the first one,
                             // after that order is not relevant
 
-      for (int l_row = -oversampling;
-           l_row <= static_cast<int>(oversampling);
+      for (int l_row = -oversampling; l_row <= static_cast<int>(oversampling);
            ++l_row)
         {
           double x_j = x + l_row * H;
@@ -259,17 +217,19 @@ LOD<dim, spacedim>::create_patches()
             cell_to_add->get_dof_indices(cell_to_add_coarse_dofs);
 
             patch->cells.push_back(cell_to_add);
-            // patches_pattern.add(cell_index,
-            // cell_to_add->active_cell_index());
             for (unsigned int d = 0; d < spacedim; ++d)
-              patches_pattern.add_row_entries(coarse_dofs[d], coarse_dofs);
+              coarse_to_coarse_pattern.add_row_entries(coarse_dofs[d],
+                                                       coarse_dofs);
+
             auto cell_fine =
               cell_to_add->as_dof_handler_iterator(dof_handler_fine);
             cell_fine->get_dof_indices(fine_dofs);
             for (unsigned int d = 0; d < spacedim; ++d)
               {
-                patches_pattern_fine.add_row_entries(coarse_dofs[d], fine_dofs);
-                // patches_pattern_fine.add_row_entries(cell_index, fine_dofs);
+                coarse_to_fine_pattern.add_row_entries(coarse_dofs[d],
+                                                       fine_dofs);
+                for (auto i : fine_dofs)
+                  fine_to_coarse_pattern.add(i, coarse_dofs[d]);
               }
           }
 
@@ -277,18 +237,7 @@ LOD<dim, spacedim>::create_patches()
         size_tiniest_patch = std::min(size_tiniest_patch, patch->cells.size());
       }
     }
-
-
-  DynamicSparsityPattern global_sparsity_pattern;
-  global_sparsity_pattern.compute_mmult_pattern(patches_pattern,
-                                                patches_pattern);
-  // global_stiffness_matrix.reinit(locally_owned_patches,
-  //                                global_sparsity_pattern,
-  //                                mpi_communicator);
-  // TODO: fpr MPI FIX THIS
-  global_stiffness_matrix.reinit(global_sparsity_pattern);
-
-  solution.reinit(locally_owned_dofs, mpi_communicator);
+  coarse_to_coarse_pattern.symmetrize();
 }
 
 
@@ -300,17 +249,18 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
   DoFHandler<dim> dh_fine_patch;
   for (auto current_patch_id : locally_owned_patches)
     {
-        AssertIndexRange(current_patch_id, patches.size());
+      AssertIndexRange(current_patch_id, patches.size());
       auto current_patch = &patches[current_patch_id];
-              dh_fine_patch.reinit(current_patch->sub_tria);
+      dh_fine_patch.reinit(current_patch->sub_tria);
       dh_fine_patch.distribute_dofs(*fe_fine);
-    auto N_dofs_fine   = dh_fine_patch.n_dofs();
-          Vector<double>          selected_basis_function(N_dofs_fine);
-          selected_basis_function.add(1);
+      auto           N_dofs_fine = dh_fine_patch.n_dofs();
+      Vector<double> selected_basis_function(N_dofs_fine);
+      selected_basis_function.add(1);
       for (unsigned int d = 0; d < spacedim; ++d)
         {
           current_patch->basis_function.push_back(selected_basis_function);
-          current_patch->basis_function_premultiplied.push_back(selected_basis_function);
+          current_patch->basis_function_premultiplied.push_back(
+            selected_basis_function);
         }
       dh_fine_patch.clear();
     }
@@ -321,10 +271,6 @@ void
 LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 {
   current_patch.sub_tria.clear();
-  // copy manifolds
-  // for (const auto i : tria.get_manifold_ids())
-  //   if (i != numbers::flat_manifold_id)
-  //     current_patch.sub_tria.set_manifold(i, tria.get_manifold(i));
 
   // re-enumerate vertices
   std::vector<unsigned int> new_vertex_indices(tria.n_vertices(), 0);
@@ -354,10 +300,6 @@ LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
 
       for (const auto v : cell->vertex_indices())
         new_cell.vertices[v] = new_vertex_indices[cell->vertex_index(v)];
-
-      // new_cell.material_id = cell->material_id();
-      // new_cell.manifold_id = cell->manifold_id();
-
       coarse_cells_of_patch.emplace_back(new_cell);
     }
 
@@ -366,43 +308,6 @@ LOD<dim, spacedim>::create_mesh_for_patch(Patch<dim> &current_patch)
                                               coarse_cells_of_patch,
                                               {});
 
-  auto sub_cell = current_patch.sub_tria.begin(0);
-  for (const auto &cell : current_patch.cells)
-    {
-      // TODO: Find better way to get patch id
-      // global_to_local_cell_map[cell->active_cell_index()].push_back(
-      //   std::pair<unsigned int,
-      //             typename Triangulation<dim>::active_cell_iterator>(
-      //     current_patch.cells[0]->active_cell_index(), sub_cell));
-      // faces
-      for (const auto f : cell->face_indices())
-        {
-          const auto face = cell->face(f);
-          // if we are at boundary of patch AND domain -> keep boundary_id
-          if (face->at_boundary())
-            sub_cell->face(f)->set_boundary_id(face->boundary_id());
-          // if the face is not at the boundary of the domain, is it at the
-          // boundary of the patch?
-          else if (sub_cell->face(f)->boundary_id() !=
-                   numbers::internal_face_boundary_id)
-            // it's not at te boundary of the patch -> then is our "internal
-            // boundary"
-            sub_cell->face(f)->set_boundary_id(SPECIAL_NUMBER);
-        }
-
-
-      // // lines // useless??
-      // if constexpr (dim == 3)
-      //   for (const auto l : cell->line_indices())
-      //     {
-      //       const auto line = cell->line(l);
-
-      //       if (line->manifold_id() != numbers::flat_manifold_id)
-      //         sub_cell->line(l)->set_manifold_id(line->manifold_id());
-      //     }
-
-      sub_cell++;
-    }
 }
 
 template <int dim, int spacedim>
@@ -411,19 +316,40 @@ LOD<dim, spacedim>::assemble_global_matrix()
 {
   DoFHandler<dim> dh_fine_current_patch;
 
-  DynamicSparsityPattern identity(patches_pattern_fine.nonempty_rows());
-  for (unsigned int i = 0; i < patches_pattern_fine.n_rows(); ++i)
-    identity.add(i, i);
-  DynamicSparsityPattern patches_pattern_fine_T;
-  patches_pattern_fine_T.compute_Tmmult_pattern(patches_pattern_fine, identity);
 
-  premultiplied_basis_matrix.reinit(patches_pattern_fine_T);
-  basis_matrix_transposed.reinit(patches_pattern_fine_T);
+  // global_stiffness_matrix.reinit(locally_owned_patches,
+  //  coarse_to_coarse_pattern,
+  //  mpi_communicator);
+  // TODO: fpr MPI FIX THIS
+  global_stiffness_matrix.reinit(coarse_to_coarse_pattern);
+  
+  solution.reinit(locally_owned_coarse_dofs, mpi_communicator);
+  
+  LA::MPI::SparseMatrix basis_matrix;
+  LA::MPI::SparseMatrix premultiplied_basis_matrix;
+
+  premultiplied_basis_matrix.reinit(locally_owned_coarse_dofs,
+                                    locally_relevant_fine_dofs,
+                                    coarse_to_fine_pattern);
+  basis_matrix.reinit(locally_owned_coarse_dofs,
+                      locally_relevant_fine_dofs,
+                      coarse_to_fine_pattern);
 
   premultiplied_basis_matrix = 0.0;
-  basis_matrix_transposed    = 0.0;
+  basis_matrix               = 0.0;
 
-  system_rhs.reinit(patches_pattern_fine_T.nonempty_cols(), mpi_communicator);
+
+  premultiplied_basis_matrix_T.reinit(locally_owned_fine_dofs,
+                                      locally_relevant_fine_dofs,
+                                      fine_to_coarse_pattern);
+  basis_matrix_T.reinit(locally_owned_fine_dofs,
+                        locally_relevant_fine_dofs,
+                        fine_to_coarse_pattern);
+
+  premultiplied_basis_matrix_T = 0.0;
+  basis_matrix_T               = 0.0;
+
+  system_rhs.reinit(fine_to_coarse_pattern.nonempty_cols(), mpi_communicator);
 
   Vector<double>            phi_loc(fe_fine->n_dofs_per_cell());
   std::vector<unsigned int> global_dofs(fe_fine->n_dofs_per_cell());
@@ -448,42 +374,52 @@ LOD<dim, spacedim>::assemble_global_matrix()
               iterator_to_cell_in_current_patch->get_dof_values(
                 current_patch->basis_function[d], phi_loc);
               AssertDimension(global_dofs.size(), phi_loc.size());
-              // basis_matrix.set(current_patch_id,
-              //                  phi_loc.size(),
-              //                  global_dofs.data(),
-              //                  phi_loc.data());
+
               for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
                 {
-                  basis_matrix_transposed.set(global_dofs.data()[idx],
-                                              spacedim * current_patch_id + d,
-                                              phi_loc.data()[idx]);
+                  basis_matrix.set(spacedim * current_patch_id + d,
+                                   global_dofs.data()[idx],
+                                   phi_loc.data()[idx]);
+                  basis_matrix_T.set(global_dofs.data()[idx],
+                                     spacedim * current_patch_id + d,
+                                     phi_loc.data()[idx]);
                 }
 
               iterator_to_cell_in_current_patch->get_dof_values(
                 current_patch->basis_function_premultiplied[d], phi_loc);
               AssertDimension(global_dofs.size(), phi_loc.size());
-              // premultiplied_basis_matrix.set(current_patch_id,
-              //                                phi_loc.size(),
-              //                                global_dofs.data(),
-              //                                phi_loc.data());
-              // if the matrix is already transposed we need to loop to add the
-              // elements
+
               for (unsigned int idx = 0; idx < phi_loc.size(); ++idx)
                 {
-                  premultiplied_basis_matrix.set(global_dofs.data()[idx],
-                                                 spacedim * current_patch_id +
+                  premultiplied_basis_matrix.set(spacedim * current_patch_id +
                                                    d,
+                                                 global_dofs.data()[idx],
                                                  phi_loc.data()[idx]);
+                  premultiplied_basis_matrix_T.set(global_dofs.data()[idx],
+                                                   spacedim * current_patch_id +
+                                                     d,
+                                                   phi_loc.data()[idx]);
                 }
             }
         }
     }
   // basis_matrix.compress(VectorOperation::insert);
-  premultiplied_basis_matrix.compress(VectorOperation::insert);
-  basis_matrix_transposed.compress(VectorOperation::insert);
+  premultiplied_basis_matrix_T.compress(VectorOperation::insert);
+  basis_matrix_T.compress(VectorOperation::insert);
 
-  basis_matrix_transposed.Tmmult(global_stiffness_matrix,
-                                 premultiplied_basis_matrix);
+  premultiplied_basis_matrix.compress(VectorOperation::insert);
+  basis_matrix.compress(VectorOperation::insert);
+
+  // opz 1
+  // basis_matrix_T.Tmmult(global_stiffness_matrix,
+  //                                premultiplied_basis_matrix_T);
+  // opz 2
+  basis_matrix.mmult(global_stiffness_matrix, premultiplied_basis_matrix_T);
+  // opz 3: does not work
+  // premultiplied_basis_matrix.transpose();
+  // basis_matrix.mmult(global_stiffness_matrix,
+  //                                 premultiplied_basis_matrix);
+
   global_stiffness_matrix.compress(VectorOperation::add);
 
   global_stiffness_matrix.print(std::cout);
@@ -521,7 +457,6 @@ int
 main(int argc, char *argv[])
 {
   Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
-  LOD<2,2> problem;
+  LOD<2, 2>                        problem;
   problem.run();
-
 }
