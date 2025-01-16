@@ -391,6 +391,10 @@ public:
       this->repetitions[d] = repetitions[d];
   }
 
+  /**
+   * Initialize patch given of the index of the left-bottom cell
+   * and the the patch size in each direction.
+   */
   void
   reinit(const std::array<unsigned int, dim> &patch_start,
          const std::array<unsigned int, dim> &patch_size)
@@ -406,6 +410,10 @@ public:
       }
   }
 
+  /**
+   * Initialize patch given a cell and the number of layers around the
+   * cell.
+   */
   void
   reinit(const typename Triangulation<dim>::active_cell_iterator &cell,
          const unsigned int                                       n_overlap)
@@ -440,6 +448,52 @@ public:
     this->reinit(patch_start, patch_size);
   }
 
+  /**
+   * Return how many cells the patch contrains.
+   */
+  unsigned int
+  n_cells() const
+  {
+    unsigned int n_cells = 1;
+    for (const auto i : patch_size)
+      n_cells *= i;
+
+    return n_cells;
+  }
+
+  /**
+   * Create a cell iterator to the n-th cell in the patch.
+   */
+  typename Triangulation<dim>::active_cell_iterator
+  create_cell_iterator(const Triangulation<dim> &tria,
+                       const unsigned int        index) const
+  {
+    auto indices = index_to_indices<dim>(index, patch_size);
+
+    for (unsigned int d = 0; d < dim; ++d)
+      indices[d] += patch_start[d];
+
+    return tria.create_cell_iterator(
+      CellId(indices_to_index<dim>(indices, repetitions), {}));
+  }
+
+  /**
+   * Return the index of the cell within the patch.
+   */
+  unsigned int
+  cell_index(
+    const typename Triangulation<dim>::active_cell_iterator &cell) const
+  {
+    for (unsigned int i = 0; i < n_cells(); ++i)
+      if (create_cell_iterator(cell->get_triangulation(), i) == cell)
+        return i;
+
+    return numbers::invalid_unsigned_int;
+  }
+
+  /**
+   * Return if patch is the boundary.
+   */
   bool
   at_boundary(const unsigned int surface) const
   {
@@ -453,6 +507,9 @@ public:
              patch_subdivions_start[d] + this->patch_size[d];
   }
 
+  /**
+   * Return the number of degrees of freedom on a patch.
+   */
   unsigned int
   n_dofs() const
   {
@@ -463,6 +520,9 @@ public:
     return n_dofs_patch;
   }
 
+  /**
+   * Return global dof indices of unknown on a patch.
+   */
   void
   get_dof_indices(std::vector<types::global_dof_index> &dof_indices,
                   const bool hiarchical = false) const
@@ -496,67 +556,9 @@ public:
       }
   }
 
-  template <typename Number>
-  void
-  make_zero_boundary_constraints(const unsigned int         surface,
-                                 AffineConstraints<Number> &constraints)
-  {
-    const unsigned int d = surface / 2; // direction
-    const unsigned int s = surface % 2; // left or right surface
-
-    unsigned int n0 = 1;
-    for (unsigned int i = d + 1; i < dim; ++i)
-      n0 *= patch_subdivions_size[i] + 1;
-
-    unsigned int n1 = 1;
-    for (unsigned int i = 0; i < d; ++i)
-      n1 *= patch_subdivions_size[i] + 1;
-
-    const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
-
-    for (unsigned int i = 0; i < n0; ++i)
-      for (unsigned int j = 0; j < n1; ++j)
-        {
-          const unsigned i0 =
-            i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
-          constraints.add_line(i0);
-        }
-  }
-
-  unsigned int
-  n_cells() const
-  {
-    unsigned int n_cells = 1;
-    for (const auto i : patch_size)
-      n_cells *= i;
-
-    return n_cells;
-  }
-
-  typename Triangulation<dim>::active_cell_iterator
-  create_cell_iterator(const Triangulation<dim> &tria,
-                       const unsigned int        index) const
-  {
-    auto indices = index_to_indices<dim>(index, patch_size);
-
-    for (unsigned int d = 0; d < dim; ++d)
-      indices[d] += patch_start[d];
-
-    return tria.create_cell_iterator(
-      CellId(indices_to_index<dim>(indices, repetitions), {}));
-  }
-
-  unsigned int
-  cell_index(
-    const typename Triangulation<dim>::active_cell_iterator &cell) const
-  {
-    for (unsigned int i = 0; i < n_cells(); ++i)
-      if (create_cell_iterator(cell->get_triangulation(), i) == cell)
-        return i;
-
-    return numbers::invalid_unsigned_int;
-  }
-
+  /**
+   * Return local dof indices of a cell within the patch.
+   */
   void
   get_dof_indices_of_cell(
     const unsigned int                    index,
@@ -584,7 +586,39 @@ public:
       }
   }
 
+  /**
+   * Make zero boundary constraints for a specified face.
+   */
+  template <typename Number>
+  void
+  make_zero_boundary_constraints(const unsigned int         surface,
+                                 AffineConstraints<Number> &constraints)
+  {
+    const unsigned int d = surface / 2; // direction
+    const unsigned int s = surface % 2; // left or right surface
 
+    unsigned int n0 = 1;
+    for (unsigned int i = d + 1; i < dim; ++i)
+      n0 *= patch_subdivions_size[i] + 1;
+
+    unsigned int n1 = 1;
+    for (unsigned int i = 0; i < d; ++i)
+      n1 *= patch_subdivions_size[i] + 1;
+
+    const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
+
+    for (unsigned int i = 0; i < n0; ++i)
+      for (unsigned int j = 0; j < n1; ++j)
+        {
+          const unsigned i0 =
+            i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
+          constraints.add_line(i0);
+        }
+  }
+
+  /**
+   * Create sparsity pattern for a patch-local system matrix.
+   */
   template <typename Number, typename SparsityPatternType>
   void
   create_sparsity_pattern(const AffineConstraints<Number> &constraints,
@@ -599,6 +633,9 @@ public:
       }
   }
 
+  /**
+   * TODO
+   */
   void
   get_dofs_vectors(std::vector<unsigned int> &all_dofs,
                    std::vector<unsigned int> &internal_dofs,
