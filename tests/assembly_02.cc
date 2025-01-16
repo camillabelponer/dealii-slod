@@ -43,9 +43,9 @@ using namespace dealii;
 
 
 void
-my_Gauss_elimination(const FullMatrix<double> &            rhs,
+my_Gauss_elimination(const FullMatrix<double>             &rhs,
                      const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                     FullMatrix<double> &                  solution)
+                     FullMatrix<double>                   &solution)
 {
   Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
   Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
@@ -266,9 +266,9 @@ main(int argc, char **argv)
                                domain_boundary_dofs_fine);
 
         std::vector<unsigned int> all_dofs_coarse(all_dofs_fine.begin(),
-                                                all_dofs_fine.begin() +
-                                                  N_dofs_coarse);
-        
+                                                  all_dofs_fine.begin() +
+                                                    N_dofs_coarse);
+
         unsigned int       considered_candidates = N_dofs_coarse - 1;
         const unsigned int N_boundary_dofs       = boundary_dofs_fine.size();
         const unsigned int N_internal_dofs       = internal_dofs_fine.size();
@@ -338,9 +338,17 @@ main(int argc, char **argv)
                                                 internal_dofs_fine);
             else
               {
-                for (unsigned int row_id = 0; row_id < boundary_dofs_fine.size(); ++row_id)
-                  for (unsigned int col_id = 0; col_id < internal_dofs_fine.size(); ++col_id)
-                    S_boundary.set(row_id, col_id, patch_stiffness_matrix.el(boundary_dofs_fine[row_id], internal_dofs_fine[col_id]));
+                for (unsigned int row_id = 0;
+                     row_id < boundary_dofs_fine.size();
+                     ++row_id)
+                  for (unsigned int col_id = 0;
+                       col_id < internal_dofs_fine.size();
+                       ++col_id)
+                    S_boundary.set(
+                      row_id,
+                      col_id,
+                      patch_stiffness_matrix.el(boundary_dofs_fine[row_id],
+                                                internal_dofs_fine[col_id]));
               }
           }
 
@@ -362,11 +370,10 @@ main(int argc, char **argv)
 
         auto central_cell_id = patch.cell_index(cell);
 
-        if (!LOD_stabilization ||
-            (boundary_dofs_fine.size() == 0))
-            // LOD
-            // also in the case of : oversampling == 0 ||
-            // or if the patch is the whole domain
+        if (!LOD_stabilization || (boundary_dofs_fine.size() == 0))
+          // LOD
+          // also in the case of : oversampling == 0 ||
+          // or if the patch is the whole domain
           {
             e_i[central_cell_id] = 1.0;
             P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
@@ -383,7 +390,7 @@ main(int argc, char **argv)
             Vector<double> internal_selected_basis_function(N_internal_dofs);
             Vector<double> c_i(N_internal_dofs);
             internal_selected_basis_function = 0.0;
-            selected_basis_function = 0.0;
+            selected_basis_function          = 0.0;
 
             Ainv_PT_internal.extract_submatrix_from(Ainv_PT,
                                                     internal_dofs_fine,
@@ -404,7 +411,7 @@ main(int argc, char **argv)
 
               for (unsigned int i = 0; i < N_boundary_dofs; ++i)
                 {
-                  B_d0[i] = BD(i, central_cell_id); //d);
+                  B_d0[i] = BD(i, central_cell_id); // d);
                 }
 
               Vector<double> d_i(considered_candidates);
@@ -418,7 +425,7 @@ main(int argc, char **argv)
               std::vector<unsigned int> other_phi(all_dofs_fine.begin(),
                                                   all_dofs_fine.begin() +
                                                     N_dofs_coarse);
-              other_phi.erase(other_phi.begin() + central_cell_id); //d);
+              other_phi.erase(other_phi.begin() + central_cell_id); // d);
 
               {
                 FullMatrix<double> newBD(N_boundary_dofs,
@@ -485,8 +492,8 @@ main(int argc, char **argv)
                 }
 
               Vector<double> DeT(N_dofs_coarse);
-              e_i    = 0.0;
-              e_i[central_cell_id/*d*/] = 1.0;
+              e_i                        = 0.0;
+              e_i[central_cell_id /*d*/] = 1.0;
               P_Ainv_PT.vmult(DeT, e_i);
               c_i = DeT;
 
@@ -507,9 +514,14 @@ main(int argc, char **argv)
               Ainv_PT_internal.vmult(internal_selected_basis_function, c_i);
               unsigned int N_boundary_dofs = 4 * fe_degree;
               // somehow the following does not work
-              //internal_selected_basis_function.extract_subvector_to(internal_selected_basis_function.begin(), internal_selected_basis_function.end(), selected_basis_function.begin()+N_boundary_dofs);
-              for (unsigned int id = 0; id < (selected_basis_function.size() - N_boundary_dofs); ++id)
-                selected_basis_function[id+N_boundary_dofs] = internal_selected_basis_function[id];
+              // internal_selected_basis_function.extract_subvector_to(internal_selected_basis_function.begin(),
+              // internal_selected_basis_function.end(),
+              // selected_basis_function.begin()+N_boundary_dofs);
+              for (unsigned int id = 0;
+                   id < (selected_basis_function.size() - N_boundary_dofs);
+                   ++id)
+                selected_basis_function[id + N_boundary_dofs] =
+                  internal_selected_basis_function[id];
             }
           }
 
