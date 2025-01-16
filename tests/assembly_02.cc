@@ -213,10 +213,11 @@ main(int argc, char **argv)
 
         for (unsigned int i = 0; i < n_dofs_patch; ++i)
           if (!patch_constraints.is_constrained(i))
-            sparsity_pattern_C.add_row_entries(
-              local_dof_indices_fine[i],
-              std::vector<types::global_dof_index>(1,
-                                                   cell->active_cell_index()));
+            for (unsigned int c = 0; c < n_components; ++c)
+              sparsity_pattern_C.add_row_entries(
+                local_dof_indices_fine[i],
+                std::vector<types::global_dof_index>(
+                  1, cell->active_cell_index() * n_components + c));
       }
 
   sparsity_pattern_A_lod.compress();
