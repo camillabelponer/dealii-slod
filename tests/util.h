@@ -612,7 +612,9 @@ public:
         {
           const unsigned i0 =
             i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
-          constraints.add_line(i0);
+
+          for (unsigned int c = 0; c < n_components; ++c)
+            constraints.add_line(i0 * n_components + c);
         }
   }
 
@@ -679,10 +681,13 @@ public:
             {
               const unsigned i0 =
                 i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
+
               if (at_boundary(surface))
-                domain_bd_set.insert(i0);
+                for (unsigned int c = 0; c < n_components; ++c)
+                  domain_bd_set.insert(i0 * n_components + c);
               else
-                internal_bd_set.insert(i0);
+                for (unsigned int c = 0; c < n_components; ++c)
+                  internal_bd_set.insert(i0 * n_components + c);
             }
       }
     internal_boundary_dofs.assign(internal_bd_set.begin(),
