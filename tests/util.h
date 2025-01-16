@@ -382,14 +382,13 @@ public:
         const std::vector<unsigned int> &repetitions,
         const unsigned int               n_components = 1)
     : fe_degree(fe_degree)
-    , dofs_per_cell(Utilities::pow(fe_degree + 1, dim))
+    , n_components(n_components)
+    , dofs_per_cell(Utilities::pow(fe_degree + 1, dim) * n_components)
     , lexicographic_to_hierarchic_numbering(
         FETools::lexicographic_to_hierarchic_numbering<dim>(fe_degree))
   {
     for (unsigned int d = 0; d < dim; ++d)
       this->repetitions[d] = repetitions[d];
-
-    AssertDimension(n_components, 1);
   }
 
   void
@@ -457,7 +456,7 @@ public:
   unsigned int
   n_dofs() const
   {
-    unsigned int n_dofs_patch = 1;
+    unsigned int n_dofs_patch = n_components;
     for (const auto i : patch_subdivions_size)
       n_dofs_patch *= i + 1;
 
@@ -480,13 +479,20 @@ public:
 
     for (unsigned int c = 0; c < this->n_dofs(); ++c)
       {
-        auto indices = index_to_indices<dim>(c, patch_dofs);
+        const auto cc   = c / n_components;
+        const auto comp = cc % n_components;
+
+        auto indices = index_to_indices<dim>(cc, patch_dofs);
 
         for (unsigned int d = 0; d < dim; ++d)
           indices[d] += patch_subdivions_start[d];
 
-        dof_indices[hiarchical ? lexicographic_to_hierarchic_numbering[c] : c] =
-          indices_to_index<dim>(indices, global_dofs);
+        // TODO: check!
+        dof_indices[(hiarchical ? lexicographic_to_hierarchic_numbering[cc] :
+                                  cc) *
+                      n_components +
+                    comp] =
+          indices_to_index<dim>(indices, global_dofs) * n_components + comp;
       }
   }
 
@@ -569,8 +575,12 @@ public:
         for (unsigned int d = 0; d < dim; ++d)
           indices_1[d] += indices_0[d] * fe_degree;
 
-        dof_indices[lexicographic_to_hierarchic_numbering[c]] =
+        const unsigned int index_c =
           indices_to_index<dim>(indices_1, patch_dofs);
+
+        for (unsigned int cc = 0; cc < n_components; ++cc) // TODO: check!
+          dof_indices[lexicographic_to_hierarchic_numbering[c] * n_components +
+                      cc] = index_c * n_components + cc;
       }
   }
 
@@ -649,6 +659,7 @@ public:
 
 private:
   const unsigned int        fe_degree;
+  const unsigned int        n_components;
   const unsigned int        dofs_per_cell;
   std::vector<unsigned int> lexicographic_to_hierarchic_numbering;
 
