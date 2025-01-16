@@ -164,15 +164,15 @@ main(int argc, char **argv)
 
   Patch<dim> patch(n_subdivisions_fine, repetitions);
 
-  IndexSet locally_owned_cells(n_dofs_coarse);
+  IndexSet locally_owned_dofs_coarse(n_dofs_coarse);
 
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned())
-      locally_owned_cells.add_index(cell->active_cell_index());
+      locally_owned_dofs_coarse.add_index(cell->active_cell_index());
 
   // 2) ininitialize sparsity pattern
-  TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(locally_owned_cells,
-                                                           comm);
+  TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
+    locally_owned_dofs_coarse, comm);
 
   TrilinosWrappers::SparsityPattern sparsity_pattern_C(locally_owned_fine_dofs,
                                                        comm);
@@ -543,14 +543,14 @@ main(int argc, char **argv)
 
   // 5) convert sparse matrix C to shifted AffineConstraints
   IndexSet constraints_lod_fem_locally_owned_dofs(n_dofs_fine + n_dofs_coarse);
-  constraints_lod_fem_locally_owned_dofs.add_indices(locally_owned_cells);
+  constraints_lod_fem_locally_owned_dofs.add_indices(locally_owned_dofs_coarse);
   constraints_lod_fem_locally_owned_dofs.add_indices(locally_owned_fine_dofs,
                                                      n_dofs_coarse);
 
   IndexSet constraints_lod_fem_locally_stored_constraints =
     constraints_lod_fem_locally_owned_dofs;
 
-  IndexSet locally_relevant_cells = locally_owned_cells;
+  IndexSet locally_relevant_cells = locally_owned_dofs_coarse;
 
   for (const auto row : locally_owned_fine_dofs) // parallel for-loop
     {
@@ -605,7 +605,7 @@ main(int argc, char **argv)
           locally_relevant_cells.add_index(j);
       }
 
-  LinearAlgebra::distributed::Vector<double> rhs_lod(locally_owned_cells,
+  LinearAlgebra::distributed::Vector<double> rhs_lod(locally_owned_dofs_coarse,
                                                      locally_relevant_cells,
                                                      comm);
 
