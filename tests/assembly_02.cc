@@ -155,8 +155,8 @@ main(int argc, char **argv)
 
   AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
 
-  IndexSet locally_owned_fine_dofs(n_dofs_fine);
-  locally_owned_fine_dofs.add_range(
+  IndexSet locally_owned_dofs_fine(n_dofs_fine);
+  locally_owned_dofs_fine.add_range(
     face_dofs *
       std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
     face_dofs *
@@ -174,7 +174,7 @@ main(int argc, char **argv)
   TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
     locally_owned_dofs_coarse, comm);
 
-  TrilinosWrappers::SparsityPattern sparsity_pattern_C(locally_owned_fine_dofs,
+  TrilinosWrappers::SparsityPattern sparsity_pattern_C(locally_owned_dofs_fine,
                                                        comm);
 
   for (const auto &cell : tria.active_cell_iterators())
@@ -544,7 +544,7 @@ main(int argc, char **argv)
   // 5) convert sparse matrix C to shifted AffineConstraints
   IndexSet constraints_lod_fem_locally_owned_dofs(n_dofs_fine + n_dofs_coarse);
   constraints_lod_fem_locally_owned_dofs.add_indices(locally_owned_dofs_coarse);
-  constraints_lod_fem_locally_owned_dofs.add_indices(locally_owned_fine_dofs,
+  constraints_lod_fem_locally_owned_dofs.add_indices(locally_owned_dofs_fine,
                                                      n_dofs_coarse);
 
   IndexSet constraints_lod_fem_locally_stored_constraints =
@@ -552,7 +552,7 @@ main(int argc, char **argv)
 
   IndexSet locally_relevant_cells = locally_owned_dofs_coarse;
 
-  for (const auto row : locally_owned_fine_dofs) // parallel for-loop
+  for (const auto row : locally_owned_dofs_fine) // parallel for-loop
     {
       for (auto entry = C.begin(row); entry != C.end(row); ++entry)
         {
@@ -579,7 +579,7 @@ main(int argc, char **argv)
   AffineConstraints<double> constraints_lod_fem(
     constraints_lod_fem_locally_owned_dofs,
     constraints_lod_fem_locally_stored_constraints);
-  for (const auto row : locally_owned_fine_dofs) // parallel for-loop
+  for (const auto row : locally_owned_dofs_fine) // parallel for-loop
     {
       std::vector<std::pair<types::global_dof_index, double>> dependencies;
 
@@ -672,10 +672,10 @@ main(int argc, char **argv)
 
   // 8) convert to FEM solution
   LinearAlgebra::distributed::Vector<double> solution_fem(
-    locally_owned_fine_dofs, comm);
+    locally_owned_dofs_fine, comm);
 
   solution_lod.update_ghost_values();
-  for (const auto i : locally_owned_fine_dofs)
+  for (const auto i : locally_owned_dofs_fine)
     if (const auto constraint_entries =
           constraints_lod_fem.get_constraint_entries(i + n_dofs_coarse))
       {
