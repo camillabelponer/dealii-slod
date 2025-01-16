@@ -162,13 +162,15 @@ main(int argc, char **argv)
     face_dofs *
       std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
 
-  Patch<dim> patch(n_subdivisions_fine, repetitions);
+  Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
 
   IndexSet locally_owned_dofs_coarse(n_dofs_coarse);
 
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned())
-      locally_owned_dofs_coarse.add_index(cell->active_cell_index());
+      for (unsigned int c = 0; c < n_components; ++c)
+        locally_owned_dofs_coarse.add_index(
+          cell->active_cell_index() * n_components + c);
 
   // 2) ininitialize sparsity pattern
   TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
@@ -184,8 +186,14 @@ main(int argc, char **argv)
         patch.reinit(cell, n_oversampling * 2);
         std::vector<types::global_dof_index> local_dof_indices_coarse;
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
-          local_dof_indices_coarse.emplace_back(
-            patch.create_cell_iterator(tria, cell)->active_cell_index());
+          {
+            const auto cell_index =
+              patch.create_cell_iterator(tria, cell)->active_cell_index();
+
+            for (unsigned int c = 0; c < n_components; ++c)
+              local_dof_indices_coarse.emplace_back(cell_index * n_components +
+                                                    c);
+          }
 
         for (const auto &row_index : local_dof_indices_coarse)
           sparsity_pattern_A_lod.add_row_entries(row_index,
@@ -619,7 +627,7 @@ main(int argc, char **argv)
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
-        Patch<dim> patch(n_subdivisions_fine, repetitions);
+        Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
         patch.reinit(cell, 0);
 
         fe_values.reinit(cell);

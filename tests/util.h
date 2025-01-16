@@ -379,7 +379,8 @@ class Patch
 {
 public:
   Patch(const unsigned int               fe_degree,
-        const std::vector<unsigned int> &repetitions)
+        const std::vector<unsigned int> &repetitions,
+        const unsigned int               n_components = 1)
     : fe_degree(fe_degree)
     , dofs_per_cell(Utilities::pow(fe_degree + 1, dim))
     , lexicographic_to_hierarchic_numbering(
@@ -387,6 +388,8 @@ public:
   {
     for (unsigned int d = 0; d < dim; ++d)
       this->repetitions[d] = repetitions[d];
+
+    AssertDimension(n_components, 1);
   }
 
   void
@@ -635,7 +638,8 @@ public:
                 internal_bd_set.insert(i0);
             }
       }
-    internal_boundary_dofs.assign(internal_bd_set.begin(), internal_bd_set.end());
+    internal_boundary_dofs.assign(internal_bd_set.begin(),
+                                  internal_bd_set.end());
     domain_boundary_dofs.assign(domain_bd_set.begin(), domain_bd_set.end());
 
     // corners that are the intersection of a surface at the boundary and an
