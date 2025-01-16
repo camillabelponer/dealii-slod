@@ -22,6 +22,7 @@
 #include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/fe/fe_q_iso_q1.h>
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
 #include <deal.II/fe/mapping_q1.h>
@@ -291,7 +292,7 @@ main(int argc, char **argv)
 
         Vector<double> PT_counter(N_dofs_fine);
 
-        FE_Q_iso_Q1<dim>     fe(n_subdivisions_fine);
+        FESystem<dim> fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
         const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
         FEValues<dim>        fe_values(
           fe, quadrature, update_values | update_gradients | update_JxW_values);
@@ -627,7 +628,7 @@ main(int argc, char **argv)
                                                      comm);
 
   // 6) assembly LOD matrix
-  FE_Q_iso_Q1<dim>     fe(n_subdivisions_fine);
+  FESystem<dim>        fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
   const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
   FEValues<dim>        fe_values(fe,
                           quadrature,
