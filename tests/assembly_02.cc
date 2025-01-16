@@ -96,17 +96,17 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  const unsigned int dim               = 2;
-  const unsigned int fe_degree         = 8;
-  const unsigned int n_overlap         = 1; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions    = 32;
-  const bool         LOD_stabilization = true;
-  const MPI_Comm     comm              = MPI_COMM_WORLD;
+  const unsigned int dim                   = 2;
+  const unsigned int n_subdivisions_fine   = 8;
+  const unsigned int n_oversampling        = 1; // numbers::invalid_unsigned_int
+  const unsigned int n_subdivisions_coarse = 32;
+  const bool         LOD_stabilization     = true;
+  const MPI_Comm     comm                  = MPI_COMM_WORLD;
 
-  AssertThrow(Utilities::MPI::n_mpi_processes(comm) <= n_subdivisions,
+  AssertThrow(Utilities::MPI::n_mpi_processes(comm) <= n_subdivisions_coarse,
               ExcNotImplemented());
 
-  std::vector<unsigned int> repetitions(dim, n_subdivisions);
+  std::vector<unsigned int> repetitions(dim, n_subdivisions_coarse);
   Point<dim>                p1;
   Point<dim>                p2;
 
@@ -123,12 +123,12 @@ main(int argc, char **argv)
   const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
   const unsigned int stride  = (repetitions[dim - 1] + n_procs - 1) / n_procs;
   unsigned int       range_start =
-    (my_rank == 0) ? 0 : ((stride * my_rank) * fe_degree + 1);
-  unsigned int range_end = stride * (my_rank + 1) * fe_degree + 1;
+    (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
+  unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
 
   unsigned int face_dofs = 1;
   for (unsigned int d = 0; d < dim - 1; ++d)
-    face_dofs *= repetitions[d] * fe_degree + 1;
+    face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
 
   tria.signals.create.connect([&, stride, repetitions]() {
     for (const auto &cell : tria.active_cell_iterators())
@@ -149,17 +149,19 @@ main(int argc, char **argv)
   for (unsigned int d = 0; d < dim; ++d)
     {
       n_dofs_coarse *= repetitions[d];
-      n_dofs_fine *= repetitions[d] * fe_degree + 1;
+      n_dofs_fine *= repetitions[d] * n_subdivisions_fine + 1;
     }
 
   AssertDimension(n_dofs_coarse, tria.n_active_cells());
 
   IndexSet locally_owned_fine_dofs(n_dofs_fine);
   locally_owned_fine_dofs.add_range(
-    face_dofs * std::min(range_start, repetitions[dim - 1] * fe_degree + 1),
-    face_dofs * std::min(range_end, repetitions[dim - 1] * fe_degree + 1));
+    face_dofs *
+      std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
+    face_dofs *
+      std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
 
-  Patch<dim> patch(fe_degree, repetitions);
+  Patch<dim> patch(n_subdivisions_fine, repetitions);
 
   IndexSet locally_owned_cells(n_dofs_coarse);
 
@@ -178,7 +180,7 @@ main(int argc, char **argv)
     if (cell->is_locally_owned()) // parallel for-loop
       {
         // A_lod sparsity pattern
-        patch.reinit(cell, n_overlap * 2);
+        patch.reinit(cell, n_oversampling * 2);
         std::vector<types::global_dof_index> local_dof_indices_coarse;
         for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
           local_dof_indices_coarse.emplace_back(
@@ -189,7 +191,7 @@ main(int argc, char **argv)
                                                  local_dof_indices_coarse);
 
         // C sparsity pattern
-        patch.reinit(cell, n_overlap);
+        patch.reinit(cell, n_oversampling);
         const auto                           n_dofs_patch = patch.n_dofs();
         std::vector<types::global_dof_index> local_dof_indices_fine(
           n_dofs_patch);
@@ -219,10 +221,10 @@ main(int argc, char **argv)
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
-        patch.reinit(cell, n_overlap);
+        patch.reinit(cell, n_oversampling);
 
-        double H = 1.0 / n_subdivisions;
-        double h = H / fe_degree;
+        double H = 1.0 / n_subdivisions_coarse;
+        double h = H / n_subdivisions_fine;
 
         const auto                           n_dofs_patch  = patch.n_dofs();
         const unsigned int                   N_dofs_coarse = patch.n_cells();
@@ -278,8 +280,8 @@ main(int argc, char **argv)
 
         Vector<double> PT_counter(N_dofs_fine);
 
-        FE_Q_iso_Q1<dim>     fe(fe_degree);
-        const QIterated<dim> quadrature(QGauss<1>(2), fe_degree);
+        FE_Q_iso_Q1<dim>     fe(n_subdivisions_fine);
+        const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
         FEValues<dim>        fe_values(
           fe, quadrature, update_values | update_gradients | update_JxW_values);
 
@@ -512,7 +514,7 @@ main(int argc, char **argv)
                 }
 
               Ainv_PT_internal.vmult(internal_selected_basis_function, c_i);
-              unsigned int N_boundary_dofs = 4 * fe_degree;
+              unsigned int N_boundary_dofs = 4 * n_subdivisions_fine;
               // somehow the following does not work
               // internal_selected_basis_function.extract_subvector_to(internal_selected_basis_function.begin(),
               // internal_selected_basis_function.end(),
@@ -561,7 +563,7 @@ main(int argc, char **argv)
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
-        patch.reinit(cell, n_overlap);
+        patch.reinit(cell, n_oversampling);
 
         const auto                           n_dofs_patch = patch.n_dofs();
         std::vector<types::global_dof_index> local_dof_indices_fine(
@@ -607,8 +609,8 @@ main(int argc, char **argv)
                                                      comm);
 
   // 6) assembly LOD matrix
-  FE_Q_iso_Q1<dim>     fe(fe_degree);
-  const QIterated<dim> quadrature(QGauss<1>(2), fe_degree);
+  FE_Q_iso_Q1<dim>     fe(n_subdivisions_fine);
+  const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
   FEValues<dim>        fe_values(fe,
                           quadrature,
                           update_values | update_gradients | update_JxW_values);
@@ -616,7 +618,7 @@ main(int argc, char **argv)
   for (const auto &cell : tria.active_cell_iterators())
     if (cell->is_locally_owned()) // parallel for-loop
       {
-        Patch<dim> patch(fe_degree, repetitions);
+        Patch<dim> patch(n_subdivisions_fine, repetitions);
         patch.reinit(cell, 0);
 
         fe_values.reinit(cell);
@@ -707,7 +709,7 @@ main(int argc, char **argv)
   ranks = my_rank;
   data_out.add_data_vector(ranks, "rank");
 
-  data_out.build_patches(mapping, fe_degree);
+  data_out.build_patches(mapping, n_subdivisions_fine);
 
   const std::string file_name = "solution.vtu";
 
