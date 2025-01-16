@@ -98,6 +98,7 @@ main(int argc, char **argv)
 
   const unsigned int dim                   = 2;
   const unsigned int n_subdivisions_fine   = 8;
+  const unsigned int n_components          = dim;
   const unsigned int n_oversampling        = 1; // numbers::invalid_unsigned_int
   const unsigned int n_subdivisions_coarse = 32;
   const bool         LOD_stabilization     = true;
@@ -126,7 +127,7 @@ main(int argc, char **argv)
     (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
   unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
 
-  unsigned int face_dofs = 1;
+  unsigned int face_dofs = n_components;
   for (unsigned int d = 0; d < dim - 1; ++d)
     face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
 
@@ -144,15 +145,15 @@ main(int argc, char **argv)
 
   GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
 
-  types::global_dof_index n_dofs_coarse = 1;
-  types::global_dof_index n_dofs_fine   = 1;
+  types::global_dof_index n_dofs_coarse = n_components;
+  types::global_dof_index n_dofs_fine   = n_components;
   for (unsigned int d = 0; d < dim; ++d)
     {
       n_dofs_coarse *= repetitions[d];
       n_dofs_fine *= repetitions[d] * n_subdivisions_fine + 1;
     }
 
-  AssertDimension(n_dofs_coarse, tria.n_active_cells());
+  AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
 
   IndexSet locally_owned_fine_dofs(n_dofs_fine);
   locally_owned_fine_dofs.add_range(
