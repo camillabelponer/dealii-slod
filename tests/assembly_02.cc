@@ -250,138 +250,6 @@ namespace Step96
     void
     setup_basis()
     {
-      // TODO
-    }
-
-    void
-    assemble_system()
-    {
-      FESystem<dim> fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
-      const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
-      FEValues<dim>        fe_values(
-        fe, quadrature, update_values | update_gradients | update_JxW_values);
-
-      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
-
-      for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned())
-          {
-            patch.reinit(cell, 0);
-
-            fe_values.reinit(cell);
-
-            const unsigned int n_dofs_per_cell = patch.n_dofs();
-
-            // a) compute FEM element stiffness matrix
-            FullMatrix<double> cell_matrix_fem(n_dofs_per_cell,
-                                               n_dofs_per_cell);
-            Vector<double>     cell_rhs_fem(n_dofs_per_cell);
-
-            for (const unsigned int q_index :
-                 fe_values.quadrature_point_indices())
-              {
-                for (const unsigned int i : fe_values.dof_indices())
-                  for (const unsigned int j : fe_values.dof_indices())
-                    cell_matrix_fem(i, j) += (fe_values.shape_grad(i, q_index) *
-                                              fe_values.shape_grad(j, q_index) *
-                                              fe_values.JxW(q_index));
-
-                for (const unsigned int i : fe_values.dof_indices())
-                  cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
-                                      fe_values.JxW(q_index));
-              }
-
-            // b) assemble into LOD matrix by using constraints
-            std::vector<types::global_dof_index> local_dof_indices(
-              n_dofs_per_cell);
-            patch.get_dof_indices(local_dof_indices, true /*hiearchical*/);
-
-            for (auto &i : local_dof_indices)
-              i += rhs_lod.size(); // shifted view
-
-            constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
-                                                           local_dof_indices,
-                                                           local_dof_indices,
-                                                           A_lod);
-
-            constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
-                                                           local_dof_indices,
-                                                           rhs_lod);
-          }
-
-      A_lod.compress(VectorOperation::values::add);
-      rhs_lod.compress(VectorOperation::values::add);
-    }
-
-    void
-    solve()
-    {
-      TrilinosWrappers::SolverDirect solver;
-      solver.solve(A_lod, solution_lod, rhs_lod);
-    }
-
-    void
-    output_results()
-    {
-      DoFHandler<dim> dof_handler(tria);
-      dof_handler.distribute_dofs(
-        FESystem<dim>(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components));
-      compute_renumbering_lex(dof_handler);
-
-      // convert to FEM solution
-      LinearAlgebra::distributed::Vector<double> solution_fem(
-        dof_handler.locally_owned_dofs(), comm);
-
-      solution_lod.update_ghost_values();
-      for (const auto i : dof_handler.locally_owned_dofs())
-        if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(i +
-                                                         solution_lod.size()))
-          {
-            double new_value = 0.0;
-            for (const auto &[j, weight] : *constraint_entries)
-              new_value += weight * solution_lod[j];
-
-            solution_fem[i] = new_value;
-          }
-
-      // output LOD and FEM results
-
-      MappingQ<dim> mapping(1);
-
-      DataOutBase::VtkFlags flags;
-
-      if (dim > 1)
-        flags.write_higher_order_cells = true;
-
-      DataOut<dim> data_out;
-      data_out.set_flags(flags);
-      data_out.attach_dof_handler(dof_handler);
-
-      data_out.add_data_vector(solution_lod, "solution_lod");
-      data_out.add_data_vector(solution_fem, "solution_fem");
-
-      pcout << solution_lod.l2_norm() << std::endl;
-      pcout << solution_fem.l2_norm() << std::endl;
-
-      Vector<double> ranks(tria.n_active_cells());
-      ranks = Utilities::MPI::this_mpi_process(comm);
-      data_out.add_data_vector(ranks, "rank");
-
-      data_out.build_patches(mapping, n_subdivisions_fine);
-
-      const std::string file_name = "solution.vtu";
-
-      data_out.write_vtu_in_parallel(file_name, comm);
-    }
-
-    void
-    run()
-    {
-      make_grid();
-      setup_system();
-      setup_basis();
-
       TrilinosWrappers::SparsityPattern sparsity_pattern_C(
         locally_owned_dofs_fine, comm);
 
@@ -813,9 +681,136 @@ namespace Step96
         constraints_lod_fem_locally_stored_constraints,
         comm);
       constraints_lod_fem.close();
+    }
 
-      // 6) assembly LOD matrix
+    void
+    assemble_system()
+    {
+      FESystem<dim> fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
+      const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
+      FEValues<dim>        fe_values(
+        fe, quadrature, update_values | update_gradients | update_JxW_values);
 
+      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
+
+      for (const auto &cell : tria.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            patch.reinit(cell, 0);
+
+            fe_values.reinit(cell);
+
+            const unsigned int n_dofs_per_cell = patch.n_dofs();
+
+            // a) compute FEM element stiffness matrix
+            FullMatrix<double> cell_matrix_fem(n_dofs_per_cell,
+                                               n_dofs_per_cell);
+            Vector<double>     cell_rhs_fem(n_dofs_per_cell);
+
+            for (const unsigned int q_index :
+                 fe_values.quadrature_point_indices())
+              {
+                for (const unsigned int i : fe_values.dof_indices())
+                  for (const unsigned int j : fe_values.dof_indices())
+                    cell_matrix_fem(i, j) += (fe_values.shape_grad(i, q_index) *
+                                              fe_values.shape_grad(j, q_index) *
+                                              fe_values.JxW(q_index));
+
+                for (const unsigned int i : fe_values.dof_indices())
+                  cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
+                                      fe_values.JxW(q_index));
+              }
+
+            // b) assemble into LOD matrix by using constraints
+            std::vector<types::global_dof_index> local_dof_indices(
+              n_dofs_per_cell);
+            patch.get_dof_indices(local_dof_indices, true /*hiearchical*/);
+
+            for (auto &i : local_dof_indices)
+              i += rhs_lod.size(); // shifted view
+
+            constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
+                                                           local_dof_indices,
+                                                           local_dof_indices,
+                                                           A_lod);
+
+            constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
+                                                           local_dof_indices,
+                                                           rhs_lod);
+          }
+
+      A_lod.compress(VectorOperation::values::add);
+      rhs_lod.compress(VectorOperation::values::add);
+    }
+
+    void
+    solve()
+    {
+      TrilinosWrappers::SolverDirect solver;
+      solver.solve(A_lod, solution_lod, rhs_lod);
+    }
+
+    void
+    output_results()
+    {
+      DoFHandler<dim> dof_handler(tria);
+      dof_handler.distribute_dofs(
+        FESystem<dim>(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components));
+      compute_renumbering_lex(dof_handler);
+
+      // convert to FEM solution
+      LinearAlgebra::distributed::Vector<double> solution_fem(
+        dof_handler.locally_owned_dofs(), comm);
+
+      solution_lod.update_ghost_values();
+      for (const auto i : dof_handler.locally_owned_dofs())
+        if (const auto constraint_entries =
+              constraints_lod_fem.get_constraint_entries(i +
+                                                         solution_lod.size()))
+          {
+            double new_value = 0.0;
+            for (const auto &[j, weight] : *constraint_entries)
+              new_value += weight * solution_lod[j];
+
+            solution_fem[i] = new_value;
+          }
+
+      // output LOD and FEM results
+
+      MappingQ<dim> mapping(1);
+
+      DataOutBase::VtkFlags flags;
+
+      if (dim > 1)
+        flags.write_higher_order_cells = true;
+
+      DataOut<dim> data_out;
+      data_out.set_flags(flags);
+      data_out.attach_dof_handler(dof_handler);
+
+      data_out.add_data_vector(solution_lod, "solution_lod");
+      data_out.add_data_vector(solution_fem, "solution_fem");
+
+      pcout << solution_lod.l2_norm() << std::endl;
+      pcout << solution_fem.l2_norm() << std::endl;
+
+      Vector<double> ranks(tria.n_active_cells());
+      ranks = Utilities::MPI::this_mpi_process(comm);
+      data_out.add_data_vector(ranks, "rank");
+
+      data_out.build_patches(mapping, n_subdivisions_fine);
+
+      const std::string file_name = "solution.vtu";
+
+      data_out.write_vtu_in_parallel(file_name, comm);
+    }
+
+    void
+    run()
+    {
+      this->make_grid();
+      this->setup_system();
+      this->setup_basis();
       this->assemble_system();
       this->solve();
       this->output_results();
