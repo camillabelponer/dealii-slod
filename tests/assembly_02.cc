@@ -95,27 +95,36 @@ namespace Step96
     solution.copy_transposed(solution_t);
   }
 
+  struct Parameters
+  {
+    unsigned int n_subdivisions_fine   = 3;
+    unsigned int n_components          = 1;
+    unsigned int n_oversampling        = 1; // numbers::invalid_unsigned_int
+    unsigned int n_subdivisions_coarse = 16;
+    bool         LOD_stabilization     = true;
+  };
+
   template <int dim>
   class LODProblem
   {
   public:
-    void
-    run()
+    LODProblem(const Parameters &params)
+      : n_subdivisions_fine(params.n_subdivisions_fine)
+      , n_components(params.n_components)
+      , n_oversampling(params.n_oversampling)
+      , n_subdivisions_coarse(params.n_subdivisions_coarse)
+      , LOD_stabilization(params.LOD_stabilization)
+      , comm(MPI_COMM_WORLD)
+      , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
     {
-      const unsigned int n_subdivisions_fine = 3;
-      const unsigned int n_components        = 1;
-      const unsigned int n_oversampling = 1; // numbers::invalid_unsigned_int
-      const unsigned int n_subdivisions_coarse = 16;
-      const bool         LOD_stabilization     = true;
-      const MPI_Comm     comm                  = MPI_COMM_WORLD;
-
-      ConditionalOStream pcout(std::cout,
-                               Utilities::MPI::this_mpi_process(comm) == 0);
-
       AssertThrow(Utilities::MPI::n_mpi_processes(comm) <=
                     n_subdivisions_coarse,
                   ExcNotImplemented());
+    }
 
+    void
+    run()
+    {
       std::vector<unsigned int> repetitions(dim, n_subdivisions_coarse);
       Point<dim>                p1;
       Point<dim>                p2;
@@ -762,6 +771,16 @@ namespace Step96
 
       data_out.write_vtu_in_parallel(file_name, comm);
     }
+
+  private:
+    const unsigned int n_subdivisions_fine;
+    const unsigned int n_components;
+    const unsigned int n_oversampling;
+    const unsigned int n_subdivisions_coarse;
+    const bool         LOD_stabilization;
+
+    MPI_Comm           comm;
+    ConditionalOStream pcout;
   };
 
 } // namespace Step96
@@ -771,6 +790,8 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
-  Step96::LODProblem<2> problem;
+  Step96::Parameters params;
+
+  Step96::LODProblem<2> problem(params);
   problem.run();
 }
