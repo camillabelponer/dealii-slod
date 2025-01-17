@@ -128,7 +128,7 @@ namespace Step96
     }
 
     void
-    create_grid()
+    make_grid()
     {
       Point<dim> p1;
       Point<dim> p2;
@@ -137,7 +137,6 @@ namespace Step96
         p2[d] = 1.0;
 
       const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
-      const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
       const unsigned int stride =
         (repetitions[dim - 1] + n_procs - 1) / n_procs;
 
@@ -159,7 +158,7 @@ namespace Step96
     void
     run()
     {
-      create_grid();
+      make_grid();
 
       const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
