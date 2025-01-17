@@ -180,8 +180,8 @@ namespace Step96
 
       AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
 
-      locally_owned_dofs_fine = IndexSet(n_dofs_fine);
-      locally_owned_dofs_fine.add_range(
+      locally_owned_dofs_fem = IndexSet(n_dofs_fine);
+      locally_owned_dofs_fem.add_range(
         face_dofs *
           std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
         face_dofs *
@@ -189,7 +189,7 @@ namespace Step96
 
       Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
 
-      locally_owned_dofs_coarse = IndexSet(n_dofs_coarse);
+      locally_owned_dofs_lod = IndexSet(n_dofs_coarse);
       IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
 
       for (const auto &cell : tria.active_cell_iterators())
@@ -197,7 +197,7 @@ namespace Step96
           {
             // locally owned dofs
             for (unsigned int c = 0; c < n_components; ++c)
-              locally_owned_dofs_coarse.add_index(
+              locally_owned_dofs_lod.add_index(
                 cell->active_cell_index() * n_components + c);
 
             // locally relevant dofs
@@ -215,7 +215,7 @@ namespace Step96
 
       // 2) ininitialize sparsity pattern
       TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
-        locally_owned_dofs_coarse, comm);
+        locally_owned_dofs_lod, comm);
 
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
@@ -241,7 +241,7 @@ namespace Step96
       sparsity_pattern_A_lod.compress();
       A_lod.reinit(sparsity_pattern_A_lod);
 
-      rhs_lod.reinit(locally_owned_dofs_coarse,
+      rhs_lod.reinit(locally_owned_dofs_lod,
                      locally_relevant_dofs_coarse,
                      comm);
       solution_lod.reinit(rhs_lod);
@@ -251,7 +251,7 @@ namespace Step96
     setup_basis()
     {
       TrilinosWrappers::SparsityPattern sparsity_pattern_C(
-        locally_owned_dofs_fine, comm);
+        locally_owned_dofs_fem, comm);
 
       Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
 
@@ -627,16 +627,16 @@ namespace Step96
 
       // 5) convert sparse matrix C to shifted AffineConstraints
       IndexSet constraints_lod_fem_locally_owned_dofs(
-        locally_owned_dofs_fine.size() + locally_owned_dofs_coarse.size());
+        locally_owned_dofs_fem.size() + locally_owned_dofs_lod.size());
       constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_coarse);
+        locally_owned_dofs_lod);
       constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_fine, locally_owned_dofs_coarse.size());
+        locally_owned_dofs_fem, locally_owned_dofs_lod.size());
 
       IndexSet constraints_lod_fem_locally_stored_constraints =
         constraints_lod_fem_locally_owned_dofs;
 
-      for (const auto row : locally_owned_dofs_fine) // parallel for-loop
+      for (const auto row : locally_owned_dofs_fem) // parallel for-loop
         {
           for (auto entry = C.begin(row); entry != C.end(row); ++entry)
             {
@@ -658,13 +658,13 @@ namespace Step96
             for (unsigned int i = 0; i < n_dofs_patch; ++i)
               constraints_lod_fem_locally_stored_constraints.add_index(
                 local_dof_indices_fine[i] +
-                locally_owned_dofs_coarse.size()); // fine
+                locally_owned_dofs_lod.size()); // fine
           }
 
       constraints_lod_fem.reinit(
         constraints_lod_fem_locally_owned_dofs,
         constraints_lod_fem_locally_stored_constraints);
-      for (const auto row : locally_owned_dofs_fine) // parallel for-loop
+      for (const auto row : locally_owned_dofs_fem) // parallel for-loop
         {
           std::vector<std::pair<types::global_dof_index, double>> dependencies;
 
@@ -672,8 +672,9 @@ namespace Step96
             dependencies.emplace_back(entry->column(), entry->value());
 
           if (true || !dependencies.empty())
-            constraints_lod_fem.add_constraint(
-              row + locally_owned_dofs_coarse.size(), dependencies);
+            constraints_lod_fem.add_constraint(row +
+                                                 locally_owned_dofs_lod.size(),
+                                               dependencies);
         }
 
       constraints_lod_fem.make_consistent_in_parallel(
@@ -830,8 +831,8 @@ namespace Step96
 
     parallel::shared::Triangulation<dim> tria;
 
-    IndexSet locally_owned_dofs_fine;
-    IndexSet locally_owned_dofs_coarse;
+    IndexSet locally_owned_dofs_fem;
+    IndexSet locally_owned_dofs_lod;
 
     AffineConstraints<double> constraints_lod_fem;
 
