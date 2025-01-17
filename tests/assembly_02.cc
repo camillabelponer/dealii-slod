@@ -354,11 +354,8 @@ namespace Step96
       TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
         locally_owned_dofs_coarse, comm);
 
-      TrilinosWrappers::SparsityPattern sparsity_pattern_C(
-        locally_owned_dofs_fine, comm);
-
       for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned()) // parallel for-loop
+        if (cell->is_locally_owned())
           {
             // A_lod sparsity pattern
             patch.reinit(cell, n_oversampling * 2);
@@ -376,8 +373,23 @@ namespace Step96
             for (const auto &row_index : local_dof_indices_coarse)
               sparsity_pattern_A_lod.add_row_entries(row_index,
                                                      local_dof_indices_coarse);
+          }
 
-            // C sparsity pattern
+      sparsity_pattern_A_lod.compress();
+      A_lod.reinit(sparsity_pattern_A_lod);
+
+      rhs_lod.reinit(locally_owned_dofs_coarse,
+                     locally_relevant_dofs_coarse,
+                     comm);
+      solution_lod.reinit(rhs_lod);
+
+
+      TrilinosWrappers::SparsityPattern sparsity_pattern_C(
+        locally_owned_dofs_fine, comm);
+
+      for (const auto &cell : tria.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
             patch.reinit(cell, n_oversampling);
             const auto                           n_dofs_patch = patch.n_dofs();
             std::vector<types::global_dof_index> local_dof_indices_fine(
@@ -398,17 +410,7 @@ namespace Step96
                       1, cell->active_cell_index() * n_components + c));
           }
 
-      sparsity_pattern_A_lod.compress();
       sparsity_pattern_C.compress();
-
-      // 3) initialize matrices
-      A_lod.reinit(sparsity_pattern_A_lod);
-
-
-      rhs_lod.reinit(locally_owned_dofs_coarse,
-                     locally_relevant_dofs_coarse,
-                     comm);
-      solution_lod.reinit(rhs_lod);
 
       TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
 
