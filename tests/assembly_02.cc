@@ -118,6 +118,8 @@ namespace Step96
       , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
       , repetitions(dim, n_subdivisions_coarse)
       , mapping(1)
+      , fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components)
+      , quadrature(QGauss<1>(2), n_subdivisions_fine)
       , patch(n_subdivisions_fine, repetitions, n_components)
       , tria(comm,
              Triangulation<dim>::none,
@@ -345,10 +347,7 @@ namespace Step96
 
             Vector<double> PT_counter(N_dofs_fine);
 
-            FESystem<dim>        fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine),
-                             n_components);
-            const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
-            FEValues<dim>        fe_values(mapping,
+            FEValues<dim> fe_values(mapping,
                                     fe,
                                     quadrature,
                                     update_values | update_gradients |
@@ -686,9 +685,7 @@ namespace Step96
     void
     assemble_system()
     {
-      FESystem<dim> fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
-      const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
-      FEValues<dim>        fe_values(mapping,
+      FEValues<dim> fe_values(mapping,
                               fe,
                               quadrature,
                               update_values | update_gradients |
@@ -825,9 +822,11 @@ namespace Step96
     MPI_Comm           comm;
     ConditionalOStream pcout;
 
-    std::vector<unsigned int> repetitions;
+    const std::vector<unsigned int> repetitions;
 
-    MappingQ<dim> mapping;
+    const MappingQ<dim>  mapping;
+    const FESystem<dim>  fe;
+    const QIterated<dim> quadrature;
 
     Patch<dim> patch;
 
