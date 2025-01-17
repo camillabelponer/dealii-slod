@@ -327,12 +327,28 @@ namespace Step96
       Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
 
       IndexSet locally_owned_dofs_coarse(n_dofs_coarse);
+      IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
 
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
-          for (unsigned int c = 0; c < n_components; ++c)
-            locally_owned_dofs_coarse.add_index(
-              cell->active_cell_index() * n_components + c);
+          {
+            // locally owned dofs
+            for (unsigned int c = 0; c < n_components; ++c)
+              locally_owned_dofs_coarse.add_index(
+                cell->active_cell_index() * n_components + c);
+
+            // locally relevant dofs
+            patch.reinit(cell, n_oversampling * 2);
+            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+              {
+                const auto cell_index =
+                  patch.create_cell_iterator(tria, cell)->active_cell_index();
+
+                for (unsigned int c = 0; c < n_components; ++c)
+                  locally_relevant_dofs_coarse.add_index(
+                    cell_index * n_components + c);
+              }
+          }
 
       // 2) ininitialize sparsity pattern
       TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
@@ -387,6 +403,13 @@ namespace Step96
 
       // 3) initialize matrices
       A_lod.reinit(sparsity_pattern_A_lod);
+
+
+      rhs_lod.reinit(locally_owned_dofs_coarse,
+                     locally_relevant_dofs_coarse,
+                     comm);
+      solution_lod.reinit(rhs_lod);
+
       TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
 
       // 4) set dummy constraints
@@ -743,8 +766,6 @@ namespace Step96
       IndexSet constraints_lod_fem_locally_stored_constraints =
         constraints_lod_fem_locally_owned_dofs;
 
-      IndexSet locally_relevant_cells = locally_owned_dofs_coarse;
-
       for (const auto row : locally_owned_dofs_fine) // parallel for-loop
         {
           for (auto entry = C.begin(row); entry != C.end(row); ++entry)
@@ -789,18 +810,6 @@ namespace Step96
         constraints_lod_fem_locally_stored_constraints,
         comm);
       constraints_lod_fem.close();
-
-      for (const auto row :
-           constraints_lod_fem_locally_stored_constraints) // parallel for-loop
-        if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(row))
-          {
-            for (const auto &[j, _] : *constraint_entries)
-              locally_relevant_cells.add_index(j);
-          }
-
-      rhs_lod.reinit(locally_owned_dofs_coarse, locally_relevant_cells, comm);
-      solution_lod.reinit(rhs_lod);
 
       // 6) assembly LOD matrix
 
