@@ -116,6 +116,11 @@ namespace Step96
       , LOD_stabilization(params.LOD_stabilization)
       , comm(MPI_COMM_WORLD)
       , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
+      , repetitions(dim, n_subdivisions_coarse)
+      , tria(comm,
+             Triangulation<dim>::none,
+             true,
+             parallel::shared::Triangulation<dim>::partition_custom_signal)
     {
       AssertThrow(Utilities::MPI::n_mpi_processes(comm) <=
                     n_subdivisions_coarse,
@@ -125,18 +130,11 @@ namespace Step96
     void
     run()
     {
-      std::vector<unsigned int> repetitions(dim, n_subdivisions_coarse);
-      Point<dim>                p1;
-      Point<dim>                p2;
+      Point<dim> p1;
+      Point<dim> p2;
 
       for (unsigned int d = 0; d < dim; ++d)
         p2[d] = 1.0;
-
-      parallel::shared::Triangulation<dim> tria(
-        comm,
-        Triangulation<dim>::none,
-        true,
-        parallel::shared::Triangulation<dim>::partition_custom_signal);
 
       const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
@@ -150,7 +148,7 @@ namespace Step96
       for (unsigned int d = 0; d < dim - 1; ++d)
         face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
 
-      tria.signals.create.connect([&, stride, repetitions]() {
+      tria.signals.create.connect([&, stride]() {
         for (const auto &cell : tria.active_cell_iterators())
           {
             unsigned int cell_index = cell->active_cell_index();
@@ -781,6 +779,10 @@ namespace Step96
 
     MPI_Comm           comm;
     ConditionalOStream pcout;
+
+    std::vector<unsigned int> repetitions;
+
+    parallel::shared::Triangulation<dim> tria;
   };
 
 } // namespace Step96
