@@ -117,6 +117,7 @@ namespace Step96
       , comm(MPI_COMM_WORLD)
       , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
       , repetitions(dim, n_subdivisions_coarse)
+      , mapping(1)
       , patch(n_subdivisions_fine, repetitions, n_components)
       , tria(comm,
              Triangulation<dim>::none,
@@ -347,7 +348,8 @@ namespace Step96
             FESystem<dim>        fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine),
                              n_components);
             const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
-            FEValues<dim>        fe_values(fe,
+            FEValues<dim>        fe_values(mapping,
+                                    fe,
                                     quadrature,
                                     update_values | update_gradients |
                                       update_JxW_values);
@@ -686,8 +688,11 @@ namespace Step96
     {
       FESystem<dim> fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
       const QIterated<dim> quadrature(QGauss<1>(2), n_subdivisions_fine);
-      FEValues<dim>        fe_values(
-        fe, quadrature, update_values | update_gradients | update_JxW_values);
+      FEValues<dim>        fe_values(mapping,
+                              fe,
+                              quadrature,
+                              update_values | update_gradients |
+                                update_JxW_values);
 
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
@@ -773,8 +778,6 @@ namespace Step96
 
       // output LOD and FEM results
 
-      MappingQ<dim> mapping(1);
-
       DataOutBase::VtkFlags flags;
 
       if (dim > 1)
@@ -823,6 +826,8 @@ namespace Step96
     ConditionalOStream pcout;
 
     std::vector<unsigned int> repetitions;
+
+    MappingQ<dim> mapping;
 
     Patch<dim> patch;
 
