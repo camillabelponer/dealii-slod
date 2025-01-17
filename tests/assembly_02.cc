@@ -183,7 +183,56 @@ namespace Step96
     void
     output_results()
     {
-      // TODO
+      DoFHandler<dim> dof_handler(tria);
+      dof_handler.distribute_dofs(
+        FESystem<dim>(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components));
+      compute_renumbering_lex(dof_handler);
+
+      // convert to FEM solution
+      LinearAlgebra::distributed::Vector<double> solution_fem(
+        dof_handler.locally_owned_dofs(), comm);
+
+      solution_lod.update_ghost_values();
+      for (const auto i : dof_handler.locally_owned_dofs())
+        if (const auto constraint_entries =
+              constraints_lod_fem.get_constraint_entries(i +
+                                                         solution_lod.size()))
+          {
+            double new_value = 0.0;
+            for (const auto &[j, weight] : *constraint_entries)
+              new_value += weight * solution_lod[j];
+
+            solution_fem[i] = new_value;
+          }
+
+      // output LOD and FEM results
+
+      MappingQ<dim> mapping(1);
+
+      DataOutBase::VtkFlags flags;
+
+      if (dim > 1)
+        flags.write_higher_order_cells = true;
+
+      DataOut<dim> data_out;
+      data_out.set_flags(flags);
+      data_out.attach_dof_handler(dof_handler);
+
+      data_out.add_data_vector(solution_lod, "solution_lod");
+      data_out.add_data_vector(solution_fem, "solution_fem");
+
+      pcout << solution_lod.l2_norm() << std::endl;
+      pcout << solution_fem.l2_norm() << std::endl;
+
+      Vector<double> ranks(tria.n_active_cells());
+      ranks = Utilities::MPI::this_mpi_process(comm);
+      data_out.add_data_vector(ranks, "rank");
+
+      data_out.build_patches(mapping, n_subdivisions_fine);
+
+      const std::string file_name = "solution.vtu";
+
+      data_out.write_vtu_in_parallel(file_name, comm);
     }
 
     void
@@ -668,7 +717,7 @@ namespace Step96
                 local_dof_indices_fine[i] + n_dofs_coarse); // fine
           }
 
-      AffineConstraints<double> constraints_lod_fem(
+      constraints_lod_fem.reinit(
         constraints_lod_fem_locally_owned_dofs,
         constraints_lod_fem_locally_stored_constraints);
       for (const auto row : locally_owned_dofs_fine) // parallel for-loop
@@ -760,55 +809,6 @@ namespace Step96
       // 7) solve LOD system
       this->solve();
       this->output_results();
-
-      // 8) convert to FEM solution
-      LinearAlgebra::distributed::Vector<double> solution_fem(
-        locally_owned_dofs_fine, comm);
-
-      solution_lod.update_ghost_values();
-      for (const auto i : locally_owned_dofs_fine)
-        if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(i + n_dofs_coarse))
-          {
-            double new_value = 0.0;
-            for (const auto &[j, weight] : *constraint_entries)
-              new_value += weight * solution_lod[j];
-
-            solution_fem[i] = new_value;
-          }
-
-      // 8) output LOD and FEM results
-
-      DoFHandler<dim> dof_handler(tria);
-      dof_handler.distribute_dofs(fe);
-      compute_renumbering_lex(dof_handler);
-
-      MappingQ<dim> mapping(1);
-
-      DataOutBase::VtkFlags flags;
-
-      if (dim > 1)
-        flags.write_higher_order_cells = true;
-
-      DataOut<dim> data_out;
-      data_out.set_flags(flags);
-      data_out.attach_dof_handler(dof_handler);
-
-      data_out.add_data_vector(solution_lod, "solution_lod");
-      data_out.add_data_vector(solution_fem, "solution_fem");
-
-      pcout << solution_lod.l2_norm() << std::endl;
-      pcout << solution_fem.l2_norm() << std::endl;
-
-      Vector<double> ranks(tria.n_active_cells());
-      ranks = my_rank;
-      data_out.add_data_vector(ranks, "rank");
-
-      data_out.build_patches(mapping, n_subdivisions_fine);
-
-      const std::string file_name = "solution.vtu";
-
-      data_out.write_vtu_in_parallel(file_name, comm);
     }
 
   private:
@@ -824,6 +824,8 @@ namespace Step96
     std::vector<unsigned int> repetitions;
 
     parallel::shared::Triangulation<dim> tria;
+
+    AffineConstraints<double> constraints_lod_fem;
 
     TrilinosWrappers::SparseMatrix A_lod;
 
