@@ -158,7 +158,93 @@ namespace Step96
     void
     setup_system()
     {
-      // TODO
+      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
+      const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
+      const unsigned int stride =
+        (repetitions[dim - 1] + n_procs - 1) / n_procs;
+      unsigned int range_start =
+        (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
+      unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
+
+      unsigned int face_dofs = n_components;
+      for (unsigned int d = 0; d < dim - 1; ++d)
+        face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
+
+      types::global_dof_index n_dofs_coarse = n_components;
+      types::global_dof_index n_dofs_fine   = n_components;
+      for (unsigned int d = 0; d < dim; ++d)
+        {
+          n_dofs_coarse *= repetitions[d];
+          n_dofs_fine *= repetitions[d] * n_subdivisions_fine + 1;
+        }
+
+      AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
+
+      locally_owned_dofs_fine = IndexSet(n_dofs_fine);
+      locally_owned_dofs_fine.add_range(
+        face_dofs *
+          std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
+        face_dofs *
+          std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
+
+      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
+
+      locally_owned_dofs_coarse = IndexSet(n_dofs_coarse);
+      IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
+
+      for (const auto &cell : tria.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            // locally owned dofs
+            for (unsigned int c = 0; c < n_components; ++c)
+              locally_owned_dofs_coarse.add_index(
+                cell->active_cell_index() * n_components + c);
+
+            // locally relevant dofs
+            patch.reinit(cell, n_oversampling * 2);
+            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+              {
+                const auto cell_index =
+                  patch.create_cell_iterator(tria, cell)->active_cell_index();
+
+                for (unsigned int c = 0; c < n_components; ++c)
+                  locally_relevant_dofs_coarse.add_index(
+                    cell_index * n_components + c);
+              }
+          }
+
+      // 2) ininitialize sparsity pattern
+      TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
+        locally_owned_dofs_coarse, comm);
+
+      for (const auto &cell : tria.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            // A_lod sparsity pattern
+            patch.reinit(cell, n_oversampling * 2);
+            std::vector<types::global_dof_index> local_dof_indices_coarse;
+            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+              {
+                const auto cell_index =
+                  patch.create_cell_iterator(tria, cell)->active_cell_index();
+
+                for (unsigned int c = 0; c < n_components; ++c)
+                  local_dof_indices_coarse.emplace_back(
+                    cell_index * n_components + c);
+              }
+
+            for (const auto &row_index : local_dof_indices_coarse)
+              sparsity_pattern_A_lod.add_row_entries(row_index,
+                                                     local_dof_indices_coarse);
+          }
+
+      sparsity_pattern_A_lod.compress();
+      A_lod.reinit(sparsity_pattern_A_lod);
+
+      rhs_lod.reinit(locally_owned_dofs_coarse,
+                     locally_relevant_dofs_coarse,
+                     comm);
+      solution_lod.reinit(rhs_lod);
     }
 
     void
@@ -175,10 +261,11 @@ namespace Step96
       FEValues<dim>        fe_values(
         fe, quadrature, update_values | update_gradients | update_JxW_values);
 
+      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
+
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
-            Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
             patch.reinit(cell, 0);
 
             fe_values.reinit(cell);
@@ -295,97 +382,10 @@ namespace Step96
       setup_system();
       setup_basis();
 
-      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
-      const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
-      const unsigned int stride =
-        (repetitions[dim - 1] + n_procs - 1) / n_procs;
-      unsigned int range_start =
-        (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
-      unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
-
-      unsigned int face_dofs = n_components;
-      for (unsigned int d = 0; d < dim - 1; ++d)
-        face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
-
-      types::global_dof_index n_dofs_coarse = n_components;
-      types::global_dof_index n_dofs_fine   = n_components;
-      for (unsigned int d = 0; d < dim; ++d)
-        {
-          n_dofs_coarse *= repetitions[d];
-          n_dofs_fine *= repetitions[d] * n_subdivisions_fine + 1;
-        }
-
-      AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
-
-      IndexSet locally_owned_dofs_fine(n_dofs_fine);
-      locally_owned_dofs_fine.add_range(
-        face_dofs *
-          std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
-        face_dofs *
-          std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
-
-      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
-
-      IndexSet locally_owned_dofs_coarse(n_dofs_coarse);
-      IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
-
-      for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned())
-          {
-            // locally owned dofs
-            for (unsigned int c = 0; c < n_components; ++c)
-              locally_owned_dofs_coarse.add_index(
-                cell->active_cell_index() * n_components + c);
-
-            // locally relevant dofs
-            patch.reinit(cell, n_oversampling * 2);
-            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
-              {
-                const auto cell_index =
-                  patch.create_cell_iterator(tria, cell)->active_cell_index();
-
-                for (unsigned int c = 0; c < n_components; ++c)
-                  locally_relevant_dofs_coarse.add_index(
-                    cell_index * n_components + c);
-              }
-          }
-
-      // 2) ininitialize sparsity pattern
-      TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
-        locally_owned_dofs_coarse, comm);
-
-      for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned())
-          {
-            // A_lod sparsity pattern
-            patch.reinit(cell, n_oversampling * 2);
-            std::vector<types::global_dof_index> local_dof_indices_coarse;
-            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
-              {
-                const auto cell_index =
-                  patch.create_cell_iterator(tria, cell)->active_cell_index();
-
-                for (unsigned int c = 0; c < n_components; ++c)
-                  local_dof_indices_coarse.emplace_back(
-                    cell_index * n_components + c);
-              }
-
-            for (const auto &row_index : local_dof_indices_coarse)
-              sparsity_pattern_A_lod.add_row_entries(row_index,
-                                                     local_dof_indices_coarse);
-          }
-
-      sparsity_pattern_A_lod.compress();
-      A_lod.reinit(sparsity_pattern_A_lod);
-
-      rhs_lod.reinit(locally_owned_dofs_coarse,
-                     locally_relevant_dofs_coarse,
-                     comm);
-      solution_lod.reinit(rhs_lod);
-
-
       TrilinosWrappers::SparsityPattern sparsity_pattern_C(
         locally_owned_dofs_fine, comm);
+
+      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
 
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
@@ -416,7 +416,7 @@ namespace Step96
 
       // 4) set dummy constraints
       for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned()) // parallel for-loop
+        if (cell->is_locally_owned())
           {
             patch.reinit(cell, n_oversampling);
 
@@ -758,12 +758,12 @@ namespace Step96
       C.compress(VectorOperation::values::insert);
 
       // 5) convert sparse matrix C to shifted AffineConstraints
-      IndexSet constraints_lod_fem_locally_owned_dofs(n_dofs_fine +
-                                                      n_dofs_coarse);
+      IndexSet constraints_lod_fem_locally_owned_dofs(
+        locally_owned_dofs_fine.size() + locally_owned_dofs_coarse.size());
       constraints_lod_fem_locally_owned_dofs.add_indices(
         locally_owned_dofs_coarse);
       constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_fine, n_dofs_coarse);
+        locally_owned_dofs_fine, locally_owned_dofs_coarse.size());
 
       IndexSet constraints_lod_fem_locally_stored_constraints =
         constraints_lod_fem_locally_owned_dofs;
@@ -789,7 +789,8 @@ namespace Step96
 
             for (unsigned int i = 0; i < n_dofs_patch; ++i)
               constraints_lod_fem_locally_stored_constraints.add_index(
-                local_dof_indices_fine[i] + n_dofs_coarse); // fine
+                local_dof_indices_fine[i] +
+                locally_owned_dofs_coarse.size()); // fine
           }
 
       constraints_lod_fem.reinit(
@@ -803,8 +804,8 @@ namespace Step96
             dependencies.emplace_back(entry->column(), entry->value());
 
           if (true || !dependencies.empty())
-            constraints_lod_fem.add_constraint(row + n_dofs_coarse,
-                                               dependencies);
+            constraints_lod_fem.add_constraint(
+              row + locally_owned_dofs_coarse.size(), dependencies);
         }
 
       constraints_lod_fem.make_consistent_in_parallel(
@@ -833,6 +834,9 @@ namespace Step96
     std::vector<unsigned int> repetitions;
 
     parallel::shared::Triangulation<dim> tria;
+
+    IndexSet locally_owned_dofs_fine;
+    IndexSet locally_owned_dofs_coarse;
 
     AffineConstraints<double> constraints_lod_fem;
 
