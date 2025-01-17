@@ -128,7 +128,7 @@ namespace Step96
     }
 
     void
-    run()
+    create_grid()
     {
       Point<dim> p1;
       Point<dim> p2;
@@ -140,13 +140,6 @@ namespace Step96
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
       const unsigned int stride =
         (repetitions[dim - 1] + n_procs - 1) / n_procs;
-      unsigned int range_start =
-        (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
-      unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
-
-      unsigned int face_dofs = n_components;
-      for (unsigned int d = 0; d < dim - 1; ++d)
-        face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
 
       tria.signals.create.connect([&, stride]() {
         for (const auto &cell : tria.active_cell_iterators())
@@ -161,6 +154,24 @@ namespace Step96
       });
 
       GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
+    }
+
+    void
+    run()
+    {
+      create_grid();
+
+      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
+      const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
+      const unsigned int stride =
+        (repetitions[dim - 1] + n_procs - 1) / n_procs;
+      unsigned int range_start =
+        (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
+      unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
+
+      unsigned int face_dofs = n_components;
+      for (unsigned int d = 0; d < dim - 1; ++d)
+        face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
 
       types::global_dof_index n_dofs_coarse = n_components;
       types::global_dof_index n_dofs_fine   = n_components;
