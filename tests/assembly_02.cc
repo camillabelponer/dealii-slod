@@ -176,7 +176,8 @@ namespace Step96
     void
     solve()
     {
-      // TODO
+      TrilinosWrappers::SolverDirect solver;
+      solver.solve(A_lod, solution_lod, rhs_lod);
     }
 
     void
@@ -192,8 +193,6 @@ namespace Step96
       setup_system();
       setup_basis();
       assemble_system();
-      solve();
-      output_results();
 
       const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
@@ -286,7 +285,7 @@ namespace Step96
       sparsity_pattern_C.compress();
 
       // 3) initialize matrices
-      TrilinosWrappers::SparseMatrix A_lod(sparsity_pattern_A_lod);
+      A_lod.reinit(sparsity_pattern_A_lod);
       TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
 
       // 4) set dummy constraints
@@ -699,8 +698,8 @@ namespace Step96
               locally_relevant_cells.add_index(j);
           }
 
-      LinearAlgebra::distributed::Vector<double> rhs_lod(
-        locally_owned_dofs_coarse, locally_relevant_cells, comm);
+      rhs_lod.reinit(locally_owned_dofs_coarse, locally_relevant_cells, comm);
+      solution_lod.reinit(rhs_lod);
 
       // 6) assembly LOD matrix
       FESystem<dim> fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components);
@@ -759,11 +758,8 @@ namespace Step96
       rhs_lod.compress(VectorOperation::values::add);
 
       // 7) solve LOD system
-      LinearAlgebra::distributed::Vector<double> solution_lod;
-      solution_lod.reinit(rhs_lod);
-
-      TrilinosWrappers::SolverDirect solver;
-      solver.solve(A_lod, solution_lod, rhs_lod);
+      this->solve();
+      this->output_results();
 
       // 8) convert to FEM solution
       LinearAlgebra::distributed::Vector<double> solution_fem(
@@ -828,6 +824,11 @@ namespace Step96
     std::vector<unsigned int> repetitions;
 
     parallel::shared::Triangulation<dim> tria;
+
+    TrilinosWrappers::SparseMatrix A_lod;
+
+    LinearAlgebra::distributed::Vector<double> rhs_lod;
+    LinearAlgebra::distributed::Vector<double> solution_lod;
   };
 
 } // namespace Step96
