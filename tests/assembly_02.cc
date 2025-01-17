@@ -98,12 +98,15 @@ main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
   const unsigned int dim                   = 2;
-  const unsigned int n_subdivisions_fine   = 8;
-  const unsigned int n_components          = dim;
+  const unsigned int n_subdivisions_fine   = 3;
+  const unsigned int n_components          = 1;
   const unsigned int n_oversampling        = 1; // numbers::invalid_unsigned_int
-  const unsigned int n_subdivisions_coarse = 32;
+  const unsigned int n_subdivisions_coarse = 16;
   const bool         LOD_stabilization     = true;
   const MPI_Comm     comm                  = MPI_COMM_WORLD;
+
+  ConditionalOStream pcout(std::cout,
+                           Utilities::MPI::this_mpi_process(comm) == 0);
 
   AssertThrow(Utilities::MPI::n_mpi_processes(comm) <= n_subdivisions_coarse,
               ExcNotImplemented());
@@ -723,6 +726,9 @@ main(int argc, char **argv)
 
   data_out.add_data_vector(solution_lod, "solution_lod");
   data_out.add_data_vector(solution_fem, "solution_fem");
+
+  pcout << solution_lod.l2_norm() << std::endl;
+  pcout << solution_fem.l2_norm() << std::endl;
 
   Vector<double> ranks(tria.n_active_cells());
   ranks = my_rank;
