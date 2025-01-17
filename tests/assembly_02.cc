@@ -117,6 +117,7 @@ namespace Step96
       , comm(MPI_COMM_WORLD)
       , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
       , repetitions(dim, n_subdivisions_coarse)
+      , patch(n_subdivisions_fine, repetitions, n_components)
       , tria(comm,
              Triangulation<dim>::none,
              true,
@@ -187,8 +188,6 @@ namespace Step96
         face_dofs *
           std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
 
-      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
-
       locally_owned_dofs_lod = IndexSet(n_dofs_coarse);
       IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
 
@@ -252,8 +251,6 @@ namespace Step96
     {
       TrilinosWrappers::SparsityPattern sparsity_pattern_C(
         locally_owned_dofs_fem, comm);
-
-      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
 
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
@@ -692,8 +689,6 @@ namespace Step96
       FEValues<dim>        fe_values(
         fe, quadrature, update_values | update_gradients | update_JxW_values);
 
-      Patch<dim> patch(n_subdivisions_fine, repetitions, n_components);
-
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
@@ -828,6 +823,8 @@ namespace Step96
     ConditionalOStream pcout;
 
     std::vector<unsigned int> repetitions;
+
+    Patch<dim> patch;
 
     parallel::shared::Triangulation<dim> tria;
 
