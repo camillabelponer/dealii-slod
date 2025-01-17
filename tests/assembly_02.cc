@@ -156,9 +156,44 @@ namespace Step96
     }
 
     void
+    setup_system()
+    {
+      // TODO
+    }
+
+    void
+    setup_basis()
+    {
+      // TODO
+    }
+
+    void
+    assemble_system()
+    {
+      // TODO
+    }
+
+    void
+    solve()
+    {
+      // TODO
+    }
+
+    void
+    output_results()
+    {
+      // TODO
+    }
+
+    void
     run()
     {
       make_grid();
+      setup_system();
+      setup_basis();
+      assemble_system();
+      solve();
+      output_results();
 
       const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
