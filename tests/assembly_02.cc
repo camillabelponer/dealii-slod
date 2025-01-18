@@ -312,13 +312,7 @@ namespace Step96
 
                 FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
 
-                for (const unsigned int q_index :
-                     fe_values.quadrature_point_indices())
-                  for (const unsigned int i : fe_values.dof_indices())
-                    for (const unsigned int j : fe_values.dof_indices())
-                      cell_matrix(i, j) += (fe_values.shape_grad(i, q_index) *
-                                            fe_values.shape_grad(j, q_index) *
-                                            fe_values.JxW(q_index));
+                assemble_element_stiffness_matrix(fe_values, cell_matrix);
 
                 std::vector<types::global_dof_index> indices(dofs_per_cell);
                 patch.get_dof_indices_of_cell(cell, indices);
@@ -655,13 +649,7 @@ namespace Step96
                                                n_dofs_per_cell);
             Vector<double>     cell_rhs_fem(n_dofs_per_cell);
 
-            for (const unsigned int q_index :
-                 fe_values.quadrature_point_indices())
-              for (const unsigned int i : fe_values.dof_indices())
-                for (const unsigned int j : fe_values.dof_indices())
-                  cell_matrix_fem(i, j) +=
-                    (fe_values.shape_grad(i, q_index) *
-                     fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+            assemble_element_stiffness_matrix(fe_values, cell_matrix_fem);
 
             for (const unsigned int q_index :
                  fe_values.quadrature_point_indices())
@@ -749,6 +737,18 @@ namespace Step96
       const std::string file_name = "solution.vtu";
 
       data_out.write_vtu_in_parallel(file_name, comm);
+    }
+
+    void
+    assemble_element_stiffness_matrix(const FEValues<dim> &fe_values,
+                                      FullMatrix<double>  &cell_matrix)
+    {
+      for (const unsigned int q_index : fe_values.quadrature_point_indices())
+        for (const unsigned int i : fe_values.dof_indices())
+          for (const unsigned int j : fe_values.dof_indices())
+            cell_matrix(i, j) +=
+              (fe_values.shape_grad(i, q_index) *
+               fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
     }
 
     void
