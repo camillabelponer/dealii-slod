@@ -77,12 +77,16 @@ namespace dealii::TrilinosWrappers
       // Finally, let the deal.II SolverControl object know what has
       // happened. If the solve succeeded, the status of the solver control will
       // turn into SolverControl::success.
-      solver_control.check(0, 0);
+      if (solver_control)
+        {
+          solver_control->check(0, 0);
 
-      if (solver_control.last_check() != SolverControl::success)
-        AssertThrow(false,
-                    SolverControl::NoConvergence(solver_control.last_step(),
-                                                 solver_control.last_value()));
+          if (solver_control->last_check() != SolverControl::success)
+            AssertThrow(
+              false,
+              SolverControl::NoConvergence(solver_control->last_step(),
+                                           solver_control->last_value()));
+        }
     }
 
     /**
@@ -96,7 +100,7 @@ namespace dealii::TrilinosWrappers
      * but we copy the data from this object before starting the solution
      * process, and copy the data back into it afterwards.
      */
-    SolverControl &solver_control;
+    ObserverPointer<SolverControl> solver_control;
 
     /**
      * A structure that collects the Trilinos sparse matrix, the right hand
@@ -120,7 +124,9 @@ namespace dealii::TrilinosWrappers
     /**
      * Constructor. Creates the solver without solver control object.
      */
-    explicit MySolverDirect(const AdditionalData &data = AdditionalData());
+    explicit MySolverDirect(const AdditionalData &data = AdditionalData())
+      : SolverDirect(data)
+    {}
 
     /**
      * Constructor. Takes the solver control object and creates the solver.
@@ -128,7 +134,7 @@ namespace dealii::TrilinosWrappers
     MySolverDirect(SolverControl        &cn,
                    const AdditionalData &data = AdditionalData())
       : SolverDirect(cn, data)
-      , solver_control(cn)
+      , solver_control(&cn)
       , additional_data(data.output_solver_details, data.solver_type){};
 
     /**

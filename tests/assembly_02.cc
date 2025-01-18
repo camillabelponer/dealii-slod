@@ -87,8 +87,7 @@ namespace Step96
                                     rhs_ptrs.data(),
                                     rhs_ptrs.size());
 
-    SolverControl                    solver_control(100, 1.e-18, false, false);
-    TrilinosWrappers::MySolverDirect solver(solver_control);
+    TrilinosWrappers::MySolverDirect solver;
     solver.initialize(sparse_matrix);
     solver.solve(mat, trilinos_dst, trilinos_src);
 
