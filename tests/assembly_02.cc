@@ -200,7 +200,9 @@ namespace Step96
     }
 
     void
-    setup_basis()
+    setup_basis(
+      const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
+        &assemble_element_stiffness_matrix)
     {
       TrilinosWrappers::SparsityPattern sparsity_pattern_C(
         locally_owned_dofs_fem, comm);
@@ -627,7 +629,9 @@ namespace Step96
     }
 
     void
-    assemble_system()
+    assemble_system(
+      const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
+        &assemble_element_stiffness_matrix)
     {
       FEValues<dim> fe_values(mapping,
                               fe,
@@ -740,24 +744,13 @@ namespace Step96
     }
 
     void
-    assemble_element_stiffness_matrix(const FEValues<dim> &fe_values,
-                                      FullMatrix<double>  &cell_matrix)
-    {
-      for (const unsigned int q_index : fe_values.quadrature_point_indices())
-        for (const unsigned int i : fe_values.dof_indices())
-          for (const unsigned int j : fe_values.dof_indices())
-            cell_matrix(i, j) +=
-              (fe_values.shape_grad(i, q_index) *
-               fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
-    }
-
-    void
-    run()
+    run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
+          &assemble_element_stiffness_matrix)
     {
       this->make_grid();
       this->setup_system();
-      this->setup_basis();
-      this->assemble_system();
+      this->setup_basis(assemble_element_stiffness_matrix);
+      this->assemble_system(assemble_element_stiffness_matrix);
       this->solve();
       this->output_results();
     }
@@ -800,8 +793,20 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
+  const unsigned int dim = 2;
+
   Step96::Parameters params;
 
-  Step96::LODProblem<2> problem(params);
-  problem.run();
+  const auto assemble_element_stiffness_matrix =
+    [](const FEValues<dim> &fe_values, FullMatrix<double> &cell_matrix) {
+      for (const unsigned int q_index : fe_values.quadrature_point_indices())
+        for (const unsigned int i : fe_values.dof_indices())
+          for (const unsigned int j : fe_values.dof_indices())
+            cell_matrix(i, j) +=
+              (fe_values.shape_grad(i, q_index) *
+               fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+    };
+
+  Step96::LODProblem<dim> problem(params);
+  problem.run(assemble_element_stiffness_matrix);
 }
