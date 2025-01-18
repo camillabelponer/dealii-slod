@@ -45,55 +45,6 @@ using namespace dealii;
 
 namespace Step96
 {
-
-  void
-  my_Gauss_elimination(const FullMatrix<double>             &rhs,
-                       const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                       FullMatrix<double>                   &solution)
-  {
-    Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
-    Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
-    Assert(rhs.m() == solution.m(), ExcInternalError());
-    Assert(rhs.n() == solution.n(), ExcInternalError());
-
-    solution = 0.0;
-
-    const unsigned int m = rhs.m();
-    const unsigned int n = rhs.n();
-
-    FullMatrix<double> rhs_t(n, m);
-    FullMatrix<double> solution_t(n, m);
-
-    rhs_t.copy_transposed(rhs);
-    solution_t.copy_transposed(solution);
-
-    std::vector<double *> rhs_ptrs(n);
-    std::vector<double *> sultion_ptrs(n);
-
-    for (unsigned int i = 0; i < n; ++i)
-      {
-        rhs_ptrs[i]     = &rhs_t[i][0];
-        sultion_ptrs[i] = &solution_t[i][0];
-      }
-
-    const Epetra_CrsMatrix &mat = sparse_matrix.trilinos_matrix();
-
-    Epetra_MultiVector trilinos_dst(View,
-                                    mat.OperatorRangeMap(),
-                                    sultion_ptrs.data(),
-                                    sultion_ptrs.size());
-    Epetra_MultiVector trilinos_src(View,
-                                    mat.OperatorDomainMap(),
-                                    rhs_ptrs.data(),
-                                    rhs_ptrs.size());
-
-    TrilinosWrappers::MySolverDirect solver;
-    solver.initialize(sparse_matrix);
-    solver.solve(mat, trilinos_dst, trilinos_src);
-
-    solution.copy_transposed(solution_t);
-  }
-
   struct Parameters
   {
     unsigned int n_subdivisions_fine   = 3;
@@ -428,7 +379,9 @@ namespace Step96
             for (const auto j : patch_constraints_is)
               patch_stiffness_matrix.clear_row(j, 1);
 
-            my_Gauss_elimination(PT, patch_stiffness_matrix, Ainv_PT);
+
+            TrilinosWrappers::MySolverDirect solver;
+            solver.solve(patch_stiffness_matrix, Ainv_PT, PT);
 
             PT.Tmmult(P_Ainv_PT, Ainv_PT);
             P_Ainv_PT /= pow(H, dim);
