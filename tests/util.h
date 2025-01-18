@@ -706,9 +706,9 @@ public:
       all_dofs.push_back(id);
 
     AssertDimension(dim, 2);
-    unsigned int N_boundary_dofs = 4 * fe_degree;
+    unsigned int N_boundary_dofs = 4 * fe_degree * n_components;
     for (auto id = N_boundary_dofs; id < n_dofs(); ++id)
-      internal_dofs.push_back(id);
+      internal_dofs.push_back(id); // TODO[PM]: I don't get this
 
     std::set<unsigned int> internal_bd_set;
     std::set<unsigned int> domain_bd_set;

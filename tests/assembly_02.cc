@@ -244,7 +244,7 @@ namespace Step96
             double h = H / n_subdivisions_fine;
 
             const auto         n_dofs_patch  = patch.n_dofs();
-            const unsigned int N_dofs_coarse = patch.n_cells();
+            const unsigned int N_dofs_coarse = patch.n_cells() * n_components;
             const unsigned int N_dofs_fine   = n_dofs_patch;
             std::vector<types::global_dof_index> local_dof_indices_fine(
               n_dofs_patch);
@@ -324,10 +324,11 @@ namespace Step96
 
                 for (const auto i : indices)
                   {
-                    PT[i][cell] = h * h;
+                    PT[i][cell * n_components + (i % n_components)] = h * h;
                     PT_counter[i] += 1;
                   }
               }
+
 
             patch_stiffness_matrix.compress(VectorOperation::values::add);
 
@@ -337,7 +338,7 @@ namespace Step96
                 i = 1.0 / i;
               }
 
-            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+            for (unsigned int cell = 0; cell < N_dofs_coarse; ++cell)
               for (unsigned int i = 0; i < n_dofs_patch; ++i)
                 PT[i][cell] *= PT_counter[i];
 
@@ -366,13 +367,12 @@ namespace Step96
                   }
               }
 
-            for (unsigned int i = 0; i < patch.n_cells(); ++i)
+            for (unsigned int i = 0; i < N_dofs_coarse; ++i)
               for (const auto j : patch_constraints_is)
                 PT(j, i) = 0.0;
 
             for (const auto j : patch_constraints_is)
               patch_stiffness_matrix.clear_row(j, 1);
-
 
             TrilinosWrappers::MySolverDirect solver;
             solver.solve(patch_stiffness_matrix, Ainv_PT, PT);
@@ -538,7 +538,8 @@ namespace Step96
 
                     Ainv_PT_internal.vmult(internal_selected_basis_function,
                                            c_i);
-                    unsigned int N_boundary_dofs = 4 * n_subdivisions_fine;
+                    unsigned int N_boundary_dofs =
+                      4 * n_subdivisions_fine * n_components;
                     // somehow the following does not work
                     // internal_selected_basis_function.extract_subvector_to(internal_selected_basis_function.begin(),
                     // internal_selected_basis_function.end(),
@@ -562,7 +563,7 @@ namespace Step96
                 for (unsigned int i = 0; i < n_dofs_patch; ++i)
                   if (selected_basis_function[c][i] != 0.0)
                     C.set(local_dof_indices_fine[i],
-                          cell->active_cell_index(),
+                          cell->active_cell_index() * n_components + c,
                           selected_basis_function[c][i]);
               }
           }
