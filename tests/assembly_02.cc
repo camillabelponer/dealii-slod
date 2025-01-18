@@ -797,15 +797,29 @@ main(int argc, char **argv)
 
   Step96::Parameters params;
 
-  const auto assemble_element_stiffness_matrix =
-    [](const FEValues<dim> &fe_values, FullMatrix<double> &cell_matrix) {
-      for (const unsigned int q_index : fe_values.quadrature_point_indices())
-        for (const unsigned int i : fe_values.dof_indices())
-          for (const unsigned int j : fe_values.dof_indices())
-            cell_matrix(i, j) +=
-              (fe_values.shape_grad(i, q_index) *
-               fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
-    };
+  std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
+    assemble_element_stiffness_matrix;
+
+  if (true)
+    {
+      // diffusion
+      params.n_components = 1;
+
+      assemble_element_stiffness_matrix = [](const FEValues<dim> &fe_values,
+                                             FullMatrix<double>  &cell_matrix) {
+        for (const unsigned int q_index : fe_values.quadrature_point_indices())
+          for (const unsigned int i : fe_values.dof_indices())
+            for (const unsigned int j : fe_values.dof_indices())
+              cell_matrix(i, j) +=
+                (fe_values.shape_grad(i, q_index) *
+                 fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
+      };
+    }
+  else
+    {
+      // elasticity
+      params.n_components = dim;
+    }
 
   Step96::LODProblem<dim> problem(params);
   problem.run(assemble_element_stiffness_matrix);
