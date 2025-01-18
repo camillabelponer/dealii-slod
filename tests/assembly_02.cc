@@ -314,13 +314,11 @@ namespace Step96
 
                 for (const unsigned int q_index :
                      fe_values.quadrature_point_indices())
-                  {
-                    for (const unsigned int i : fe_values.dof_indices())
-                      for (const unsigned int j : fe_values.dof_indices())
-                        cell_matrix(i, j) += (fe_values.shape_grad(i, q_index) *
-                                              fe_values.shape_grad(j, q_index) *
-                                              fe_values.JxW(q_index));
-                  }
+                  for (const unsigned int i : fe_values.dof_indices())
+                    for (const unsigned int j : fe_values.dof_indices())
+                      cell_matrix(i, j) += (fe_values.shape_grad(i, q_index) *
+                                            fe_values.shape_grad(j, q_index) *
+                                            fe_values.JxW(q_index));
 
                 std::vector<types::global_dof_index> indices(dofs_per_cell);
                 patch.get_dof_indices_of_cell(cell, indices);
@@ -659,17 +657,17 @@ namespace Step96
 
             for (const unsigned int q_index :
                  fe_values.quadrature_point_indices())
-              {
-                for (const unsigned int i : fe_values.dof_indices())
-                  for (const unsigned int j : fe_values.dof_indices())
-                    cell_matrix_fem(i, j) += (fe_values.shape_grad(i, q_index) *
-                                              fe_values.shape_grad(j, q_index) *
-                                              fe_values.JxW(q_index));
+              for (const unsigned int i : fe_values.dof_indices())
+                for (const unsigned int j : fe_values.dof_indices())
+                  cell_matrix_fem(i, j) +=
+                    (fe_values.shape_grad(i, q_index) *
+                     fe_values.shape_grad(j, q_index) * fe_values.JxW(q_index));
 
-                for (const unsigned int i : fe_values.dof_indices())
-                  cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
-                                      fe_values.JxW(q_index));
-              }
+            for (const unsigned int q_index :
+                 fe_values.quadrature_point_indices())
+              for (const unsigned int i : fe_values.dof_indices())
+                cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
+                                    fe_values.JxW(q_index));
 
             // b) assemble into LOD matrix by using constraints
             std::vector<types::global_dof_index> local_dof_indices(
