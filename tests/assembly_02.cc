@@ -393,7 +393,7 @@ namespace Step96
               {
                 for (unsigned int c = 0; c < n_components; ++c)
                   {
-                    e_i[central_cell_id + n_components + c] = 1.0;
+                    e_i[central_cell_id * n_components + c] = 1.0;
                     P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
                     Ainv_PT.vmult(selected_basis_function[c],
                                   triple_product_inv_e_i);

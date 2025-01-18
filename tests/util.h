@@ -434,7 +434,8 @@ public:
   Patch(const unsigned int               fe_degree,
         const std::vector<unsigned int> &repetitions,
         const unsigned int               n_components = 1)
-    : fe_degree(fe_degree)
+    : fe(FE_Q_iso_Q1<dim>(fe_degree), n_components)
+    , fe_degree(fe_degree)
     , n_components(n_components)
     , dofs_per_cell(Utilities::pow(fe_degree + 1, dim) * n_components)
     , lexicographic_to_hierarchic_numbering(
@@ -582,6 +583,8 @@ public:
   {
     AssertDimension(dof_indices.size(), this->n_dofs());
 
+    Assert((hiarchical == false) || n_cells() == 1, ExcInternalError());
+
     auto patch_dofs = patch_subdivions_size;
     for (auto &i : patch_dofs)
       i += 1;
@@ -600,11 +603,10 @@ public:
         for (unsigned int d = 0; d < dim; ++d)
           indices[d] += patch_subdivions_start[d];
 
-        // TODO: check!
-        dof_indices[(hiarchical ? lexicographic_to_hierarchic_numbering[cc] :
-                                  cc) *
-                      n_components +
-                    comp] =
+        dof_indices[hiarchical ?
+                      fe.component_to_system_index(
+                        comp, lexicographic_to_hierarchic_numbering[cc]) :
+                      (cc * n_components + comp)] =
           indices_to_index<dim>(indices, global_dofs) * n_components + comp;
       }
   }
@@ -633,9 +635,10 @@ public:
         const unsigned int index_c =
           indices_to_index<dim>(indices_1, patch_dofs);
 
-        for (unsigned int cc = 0; cc < n_components; ++cc) // TODO: check!
-          dof_indices[lexicographic_to_hierarchic_numbering[c] * n_components +
-                      cc] = index_c * n_components + cc;
+        for (unsigned int cc = 0; cc < n_components; ++cc)
+          dof_indices[fe.component_to_system_index(
+            cc, lexicographic_to_hierarchic_numbering[c])] =
+            index_c * n_components + cc;
       }
   }
 
@@ -753,6 +756,8 @@ public:
   }
 
 private:
+  const FESystem<dim> fe;
+
   const unsigned int        fe_degree;
   const unsigned int        n_components;
   const unsigned int        dofs_per_cell;
