@@ -822,6 +822,26 @@ main(int argc, char **argv)
     {
       // elasticity
       params.n_components = dim;
+
+      assemble_element_stiffness_matrix = [](const FEValues<dim> &fe_values,
+                                             FullMatrix<double>  &cell_matrix) {
+        const double mu_value     = 1.0; // TODO
+        const double lambda_value = 1.0; // TODO
+
+        const FEValuesExtractors::Vector displacement(0);
+
+        for (const unsigned int q : fe_values.quadrature_point_indices())
+          for (const unsigned int i : fe_values.dof_indices())
+            for (const unsigned int j : fe_values.dof_indices())
+              cell_matrix(i, j) +=
+                (2 * mu_value *
+                   scalar_product(
+                     fe_values[displacement].symmetric_gradient(i, q),
+                     fe_values[displacement].symmetric_gradient(j, q)) +
+                 lambda_value * fe_values[displacement].divergence(i, q) *
+                   fe_values[displacement].divergence(j, q)) *
+                fe_values.JxW(q);
+      };
     }
 
   Step96::LODProblem<dim> problem(params);
