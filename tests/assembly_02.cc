@@ -82,6 +82,19 @@ namespace Step96
     }
 
     void
+    run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
+          &assemble_element_stiffness_matrix)
+    {
+      this->make_grid();
+      this->setup_system();
+      this->setup_basis(assemble_element_stiffness_matrix);
+      this->assemble_system(assemble_element_stiffness_matrix);
+      this->solve();
+      this->output_results();
+    }
+
+private:
+    void
     make_grid()
     {
       Point<dim> p1;
@@ -744,19 +757,6 @@ namespace Step96
       data_out.write_vtu_in_parallel(file_name, comm);
     }
 
-    void
-    run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
-          &assemble_element_stiffness_matrix)
-    {
-      this->make_grid();
-      this->setup_system();
-      this->setup_basis(assemble_element_stiffness_matrix);
-      this->assemble_system(assemble_element_stiffness_matrix);
-      this->solve();
-      this->output_results();
-    }
-
-  private:
     const unsigned int n_subdivisions_fine;
     const unsigned int n_components;
     const unsigned int n_oversampling;
