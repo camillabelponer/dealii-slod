@@ -562,17 +562,14 @@ namespace Step96
 
                     Ainv_PT_internal.vmult(internal_selected_basis_function,
                                            c_i);
-                    unsigned int N_boundary_dofs =
-                      4 * n_subdivisions_fine * n_components;
+
                     // somehow the following does not work
                     // internal_selected_basis_function.extract_subvector_to(internal_selected_basis_function.begin(),
                     // internal_selected_basis_function.end(),
                     // selected_basis_function.begin()+N_boundary_dofs);
-                    for (unsigned int id = 0;
-                         id <
-                         (selected_basis_function[d].size() - N_boundary_dofs);
+                    for (unsigned int id = 0; id < internal_dofs_fine.size();
                          ++id)
-                      selected_basis_function[d][id + N_boundary_dofs] =
+                      selected_basis_function[d][internal_dofs_fine[id]] =
                         internal_selected_basis_function[id];
                   }
               }

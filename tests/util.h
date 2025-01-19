@@ -775,7 +775,8 @@ public:
   }
 
   /**
-   * TODO
+   * Parition Dofss into patch-internal DoFs, patch-boundary DoFs, and
+   * domain-boundary DoFs.
    */
   void
   get_dofs_vectors(std::vector<unsigned int> &all_dofs,
@@ -792,9 +793,6 @@ public:
       all_dofs.push_back(id);
 
     AssertDimension(dim, 2);
-    unsigned int N_boundary_dofs = 4 * fe_degree * n_components;
-    for (auto id = N_boundary_dofs; id < n_dofs(); ++id)
-      internal_dofs.push_back(id); // TODO[PM]: I don't get this
 
     std::set<unsigned int> internal_bd_set;
     std::set<unsigned int> domain_bd_set;
@@ -832,6 +830,11 @@ public:
     internal_boundary_dofs.assign(internal_bd_set.begin(),
                                   internal_bd_set.end());
     domain_boundary_dofs.assign(domain_bd_set.begin(), domain_bd_set.end());
+
+    for (const auto id : all_dofs)
+      if ((internal_bd_set.find(id) == internal_bd_set.end()) &&
+          (domain_bd_set.find(id) == domain_bd_set.end()))
+        internal_dofs.push_back(id);
 
     // corners that are the intersection of a surface at the boundary and an
     // internal surface should be still part of internal_boundary_idx, while
