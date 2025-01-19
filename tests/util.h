@@ -433,71 +433,65 @@ const Table<2, bool>
 create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
                               const Quadrature<dim>    &quadrature)
 {
-  const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe) {
-    Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
-    MappingQ1<dim> mapping;
-    FEValues<dim>  fe_values(mapping,
-                            fe,
-                            quadrature,
-                            update_values | update_gradients);
-
-    Triangulation<dim> tria;
-    GridGenerator::hyper_cube(tria);
-
-    fe_values.reinit(tria.begin());
-
-    const unsigned int n_subdivisions = fe.degree;
-
-    const auto lexicographic_to_hierarchic_numbering =
-      FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
-
-    for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
-      for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
-
-        for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
-          for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
-            {
-              const unsigned int i =
-                lexicographic_to_hierarchic_numbering[(c_0 + i_0) +
-                                                      (c_1 + i_1) *
-                                                        (n_subdivisions + 1)];
-
-              for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
-                for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
-                  {
-                    const unsigned int j = lexicographic_to_hierarchic_numbering
-                      [(c_0 + j_0) + (c_1 + j_1) * (n_subdivisions + 1)];
-
-                    double sum = 0;
-
-                    for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
-                      for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
-                        {
-                          const unsigned int q_index =
-                            (c_0 * 2 + q_0) +
-                            (c_1 * 2 + q_1) * (2 * n_subdivisions);
-
-                          sum += fe_values.shape_grad(i, q_index) *
-                                 fe_values.shape_grad(j, q_index);
-                        }
-                    if (sum != 0)
-                      bool_dof_mask(i, j) = true;
-                  }
-            }
-
-    return bool_dof_mask;
-  };
-
   Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
 
   if (fe.n_components() == 1)
     {
-      bool_dof_mask = compute_scalar_bool_dof_mask(fe);
+      MappingQ1<dim> mapping;
+      FEValues<dim>  fe_values(mapping,
+                              fe,
+                              quadrature,
+                              update_values | update_gradients);
+
+      Triangulation<dim> tria;
+      GridGenerator::hyper_cube(tria);
+
+      fe_values.reinit(tria.begin());
+
+      const unsigned int n_subdivisions = fe.degree;
+
+      const auto lexicographic_to_hierarchic_numbering =
+        FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
+
+      for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
+        for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
+
+          for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+            for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+              {
+                const unsigned int i =
+                  lexicographic_to_hierarchic_numbering[(c_0 + i_0) +
+                                                        (c_1 + i_1) *
+                                                          (n_subdivisions + 1)];
+
+                for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                  for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                    {
+                      const unsigned int j =
+                        lexicographic_to_hierarchic_numbering
+                          [(c_0 + j_0) + (c_1 + j_1) * (n_subdivisions + 1)];
+
+                      double sum = 0;
+
+                      for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                        for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                          {
+                            const unsigned int q_index =
+                              (c_0 * 2 + q_0) +
+                              (c_1 * 2 + q_1) * (2 * n_subdivisions);
+
+                            sum += fe_values.shape_grad(i, q_index) *
+                                   fe_values.shape_grad(j, q_index);
+                          }
+                      if (sum != 0)
+                        bool_dof_mask(i, j) = true;
+                    }
+              }
     }
   else
     {
       const auto scalar_bool_dof_mask =
-        compute_scalar_bool_dof_mask(fe.base_element(0));
+        create_bool_dof_mask_Q_iso_Q1(fe.base_element(0), quadrature);
 
       for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
         for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
@@ -505,7 +499,6 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
                                   [fe.system_to_component_index(j).second])
             bool_dof_mask[i][j] = true;
     }
-
 
   return bool_dof_mask;
 }
