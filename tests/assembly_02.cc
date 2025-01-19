@@ -49,9 +49,10 @@ namespace Step96
 {
   struct Parameters
   {
+    std::string  physics               = "diffusion";
     unsigned int n_subdivisions_fine   = 3;
     unsigned int n_components          = 1;
-    unsigned int n_oversampling        = 1; // numbers::invalid_unsigned_int
+    unsigned int n_oversampling        = 1;
     unsigned int n_subdivisions_coarse = 16;
     bool         LOD_stabilization     = true;
   };
@@ -276,7 +277,7 @@ namespace Step96
 
             AffineConstraints<double> patch_constraints;
             for (unsigned int d = 0; d < 2 * dim; ++d)
-                patch.make_zero_boundary_constraints(d, patch_constraints);
+              patch.make_zero_boundary_constraints(d, patch_constraints);
             patch_constraints.close();
 
             std::vector<Vector<double>> selected_basis_function(
@@ -386,10 +387,10 @@ namespace Step96
 
             for (unsigned int i = 0; i < N_dofs_coarse; ++i)
               {
-              for (const auto j : boundary_dofs_fine)
-                PT(j, i) = 0.0;
-              for (const auto j : domain_boundary_dofs_fine)
-                PT(j, i) = 0.0;
+                for (const auto j : boundary_dofs_fine)
+                  PT(j, i) = 0.0;
+                for (const auto j : domain_boundary_dofs_fine)
+                  PT(j, i) = 0.0;
               }
 
             for (const auto j : boundary_dofs_fine)
@@ -816,9 +817,8 @@ main(int argc, char **argv)
   std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
     assemble_element_stiffness_matrix;
 
-  if (true /*TODO: make parater*/)
+  if (params.physics == "diffusion")
     {
-      // diffusion
       params.n_components = 1;
 
       const auto lexicographic_to_hierarchic_numbering =
@@ -866,9 +866,8 @@ main(int argc, char **argv)
                   }
         };
     }
-  else
+  else if (params.physics == "elasticity")
     {
-      // elasticity
       params.n_components = dim;
 
       assemble_element_stiffness_matrix = [](const FEValues<dim> &fe_values,
@@ -892,6 +891,10 @@ main(int argc, char **argv)
                    fe_values[displacement].divergence(j, q)) *
                 fe_values.JxW(q);
       };
+    }
+  else
+    {
+      AssertThrow(false, ExcNotImplemented());
     }
 
   Step96::LODProblem<dim> problem(params);
