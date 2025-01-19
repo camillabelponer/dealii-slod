@@ -276,15 +276,8 @@ namespace Step96
 
             AffineConstraints<double> patch_constraints;
             for (unsigned int d = 0; d < 2 * dim; ++d)
-              if (patch.at_boundary(d))
-                patch.make_zero_boundary_constraints(d, patch_constraints);
-              else
                 patch.make_zero_boundary_constraints(d, patch_constraints);
             patch_constraints.close();
-
-            IndexSet patch_constraints_is(n_dofs_patch);
-            for (const auto &l : patch_constraints.get_lines())
-              patch_constraints_is.add_index(l.index);
 
             std::vector<Vector<double>> selected_basis_function(
               n_components, Vector<double>(n_dofs_patch));
@@ -392,10 +385,16 @@ namespace Step96
               }
 
             for (unsigned int i = 0; i < N_dofs_coarse; ++i)
-              for (const auto j : patch_constraints_is)
+              {
+              for (const auto j : boundary_dofs_fine)
                 PT(j, i) = 0.0;
+              for (const auto j : domain_boundary_dofs_fine)
+                PT(j, i) = 0.0;
+              }
 
-            for (const auto j : patch_constraints_is)
+            for (const auto j : boundary_dofs_fine)
+              patch_stiffness_matrix.clear_row(j, 1);
+            for (const auto j : domain_boundary_dofs_fine)
               patch_stiffness_matrix.clear_row(j, 1);
 
             TrilinosWrappers::MySolverDirect solver;
