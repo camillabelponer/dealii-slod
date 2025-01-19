@@ -16,6 +16,8 @@
 // Needed: C (computed column-wise, for AffineConstraints
 // we need to access the full row)
 
+#include <deal.II/base/timer.h>
+
 #include <deal.II/distributed/shared_tria.h>
 
 #include <deal.II/dofs/dof_handler.h>
@@ -75,6 +77,9 @@ namespace Step96
              Triangulation<dim>::none,
              true,
              parallel::shared::Triangulation<dim>::partition_custom_signal)
+      , timer_output(pcout,
+                     dealii::TimerOutput::summary,
+                     dealii::TimerOutput::wall_times)
     {
       AssertThrow(Utilities::MPI::n_mpi_processes(comm) <=
                     n_subdivisions_coarse,
@@ -93,10 +98,12 @@ namespace Step96
       this->output_results();
     }
 
-private:
+  private:
     void
     make_grid()
     {
+      TimerOutput::Scope timer(timer_output, "make_grid");
+
       Point<dim> p1;
       Point<dim> p2;
 
@@ -125,6 +132,8 @@ private:
     void
     setup_system()
     {
+      TimerOutput::Scope timer(timer_output, "setup_system");
+
       const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
       const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
       const unsigned int stride =
@@ -217,6 +226,8 @@ private:
       const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
         &assemble_element_stiffness_matrix)
     {
+      TimerOutput::Scope timer(timer_output, "setup_basis");
+
       TrilinosWrappers::SparsityPattern sparsity_pattern_C(
         locally_owned_dofs_fem, comm);
 
@@ -647,6 +658,8 @@ private:
       const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
         &assemble_element_stiffness_matrix)
     {
+      TimerOutput::Scope timer(timer_output, "assemble_system");
+
       FEValues<dim> fe_values(mapping,
                               fe,
                               quadrature,
@@ -700,6 +713,8 @@ private:
     void
     solve()
     {
+      TimerOutput::Scope timer(timer_output, "solve");
+
       TrilinosWrappers::SolverDirect solver;
       solver.solve(A_lod, solution_lod, rhs_lod);
     }
@@ -707,6 +722,8 @@ private:
     void
     output_results()
     {
+      TimerOutput::Scope timer(timer_output, "output_results");
+
       DoFHandler<dim> dof_handler(tria);
       dof_handler.distribute_dofs(
         FESystem<dim>(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components));
@@ -785,6 +802,8 @@ private:
 
     LinearAlgebra::distributed::Vector<double> rhs_lod;
     LinearAlgebra::distributed::Vector<double> solution_lod;
+
+    TimerOutput timer_output;
   };
 
 } // namespace Step96
