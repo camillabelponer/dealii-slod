@@ -820,7 +820,7 @@ main(int argc, char **argv)
   std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
     assemble_element_stiffness_matrix;
 
-  if (true)
+  if (true /*TODO: make parater*/)
     {
       // diffusion
       params.n_components = 1;
@@ -832,7 +832,7 @@ main(int argc, char **argv)
       assemble_element_stiffness_matrix =
         [&params, lexicographic_to_hierarchic_numbering](
           const FEValues<dim> &fe_values, FullMatrix<double> &cell_matrix) {
-          const double alpha_value = 1.0; // TODO
+          const double alpha_value = 1.0; // TODO: random variable
 
           for (unsigned int c_1 = 0; c_1 < params.n_subdivisions_fine; ++c_1)
             for (unsigned int c_0 = 0; c_0 < params.n_subdivisions_fine; ++c_0)
@@ -877,8 +877,10 @@ main(int argc, char **argv)
 
       assemble_element_stiffness_matrix = [](const FEValues<dim> &fe_values,
                                              FullMatrix<double>  &cell_matrix) {
-        const double mu_value     = 1.0; // TODO
-        const double lambda_value = 1.0; // TODO
+        const double mu_value     = 1.0; // TODO: random variable
+        const double lambda_value = 1.0; // TODO: random variable
+
+        // TODO: loop over subcells
 
         const FEValuesExtractors::Vector displacement(0);
 
