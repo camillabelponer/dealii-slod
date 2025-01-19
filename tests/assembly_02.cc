@@ -16,6 +16,7 @@
 // Needed: C (computed column-wise, for AffineConstraints
 // we need to access the full row)
 
+#include <deal.II/base/parameter_handler.h>
 #include <deal.II/base/timer.h>
 
 #include <deal.II/distributed/shared_tria.h>
@@ -55,6 +56,18 @@ namespace Step96
     unsigned int n_oversampling        = 1;
     unsigned int n_subdivisions_coarse = 16;
     bool         LOD_stabilization     = true;
+
+    void
+    parse(const std::string file_name)
+    {
+      dealii::ParameterHandler prm;
+      prm.add_parameter("physics", physics);
+      prm.add_parameter("n subdivisions fine", n_subdivisions_fine);
+      prm.add_parameter("n oversampling", n_oversampling);
+      prm.add_parameter("n subdivisions coarse", n_subdivisions_coarse);
+      prm.add_parameter("LOD stabilization", LOD_stabilization);
+      prm.parse_input(file_name, "", true);
+    }
   };
 
   template <int dim>
@@ -813,6 +826,8 @@ main(int argc, char **argv)
   const unsigned int dim = 2;
 
   Step96::Parameters params;
+  if (argc > 1)
+    params.parse(std::string(argv[1]));
 
   std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
     assemble_element_stiffness_matrix;
