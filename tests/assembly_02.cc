@@ -411,7 +411,11 @@ namespace Step96
             for (const auto j : domain_boundary_dofs_fine)
               patch_stiffness_matrix.clear_row(j, 1);
 
+#if false
+            TrilinosWrappers::SolverDirect solver;
+#else
             TrilinosWrappers::MySolverDirect solver;
+#endif
             solver.solve(patch_stiffness_matrix, Ainv_PT, PT);
 
             PT.Tmmult(P_Ainv_PT, Ainv_PT);
