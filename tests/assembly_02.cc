@@ -679,11 +679,11 @@ namespace Step96
                               quadrature,
                               update_values | update_gradients |
                                 update_JxW_values);
-
+                                            
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
-            patch.reinit(cell, 0);
+                        patch.reinit(cell, 0);
 
             fe_values.reinit(cell);
 
@@ -701,7 +701,7 @@ namespace Step96
               for (const unsigned int i : fe_values.dof_indices())
                 cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
                                     fe_values.JxW(q_index));
-
+            
             // b) assemble into LOD matrix by using constraints
             std::vector<types::global_dof_index> local_dof_indices(
               n_dofs_per_cell);
@@ -718,11 +718,11 @@ namespace Step96
             constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
                                                            local_dof_indices,
                                                            rhs_lod);
-          }
+                      }
 
       A_lod.compress(VectorOperation::values::add);
       rhs_lod.compress(VectorOperation::values::add);
-    }
+                      }
 
     void
     solve()
@@ -744,7 +744,7 @@ namespace Step96
       compute_renumbering_lex(dof_handler);
 
       // convert to FEM solution
-      LinearAlgebra::distributed::Vector<double> solution_fem(
+      LinearAlgebra::distributed::Vector<double> solution_lod_fine(
         dof_handler.locally_owned_dofs(), comm);
 
       solution_lod.update_ghost_values();
@@ -757,7 +757,7 @@ namespace Step96
             for (const auto &[j, weight] : *constraint_entries)
               new_value += weight * solution_lod[j];
 
-            solution_fem[i] = new_value;
+            solution_lod_fine[i] = new_value;
           }
 
       // output LOD and FEM results
@@ -771,11 +771,11 @@ namespace Step96
       data_out.set_flags(flags);
       data_out.attach_dof_handler(dof_handler);
 
-      data_out.add_data_vector(solution_lod, "solution_lod");
-      data_out.add_data_vector(solution_fem, "solution_fem");
+      data_out.add_data_vector(solution_lod, "solution_lod_coarse");
+      data_out.add_data_vector(solution_lod_fine, "solution_lod_fine");
 
       pcout << solution_lod.l2_norm() << std::endl;
-      pcout << solution_fem.l2_norm() << std::endl;
+      pcout << solution_lod_fine.l2_norm() << std::endl;
 
       Vector<double> ranks(tria.n_active_cells());
       ranks = Utilities::MPI::this_mpi_process(comm);
