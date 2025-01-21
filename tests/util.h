@@ -100,7 +100,7 @@ namespace dealii::TrilinosWrappers
      * but we copy the data from this object before starting the solution
      * process, and copy the data back into it afterwards.
      */
-    ObserverPointer<SolverControl> solver_control;
+    SmartPointer<SolverControl> solver_control;
 
     /**
      * A structure that collects the Trilinos sparse matrix, the right hand
