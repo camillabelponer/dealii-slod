@@ -51,10 +51,10 @@ namespace Step96
   struct Parameters
   {
     std::string  physics               = "diffusion";
-    unsigned int n_subdivisions_fine   = 3;
+    unsigned int n_subdivisions_fine   = 16;
     unsigned int n_components          = 1;
-    unsigned int n_oversampling        = 1;
-    unsigned int n_subdivisions_coarse = 16;
+    unsigned int n_oversampling        = 2;
+    unsigned int n_subdivisions_coarse = 8;
     bool         LOD_stabilization     = true;
 
     void
@@ -92,13 +92,19 @@ namespace Step96
              true,
              parallel::shared::Triangulation<dim>::partition_custom_signal)
       , timer_output(pcout,
-                     dealii::TimerOutput::summary,
+                     dealii::TimerOutput::never,
                      dealii::TimerOutput::wall_times)
     {
       AssertThrow(Utilities::MPI::n_mpi_processes(comm) <=
                     n_subdivisions_coarse,
                   ExcNotImplemented());
     }
+
+    ~LODProblem()
+    {
+      timer_output.print_wall_time_statistics(comm);
+    }
+
 
     void
     run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
@@ -694,13 +700,20 @@ namespace Step96
                                                n_dofs_per_cell);
             Vector<double>     cell_rhs_fem(n_dofs_per_cell);
 
-            assemble_element_stiffness_matrix(fe_values, cell_matrix_fem);
+            {
+              TimerOutput::Scope timer(timer_output, "assemble_system::1");
+              assemble_element_stiffness_matrix(fe_values, cell_matrix_fem);
+            }
+
+            {
+              TimerOutput::Scope timer(timer_output, "assemble_system::2");
 
             for (const unsigned int q_index :
                  fe_values.quadrature_point_indices())
               for (const unsigned int i : fe_values.dof_indices())
                 cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
                                     fe_values.JxW(q_index));
+            }
             
             // b) assemble into LOD matrix by using constraints
             std::vector<types::global_dof_index> local_dof_indices(
@@ -710,18 +723,63 @@ namespace Step96
             for (auto &i : local_dof_indices)
               i += rhs_lod.size(); // shifted view
 
-            constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
-                                                           local_dof_indices,
-                                                           local_dof_indices,
-                                                           A_lod);
 
+            if(false)
+              {
+                TimerOutput::Scope timer(timer_output, "assemble_system::3");
+                constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
+                                                               local_dof_indices,
+                                                               local_dof_indices,
+                                                               A_lod);
+                                  
+              }
+              else
+              {
+                TimerOutput::Scope timer(timer_output, "assemble_system::3_");
+
+                std::set<unsigned int> dofs;
+                for(const auto i :  local_dof_indices)
+                if(constraints_lod_fem.is_constrained (i))
+                    for (const auto & [j, _] :* constraints_lod_fem.get_constraint_entries (i))
+                      dofs.insert(j);   
+
+                std::vector<unsigned int> v(dofs.begin(), dofs.end());
+
+                FullMatrix<double> C(local_dof_indices.size(), dofs.size());
+
+                for(unsigned int ii = 0; ii < local_dof_indices.size(); ++ii)
+                  {
+                    const unsigned int i = local_dof_indices[ii];
+
+                    if(constraints_lod_fem.is_constrained (i))
+                      for (const auto & [j, weight] :* constraints_lod_fem.get_constraint_entries (i))
+                        C[ii][std::distance(v.begin(), std::find(v.begin(), v.end(), j))] = weight;
+                  }
+
+                FullMatrix<double> CAC(dofs.size(), dofs.size());
+                CAC.triple_product(cell_matrix_fem, C, C, true);
+            
+                AffineConstraints<double>().distribute_local_to_global(CAC,
+                                                                       v,
+                                                                       v,
+                                                                       A_lod);
+              }
+
+
+              {
+              TimerOutput::Scope timer(timer_output, "assemble_system::4");
             constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
                                                            local_dof_indices,
                                                            rhs_lod);
+              }
                       }
 
+
+            {
+              TimerOutput::Scope timer(timer_output, "assemble_system::5");
       A_lod.compress(VectorOperation::values::add);
       rhs_lod.compress(VectorOperation::values::add);
+            }
                       }
 
     void
