@@ -771,7 +771,8 @@ namespace Step96
       data_out.set_flags(flags);
       data_out.attach_dof_handler(dof_handler);
 
-      data_out.add_data_vector(solution_lod, "solution_lod_coarse");
+      if(n_components == 1 /*TODO*/)
+        data_out.add_data_vector(solution_lod, "solution_lod_coarse");
       data_out.add_data_vector(solution_lod_fine, "solution_lod_fine");
 
       pcout << solution_lod.l2_norm() << std::endl;

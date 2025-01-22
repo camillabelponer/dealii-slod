@@ -676,7 +676,7 @@ public:
     for (unsigned int c = 0; c < this->n_dofs(); ++c)
       {
         const auto cc   = c / n_components;
-        const auto comp = cc % n_components;
+        const auto comp = c % n_components;
 
         auto indices = index_to_indices<dim>(cc, patch_dofs);
 
