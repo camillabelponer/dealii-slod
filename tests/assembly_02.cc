@@ -752,8 +752,8 @@ namespace Step96
                     if (constraints_lod_fem.is_constrained(i))
                       for (const auto &[j, weight] :
                            *constraints_lod_fem.get_constraint_entries(i))
-                        C[ii][std::distance(v.begin(),
-                                            std::find(v.begin(), v.end(), j))] =
+                        C[ii][std::distance(
+                          v.begin(), std::lower_bound(v.begin(), v.end(), j))] =
                           weight;
                   }
 
