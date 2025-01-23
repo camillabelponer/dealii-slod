@@ -732,7 +732,7 @@ namespace Step96
               }
             else
               {
-                TimerOutput::Scope timer(timer_output, "assemble_system::3_");
+                TimerOutput::Scope timer(timer_output, "assemble_system::3");
 
                 std::set<unsigned int> dofs;
                 for (const auto i : local_dof_indices)
