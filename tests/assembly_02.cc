@@ -953,27 +953,69 @@ main(int argc, char **argv)
     {
       params.n_components = dim;
 
-      assemble_element_stiffness_matrix = [](const FEValues<dim> &fe_values,
-                                             FullMatrix<double>  &cell_matrix) {
-        const double mu_value     = 1.0; // TODO: random variable
-        const double lambda_value = 1.0; // TODO: random variable
+      const auto lexicographic_to_hierarchic_numbering =
+        FETools::lexicographic_to_hierarchic_numbering<dim>(
+          params.n_subdivisions_fine);
 
-        // TODO: loop over subcells
+      assemble_element_stiffness_matrix =
+        [&params, lexicographic_to_hierarchic_numbering](
+          const FEValues<dim> &fe_values, FullMatrix<double> &cell_matrix) {
+          const double mu_value     = 1.0; // TODO: random variable
+          const double lambda_value = 1.0; // TODO: random variable
 
-        const FEValuesExtractors::Vector displacement(0);
+          // TODO: better solution?
+          FESystem<dim> fe(FE_Q_iso_Q1<dim>(params.n_subdivisions_fine), dim);
 
-        for (const unsigned int q : fe_values.quadrature_point_indices())
-          for (const unsigned int i : fe_values.dof_indices())
-            for (const unsigned int j : fe_values.dof_indices())
-              cell_matrix(i, j) +=
-                (2 * mu_value *
-                   scalar_product(
-                     fe_values[displacement].symmetric_gradient(i, q),
-                     fe_values[displacement].symmetric_gradient(j, q)) +
-                 lambda_value * fe_values[displacement].divergence(i, q) *
-                   fe_values[displacement].divergence(j, q)) *
-                fe_values.JxW(q);
-      };
+          const FEValuesExtractors::Vector displacement(0);
+
+          for (unsigned int c_1 = 0; c_1 < params.n_subdivisions_fine; ++c_1)
+            for (unsigned int c_0 = 0; c_0 < params.n_subdivisions_fine; ++c_0)
+
+              for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                  {
+                    const unsigned int q =
+                      (c_0 * 2 + q_0) +
+                      (c_1 * 2 + q_1) * (2 * params.n_subdivisions_fine);
+                    for (unsigned int d_0 = 0; d_0 < 2; ++d_0)
+                      for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                        for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                          {
+                            const unsigned int i = fe.component_to_system_index(
+                              d_0,
+                              lexicographic_to_hierarchic_numbering
+                                [(c_0 + i_0) +
+                                 (c_1 + i_1) *
+                                   (params.n_subdivisions_fine + 1)]);
+
+                            for (unsigned int d_1 = 0; d_1 < 2; ++d_1)
+                              for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                                for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                                  {
+                                    const unsigned int j =
+                                      fe.component_to_system_index(
+                                        d_1,
+                                        lexicographic_to_hierarchic_numbering
+                                          [(c_0 + j_0) +
+                                           (c_1 + j_1) *
+                                             (params.n_subdivisions_fine + 1)]);
+                                    cell_matrix(i, j) +=
+                                      (2 * mu_value *
+                                         scalar_product(
+                                           fe_values[displacement]
+                                             .symmetric_gradient(i, q),
+                                           fe_values[displacement]
+                                             .symmetric_gradient(j, q)) +
+                                       lambda_value *
+                                         fe_values[displacement].divergence(i,
+                                                                            q) *
+                                         fe_values[displacement].divergence(
+                                           j, q)) *
+                                      fe_values.JxW(q);
+                                  }
+                          }
+                  }
+        };
     }
   else
     {
