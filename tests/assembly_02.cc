@@ -50,8 +50,8 @@ namespace Step96
 {
   struct Parameters
   {
-    std::string  physics               = "diffusion";
-    unsigned int n_subdivisions_fine   = 16;
+    std::string  physics               = "elasticity";
+    unsigned int n_subdivisions_fine   = 3;
     unsigned int n_components          = 1;
     unsigned int n_oversampling        = 2;
     unsigned int n_subdivisions_coarse = 8;
@@ -359,9 +359,12 @@ namespace Step96
                 AffineConstraints<double>().distribute_local_to_global(
                   cell_matrix, indices, patch_stiffness_matrix);
 
-                for (const auto i : indices)
+                for (unsigned int ii = 0; ii < indices.size(); ++ii)
                   {
-                    PT[i][cell * n_components + (i % n_components)] = h * h;
+                    const auto i = indices[ii];
+
+                    PT[i][cell * n_components +
+                          fe.system_to_component_index(ii).first] = 1.0;
                     PT_counter[i] += 1;
                   }
               }
@@ -377,7 +380,7 @@ namespace Step96
 
             for (unsigned int cell = 0; cell < N_dofs_coarse; ++cell)
               for (unsigned int i = 0; i < n_dofs_patch; ++i)
-                PT[i][cell] *= PT_counter[i];
+                PT[i][cell] *= PT_counter[i] * h * h;
 
             if (LOD_stabilization && boundary_dofs_fine.size() > 0)
               {
@@ -440,6 +443,7 @@ namespace Step96
               {
                 for (unsigned int c = 0; c < n_components; ++c)
                   {
+                    e_i                                     = 0.0;
                     e_i[central_cell_id * n_components + c] = 1.0;
                     P_Ainv_PT.vmult(triple_product_inv_e_i, e_i);
                     Ainv_PT.vmult(selected_basis_function[c],
