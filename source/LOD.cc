@@ -982,7 +982,7 @@ LOD<dim, spacedim>::solve()
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
-  if (false) // debugging
+  if (true) // debugging
     {
       TrilinosWrappers::SolverDirect solver(par.coarse_solver_control);
       solver.initialize(global_stiffness_matrix);
@@ -1063,7 +1063,7 @@ LOD<dim, spacedim>::assemble_and_solve_fem_problem() //_and_compare() // const
   pcout << "     fem rhs l2 norm = " << fem_rhs.l2_norm() << std::endl;
 
   // solve
-  if (false)
+  if (true) // debugging
     {
       TrilinosWrappers::SolverDirect solver(par.fine_solver_control);
       solver.initialize(fem_stiffness_matrix);
@@ -1294,6 +1294,7 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                            lod_names,
                            DataOut<dim>::type_dof_data,
                            data_component_interpretation);
+  if constexpr (spacedim == 2)
   data_out.add_data_vector(fem_coarse_solution_interpolated,
                            fem_coarse_names,
                            DataOut<dim>::type_dof_data,

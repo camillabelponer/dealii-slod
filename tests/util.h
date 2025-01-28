@@ -77,12 +77,16 @@ namespace dealii::TrilinosWrappers
       // Finally, let the deal.II SolverControl object know what has
       // happened. If the solve succeeded, the status of the solver control will
       // turn into SolverControl::success.
-      solver_control.check(0, 0);
+      if (solver_control)
+        {
+          solver_control->check(0, 0);
 
-      if (solver_control.last_check() != SolverControl::success)
-        AssertThrow(false,
-                    SolverControl::NoConvergence(solver_control.last_step(),
-                                                 solver_control.last_value()));
+          if (solver_control->last_check() != SolverControl::success)
+            AssertThrow(
+              false,
+              SolverControl::NoConvergence(solver_control->last_step(),
+                                           solver_control->last_value()));
+        }
     }
 
     /**
@@ -96,7 +100,7 @@ namespace dealii::TrilinosWrappers
      * but we copy the data from this object before starting the solution
      * process, and copy the data back into it afterwards.
      */
-    SolverControl &solver_control;
+    SmartPointer<SolverControl> solver_control;
 
     /**
      * A structure that collects the Trilinos sparse matrix, the right hand
@@ -120,15 +124,17 @@ namespace dealii::TrilinosWrappers
     /**
      * Constructor. Creates the solver without solver control object.
      */
-    explicit MySolverDirect(const AdditionalData &data = AdditionalData());
+    explicit MySolverDirect(const AdditionalData &data = AdditionalData())
+      : SolverDirect(data)
+    {}
 
     /**
      * Constructor. Takes the solver control object and creates the solver.
      */
-    MySolverDirect(SolverControl &       cn,
+    MySolverDirect(SolverControl        &cn,
                    const AdditionalData &data = AdditionalData())
       : SolverDirect(cn, data)
-      , solver_control(cn)
+      , solver_control(&cn)
       , additional_data(data.output_solver_details, data.solver_type){};
 
     /**
@@ -137,8 +143,8 @@ namespace dealii::TrilinosWrappers
     virtual ~MySolverDirect() = default;
 
     void
-    solve(const Epetra_Operator &   A,
-          Epetra_MultiVector &      x,
+    solve(const Epetra_Operator    &A,
+          Epetra_MultiVector       &x,
           const Epetra_MultiVector &b)
     {
       linear_problem = std::make_unique<Epetra_LinearProblem>(
@@ -146,6 +152,53 @@ namespace dealii::TrilinosWrappers
         &x,
         const_cast<Epetra_MultiVector *>(&b));
       do_solve();
+    }
+
+    void
+    solve(const TrilinosWrappers::SparseMatrix &sparse_matrix,
+          FullMatrix<double>                   &solution,
+          const FullMatrix<double>             &rhs)
+    {
+      Assert(sparse_matrix.m() == sparse_matrix.n(), ExcInternalError());
+      Assert(rhs.m() == sparse_matrix.m(), ExcInternalError());
+      Assert(rhs.m() == solution.m(), ExcInternalError());
+      Assert(rhs.n() == solution.n(), ExcInternalError());
+
+      solution = 0.0;
+
+      const unsigned int m = rhs.m();
+      const unsigned int n = rhs.n();
+
+      FullMatrix<double> rhs_t(n, m);
+      FullMatrix<double> solution_t(n, m);
+
+      rhs_t.copy_transposed(rhs);
+      solution_t.copy_transposed(solution);
+
+      std::vector<double *> rhs_ptrs(n);
+      std::vector<double *> sultion_ptrs(n);
+
+      for (unsigned int i = 0; i < n; ++i)
+        {
+          rhs_ptrs[i]     = &rhs_t[i][0];
+          sultion_ptrs[i] = &solution_t[i][0];
+        }
+
+      const Epetra_CrsMatrix &mat = sparse_matrix.trilinos_matrix();
+
+      Epetra_MultiVector trilinos_dst(View,
+                                      mat.OperatorRangeMap(),
+                                      sultion_ptrs.data(),
+                                      sultion_ptrs.size());
+      Epetra_MultiVector trilinos_src(View,
+                                      mat.OperatorDomainMap(),
+                                      rhs_ptrs.data(),
+                                      rhs_ptrs.size());
+
+      this->initialize(sparse_matrix);
+      this->solve(mat, trilinos_dst, trilinos_src);
+
+      solution.copy_transposed(solution_t);
     }
   };
 }; // namespace dealii::TrilinosWrappers
@@ -293,9 +346,9 @@ compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
 }
 
 void
-Gauss_elimination(const FullMatrix<double> &            rhs,
+Gauss_elimination(const FullMatrix<double>             &rhs,
                   const TrilinosWrappers::SparseMatrix &sparse_matrix,
-                  FullMatrix<double> &                  solution)
+                  FullMatrix<double>                   &solution)
 {
   // create preconditioner
   TrilinosWrappers::PreconditionILU ilu;
@@ -340,7 +393,7 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
         }
 
       const Epetra_CrsMatrix &mat  = sparse_matrix.trilinos_matrix();
-      const Epetra_Operator & prec = ilu.trilinos_operator();
+      const Epetra_Operator  &prec = ilu.trilinos_operator();
 
       Epetra_MultiVector trilinos_dst(View,
                                       mat.OperatorRangeMap(),
@@ -374,21 +427,108 @@ Gauss_elimination(const FullMatrix<double> &            rhs,
 }
 
 
+
+template <int dim>
+const Table<2, bool>
+create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
+                              const Quadrature<dim>    &quadrature)
+{
+  Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
+
+  if (fe.n_components() == 1)
+    {
+      MappingQ1<dim> mapping;
+      FEValues<dim>  fe_values(mapping,
+                              fe,
+                              quadrature,
+                              update_values | update_gradients);
+
+      Triangulation<dim> tria;
+      GridGenerator::hyper_cube(tria);
+
+      fe_values.reinit(tria.begin());
+
+      const unsigned int n_subdivisions = fe.degree;
+
+      const auto lexicographic_to_hierarchic_numbering =
+        FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
+
+      for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
+        for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
+
+          for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+            for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+              {
+                const unsigned int i =
+                  lexicographic_to_hierarchic_numbering[(c_0 + i_0) +
+                                                        (c_1 + i_1) *
+                                                          (n_subdivisions + 1)];
+
+                for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                  for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                    {
+                      const unsigned int j =
+                        lexicographic_to_hierarchic_numbering
+                          [(c_0 + j_0) + (c_1 + j_1) * (n_subdivisions + 1)];
+
+                      double sum = 0;
+
+                      for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                        for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                          {
+                            const unsigned int q_index =
+                              (c_0 * 2 + q_0) +
+                              (c_1 * 2 + q_1) * (2 * n_subdivisions);
+
+                            sum += fe_values.shape_grad(i, q_index) *
+                                   fe_values.shape_grad(j, q_index);
+                          }
+                      if (sum != 0)
+                        bool_dof_mask(i, j) = true;
+                    }
+              }
+    }
+  else
+    {
+      const auto scalar_bool_dof_mask =
+        create_bool_dof_mask_Q_iso_Q1(fe.base_element(0), quadrature);
+
+      for (unsigned int i = 0; i < fe.n_dofs_per_cell(); ++i)
+        for (unsigned int j = 0; j < fe.n_dofs_per_cell(); ++j)
+          if (scalar_bool_dof_mask[fe.system_to_component_index(i).second]
+                                  [fe.system_to_component_index(j).second])
+            bool_dof_mask[i][j] = true;
+    }
+
+  return bool_dof_mask;
+}
+
+
 template <int dim>
 class Patch
 {
 public:
   Patch(const unsigned int               fe_degree,
-        const std::vector<unsigned int> &repetitions)
-    : fe_degree(fe_degree)
-    , dofs_per_cell(Utilities::pow(fe_degree + 1, dim))
+        const std::vector<unsigned int> &repetitions,
+        const unsigned int               n_components = 1)
+    : fe(FE_Q_iso_Q1<dim>(fe_degree), n_components)
+    , fe_degree(fe_degree)
+    , n_components(n_components)
+    , dofs_per_cell(Utilities::pow(fe_degree + 1, dim) * n_components)
     , lexicographic_to_hierarchic_numbering(
         FETools::lexicographic_to_hierarchic_numbering<dim>(fe_degree))
+    , bool_dof_mask_Q_iso_Q1(
+        create_bool_dof_mask_Q_iso_Q1(fe,
+                                      QIterated<dim>(QGauss<1>(2), fe_degree)))
   {
     for (unsigned int d = 0; d < dim; ++d)
       this->repetitions[d] = repetitions[d];
   }
 
+  /**
+   * Initialize patch given of the index of the left-bottom cell
+   * and the the patch size in each direction.
+   */
   void
   reinit(const std::array<unsigned int, dim> &patch_start,
          const std::array<unsigned int, dim> &patch_size)
@@ -404,6 +544,10 @@ public:
       }
   }
 
+  /**
+   * Initialize patch given a cell and the number of layers around the
+   * cell.
+   */
   void
   reinit(const typename Triangulation<dim>::active_cell_iterator &cell,
          const unsigned int                                       n_overlap)
@@ -438,77 +582,9 @@ public:
     this->reinit(patch_start, patch_size);
   }
 
-  unsigned int
-  n_dofs() const
-  {
-    unsigned int n_dofs_patch = 1;
-    for (const auto i : patch_subdivions_size)
-      n_dofs_patch *= i + 1;
-
-    return n_dofs_patch;
-  }
-
-  void
-  get_dof_indices(std::vector<types::global_dof_index> &dof_indices,
-                  const bool hiarchical = false) const
-  {
-    AssertDimension(dof_indices.size(), this->n_dofs());
-
-    auto patch_dofs = patch_subdivions_size;
-    for (auto &i : patch_dofs)
-      i += 1;
-
-    auto global_dofs = repetitions;
-    for (auto &i : global_dofs)
-      i = i * fe_degree + 1;
-
-    for (unsigned int c = 0; c < this->n_dofs(); ++c)
-      {
-        auto indices = index_to_indices<dim>(c, patch_dofs);
-
-        for (unsigned int d = 0; d < dim; ++d)
-          indices[d] += patch_subdivions_start[d];
-
-        dof_indices[hiarchical ? lexicographic_to_hierarchic_numbering[c] : c] =
-          indices_to_index<dim>(indices, global_dofs);
-      }
-  }
-
-  template <typename Number>
-  void
-  make_zero_boundary_constraints(const unsigned int         surface,
-                                 AffineConstraints<Number> &constraints)
-  {
-    const unsigned int d = surface / 2; // direction
-    const unsigned int s = surface % 2; // left or right surface
-
-    unsigned int n0 = 1;
-    for (unsigned int i = d + 1; i < dim; ++i)
-      n0 *= patch_subdivions_size[i] + 1;
-
-    unsigned int n1 = 1;
-    for (unsigned int i = 0; i < d; ++i)
-      n1 *= patch_subdivions_size[i] + 1;
-
-    const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
-
-    Vector<int> dofs_to_constrain(n0 * n1);
-    unsigned    index = 0;
-    for (unsigned int i = 0; i < n0; ++i)
-      for (unsigned int j = 0; j < n1; ++j)
-        {
-          const unsigned i0 =
-            i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
-          dofs_to_constrain(index) = i0;
-          index++;
-          //}
-          // constraints.constrain_dof_to_zero(i0);
-          // constraints.add_constraint(i0, {}, 0.0);
-          constraints.add_line(i0);
-        }
-    // constraints.set_zero(dofs_to_constrain);
-  }
-
+  /**
+   * Return how many cells the patch contrains.
+   */
   unsigned int
   n_cells() const
   {
@@ -519,6 +595,9 @@ public:
     return n_cells;
   }
 
+  /**
+   * Create a cell iterator to the n-th cell in the patch.
+   */
   typename Triangulation<dim>::active_cell_iterator
   create_cell_iterator(const Triangulation<dim> &tria,
                        const unsigned int        index) const
@@ -532,6 +611,89 @@ public:
       CellId(indices_to_index<dim>(indices, repetitions), {}));
   }
 
+  /**
+   * Return the index of the cell within the patch.
+   */
+  unsigned int
+  cell_index(
+    const typename Triangulation<dim>::active_cell_iterator &cell) const
+  {
+    for (unsigned int i = 0; i < n_cells(); ++i)
+      if (create_cell_iterator(cell->get_triangulation(), i) == cell)
+        return i;
+
+    return numbers::invalid_unsigned_int;
+  }
+
+  /**
+   * Return if patch is the boundary.
+   */
+  bool
+  at_boundary(const unsigned int surface) const
+  {
+    const unsigned int d = surface / 2; // direction
+    const unsigned int s = surface % 2; // left or right surface
+
+    if (s == 0)
+      return patch_subdivions_start[d] == 0;
+    else // (s == 1)
+      return this->repetitions[d] ==
+             patch_subdivions_start[d] + this->patch_size[d];
+  }
+
+  /**
+   * Return the number of degrees of freedom on a patch.
+   */
+  unsigned int
+  n_dofs() const
+  {
+    unsigned int n_dofs_patch = n_components;
+    for (const auto i : patch_subdivions_size)
+      n_dofs_patch *= i + 1;
+
+    return n_dofs_patch;
+  }
+
+  /**
+   * Return global dof indices of unknown on a patch.
+   */
+  void
+  get_dof_indices(std::vector<types::global_dof_index> &dof_indices,
+                  const bool hiarchical = false) const
+  {
+    AssertDimension(dof_indices.size(), this->n_dofs());
+
+    Assert((hiarchical == false) || n_cells() == 1, ExcInternalError());
+
+    auto patch_dofs = patch_subdivions_size;
+    for (auto &i : patch_dofs)
+      i += 1;
+
+    auto global_dofs = repetitions;
+    for (auto &i : global_dofs)
+      i = i * fe_degree + 1;
+
+    for (unsigned int c = 0; c < this->n_dofs(); ++c)
+      {
+        const auto cc   = c / n_components;
+        const auto comp = c % n_components;
+
+        auto indices = index_to_indices<dim>(cc, patch_dofs);
+
+        for (unsigned int d = 0; d < dim; ++d)
+          indices[d] += patch_subdivions_start[d];
+
+        dof_indices[hiarchical ?
+                      fe.component_to_system_index(
+                        comp, lexicographic_to_hierarchic_numbering[cc]) :
+                      (cc * n_components + comp)] =
+          indices_to_index<dim>(indices, global_dofs) * n_components + comp;
+      }
+  }
+
+  /**
+   * Return local dof indices of a cell within the patch.
+   */
   void
   get_dof_indices_of_cell(
     const unsigned int                    index,
@@ -550,30 +712,143 @@ public:
         for (unsigned int d = 0; d < dim; ++d)
           indices_1[d] += indices_0[d] * fe_degree;
 
-        dof_indices[lexicographic_to_hierarchic_numbering[c]] =
+        const unsigned int index_c =
           indices_to_index<dim>(indices_1, patch_dofs);
+
+        for (unsigned int cc = 0; cc < n_components; ++cc)
+          dof_indices[fe.component_to_system_index(
+            cc, lexicographic_to_hierarchic_numbering[c])] =
+            index_c * n_components + cc;
       }
   }
 
+  /**
+   * Make zero boundary constraints for a specified face.
+   */
+  template <typename Number>
+  void
+  make_zero_boundary_constraints(const unsigned int         surface,
+                                 AffineConstraints<Number> &constraints)
+  {
+    const unsigned int d = surface / 2; // direction
+    const unsigned int s = surface % 2; // left or right surface
 
+    unsigned int n0 = 1;
+    for (unsigned int i = d + 1; i < dim; ++i)
+      n0 *= patch_subdivions_size[i] + 1;
+
+    unsigned int n1 = 1;
+    for (unsigned int i = 0; i < d; ++i)
+      n1 *= patch_subdivions_size[i] + 1;
+
+    const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
+
+    for (unsigned int i = 0; i < n0; ++i)
+      for (unsigned int j = 0; j < n1; ++j)
+        {
+          const unsigned i0 =
+            i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
+
+          for (unsigned int c = 0; c < n_components; ++c)
+            constraints.add_line(i0 * n_components + c);
+        }
+  }
+
+  /**
+   * Create sparsity pattern for a patch-local system matrix.
+   */
   template <typename Number, typename SparsityPatternType>
   void
   create_sparsity_pattern(const AffineConstraints<Number> &constraints,
-                          SparsityPatternType &            dsp) const
+                          SparsityPatternType             &dsp) const
   {
     for (unsigned int cell = 0; cell < this->n_cells(); ++cell)
       {
         std::vector<types::global_dof_index> indices(this->dofs_per_cell);
         this->get_dof_indices_of_cell(cell, indices);
 
-        constraints.add_entries_local_to_global(indices, dsp);
+        constraints.add_entries_local_to_global(indices,
+                                                dsp,
+                                                true,
+                                                bool_dof_mask_Q_iso_Q1);
       }
   }
 
+  /**
+   * Parition Dofss into patch-internal DoFs, patch-boundary DoFs, and
+   * domain-boundary DoFs.
+   */
+  void
+  get_dofs_vectors(std::vector<unsigned int> &all_dofs,
+                   std::vector<unsigned int> &internal_dofs,
+                   std::vector<unsigned int> &internal_boundary_dofs,
+                   std::vector<unsigned int> &domain_boundary_dofs) const
+  {
+    all_dofs.clear();
+    internal_dofs.clear();
+    internal_boundary_dofs.clear();
+    domain_boundary_dofs.clear();
+
+    for (unsigned int id = 0; id < n_dofs(); ++id)
+      all_dofs.push_back(id);
+
+    AssertDimension(dim, 2);
+
+    std::set<unsigned int> internal_bd_set;
+    std::set<unsigned int> domain_bd_set;
+
+
+    for (unsigned int surface = 0; surface < 2 * dim; ++surface)
+      {
+        const unsigned int d = surface / 2; // direction
+        const unsigned int s = surface % 2; // left or right surface
+
+        unsigned int n0 = 1;
+        for (unsigned int i = d + 1; i < dim; ++i)
+          n0 *= patch_subdivions_size[i] + 1;
+
+        unsigned int n1 = 1;
+        for (unsigned int i = 0; i < d; ++i)
+          n1 *= patch_subdivions_size[i] + 1;
+
+        const unsigned int n2 = n1 * (patch_subdivions_size[d] + 1);
+
+        for (unsigned int i = 0; i < n0; ++i)
+          for (unsigned int j = 0; j < n1; ++j)
+            {
+              const unsigned i0 =
+                i * n2 + (s == 0 ? 0 : patch_subdivions_size[d]) * n1 + j;
+
+              if (at_boundary(surface))
+                for (unsigned int c = 0; c < n_components; ++c)
+                  domain_bd_set.insert(i0 * n_components + c);
+              else
+                for (unsigned int c = 0; c < n_components; ++c)
+                  internal_bd_set.insert(i0 * n_components + c);
+            }
+      }
+    internal_boundary_dofs.assign(internal_bd_set.begin(),
+                                  internal_bd_set.end());
+    domain_boundary_dofs.assign(domain_bd_set.begin(), domain_bd_set.end());
+
+    for (const auto id : all_dofs)
+      if ((internal_bd_set.find(id) == internal_bd_set.end()) &&
+          (domain_bd_set.find(id) == domain_bd_set.end()))
+        internal_dofs.push_back(id);
+
+    // corners that are the intersection of a surface at the boundary and an
+    // internal surface should be still part of internal_boundary_idx, while
+    // it doesn't really matter if they are still in domain_boundary_idx
+  }
+
 private:
-  const unsigned int        fe_degree;
-  const unsigned int        dofs_per_cell;
-  std::vector<unsigned int> lexicographic_to_hierarchic_numbering;
+  const FESystem<dim> fe;
+
+  const unsigned int              fe_degree;
+  const unsigned int              n_components;
+  const unsigned int              dofs_per_cell;
+  const std::vector<unsigned int> lexicographic_to_hierarchic_numbering;
+  const Table<2, bool>            bool_dof_mask_Q_iso_Q1;
 
   std::array<unsigned int, dim> repetitions;
   std::array<unsigned int, dim> patch_start;
@@ -586,7 +861,7 @@ private:
 template <int dim>
 const Table<2, bool>
 create_bool_dof_mask(const FiniteElement<dim> &fe,
-                     const Quadrature<dim> &   quadrature)
+                     const Quadrature<dim>    &quadrature)
 {
   const auto compute_scalar_bool_dof_mask = [&quadrature](const auto &fe) {
     Table<2, bool> bool_dof_mask(fe.dofs_per_cell, fe.dofs_per_cell);
