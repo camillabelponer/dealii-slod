@@ -53,6 +53,41 @@ public:
   }
 };
 
+template <int dim>
+class channel_parameter : public Function<dim, double>
+{
+private:
+  const double        x_c = 0.3;
+  const double        y_c = 0.3;
+  const double        min;
+  const double        max;
+  const unsigned int  refinement;
+  double        eta;
+
+public:
+  channel_parameter(double mm, double mx, unsigned int r)
+    : min(mm)
+    , max(mx)
+    , refinement(r)
+  {
+    const auto N_cells_per_line     = pow(2, refinement);
+    eta                  = (double)1 / N_cells_per_line;
+  };
+
+  double
+  value(const Point<dim> &p, const unsigned int) const override
+  {
+    double val = min;
+    const double x = p(0);
+    const double y = p(1);
+    if ((x > x_c && x < x_c + eta) || (x > x_c + 2*eta && x < x_c + 3*eta))
+      val += max/2;
+     if ((y > y_c && y < y_c + eta) || (y > y_c + 2*eta && y < y_c + 3*eta))
+      val += max/2;
+    return val;
+  }
+};
+
 
 template <int dim, int spacedim = dim>
 class ElasticityProblem : public LOD<dim, spacedim>
@@ -74,6 +109,7 @@ public:
 
 protected:
   problem_parameter<dim> Lambda;
+  // channel_parameter<dim> Lambda;
   problem_parameter<dim> Mu;
 
   virtual void
