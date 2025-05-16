@@ -330,7 +330,7 @@ compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
                     return a_[d] < b_[d];
                 }
 
-              return true;
+              return a.first < b.first;
             });
 
   std::vector<dealii::types::global_dof_index> result(
