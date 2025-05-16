@@ -59,7 +59,7 @@ class DiffusionProblem : public LOD<dim, spacedim>
 public:
   DiffusionProblem(const LODParameters<dim, spacedim> &par)
     : LOD<dim, spacedim>(par)
-    , Alpha(1, 100, 8){};
+    , Alpha(1, 1, 8){};
 
   typedef LOD<dim, spacedim> lod;
 
