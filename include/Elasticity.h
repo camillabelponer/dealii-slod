@@ -66,8 +66,8 @@ public:
     // , Mu(lod::par.random_value_min,
     //      lod::par.random_value_max,
     //      lod::par.random_value_refinement)
-    , Lambda(1, 100, 6)
-    , Mu(1, 100, 6){};
+    , Lambda(1, 1, 6)
+    , Mu(1, 1, 6){};
 
   typedef LOD<dim, spacedim> lod;
 
