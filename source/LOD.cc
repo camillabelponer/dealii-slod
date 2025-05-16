@@ -1276,6 +1276,13 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
 
+      DataOutBase::VtkFlags flags;
+
+      if (dim > 1)
+        flags.write_higher_order_cells = true;
+
+      data_out.set_flags(flags);
+
   data_out.attach_dof_handler(dh);
 
   data_out.add_data_vector(fem_solution,
@@ -1367,7 +1374,7 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   //                                  data_component_interpretation);
   //       }
   //   }
-  data_out.build_patches();
+  data_out.build_patches(par.n_subdivisions);
   const std::string filename = par.output_name + "_fine.vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);
