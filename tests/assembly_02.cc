@@ -57,6 +57,7 @@ namespace Step96
     unsigned int n_oversampling        = 2;
     unsigned int n_subdivisions_coarse = 8;
     bool         LOD_stabilization     = true;
+    bool         plot_basis = false;
 
     void
     parse(const std::string file_name)
@@ -67,6 +68,7 @@ namespace Step96
       prm.add_parameter("n oversampling", n_oversampling);
       prm.add_parameter("n subdivisions coarse", n_subdivisions_coarse);
       prm.add_parameter("LOD stabilization", LOD_stabilization);
+      prm.add_parameter("plot basis", plot_basis);
       prm.parse_input(file_name, "", true);
     }
   };
@@ -81,6 +83,7 @@ namespace Step96
       , n_oversampling(params.n_oversampling)
       , n_subdivisions_coarse(params.n_subdivisions_coarse)
       , LOD_stabilization(params.LOD_stabilization)
+      , plot_basis(params.plot_basis)
       , comm(MPI_COMM_WORLD)
       , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
       , repetitions(dim, n_subdivisions_coarse)
@@ -868,7 +871,7 @@ namespace Step96
           data_out.add_data_vector(solution_lod, "solution_lod_coarse");
         }
 
-      if(true)
+      if(plot_basis)
         {
           for(unsigned int i = 0; i < solution_lod.size(); ++i)
             {
@@ -933,6 +936,7 @@ namespace Step96
     const unsigned int n_oversampling;
     const unsigned int n_subdivisions_coarse;
     const bool         LOD_stabilization;
+    const bool plot_basis;
 
     MPI_Comm           comm;
     ConditionalOStream pcout;
