@@ -827,9 +827,26 @@ namespace Step96
       data_out.set_flags(flags);
       data_out.attach_dof_handler(dof_handler);
 
+      if(dim == n_components)
+        {
+          std::vector<std::string> labels(dim, "solution_lod_fine");
+
+          std::vector<DataComponentInterpretation::DataComponentInterpretation>
+            data_component_interpretation(
+              dim, DataComponentInterpretation::component_is_part_of_vector);
+
+          data_out.add_data_vector(dof_handler,
+                                   solution_lod_fine,
+                                   labels,
+                                   data_component_interpretation);
+        }
+      else
+        {
+          data_out.add_data_vector(dof_handler, solution_lod_fine, "solution_lod_fine");
+        }
+
       if (n_components == 1 /*TODO*/)
         data_out.add_data_vector(solution_lod, "solution_lod_coarse");
-      data_out.add_data_vector(solution_lod_fine, "solution_lod_fine");
 
       pcout << solution_lod.l2_norm() << std::endl;
       pcout << solution_lod_fine.l2_norm() << std::endl;
