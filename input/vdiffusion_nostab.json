@@ -1,1 +1,1 @@
-{"physics": "diffusion", "LOD stabilization" : false}
+{"physics": "diffusion-vector", "LOD stabilization" : false}
