@@ -637,8 +637,7 @@ public:
     if (s == 0)
       return patch_start[d] == 0;
     else // (s == 1)
-      return this->repetitions[d] ==
-             patch_start[d] + this->patch_size[d];
+      return this->repetitions[d] == patch_start[d] + this->patch_size[d];
   }
 
   /**

@@ -57,7 +57,7 @@ namespace Step96
     unsigned int n_oversampling        = 2;
     unsigned int n_subdivisions_coarse = 8;
     bool         LOD_stabilization     = true;
-    bool         plot_basis = false;
+    bool         plot_basis            = false;
 
     void
     parse(const std::string file_name)
@@ -365,7 +365,12 @@ namespace Step96
                   {
                     const auto i = indices[ii];
 
-                    const double scale = (ii < 4 * fe.n_dofs_per_vertex()) ? 0.25 : ((ii < 4 * fe.n_dofs_per_vertex() + 4 * fe.n_dofs_per_line()) ? 0.5 : 1.0);
+                    const double scale = (ii < 4 * fe.n_dofs_per_vertex()) ?
+                                           0.25 :
+                                           ((ii < 4 * fe.n_dofs_per_vertex() +
+                                                    4 * fe.n_dofs_per_line()) ?
+                                              0.5 :
+                                              1.0);
 
                     PT[i][cell * n_components +
                           fe.system_to_component_index(ii).first] = scale;
@@ -835,7 +840,7 @@ namespace Step96
       DataOut<dim> data_out;
       data_out.set_flags(flags);
 
-      if(dim == n_components)
+      if (dim == n_components)
         {
           std::vector<std::string> labels(dim, "solution_lod_fine");
 
@@ -850,10 +855,12 @@ namespace Step96
         }
       else
         {
-          data_out.add_data_vector(dof_handler, solution_lod_fine, "solution_lod_fine");
+          data_out.add_data_vector(dof_handler,
+                                   solution_lod_fine,
+                                   "solution_lod_fine");
         }
 
-      if(dim == n_components)
+      if (dim == n_components)
         {
           std::vector<std::string> labels(dim, "solution_lod_coarse");
 
@@ -871,49 +878,54 @@ namespace Step96
           data_out.add_data_vector(solution_lod, "solution_lod_coarse");
         }
 
-      if(plot_basis)
+      if (plot_basis)
         {
-          for(unsigned int i = 0; i < solution_lod.size(); ++i)
+          for (unsigned int i = 0; i < solution_lod.size(); ++i)
             {
               LinearAlgebra::distributed::Vector<double> e_i;
               e_i.reinit(solution_lod);
-              if(solution_lod.locally_owned_elements().is_element(i))
+              if (solution_lod.locally_owned_elements().is_element(i))
                 e_i[i] = 1.0;
 
               LinearAlgebra::distributed::Vector<double> basis_i;
               basis_i.reinit(solution_lod_fine);
 
               e_i.update_ghost_values();
-      for (const auto i : dof_handler.locally_owned_dofs())
-        if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(i +
-                                                         e_i.size()))
-          {
-            double new_value = 0.0;
-            for (const auto &[j, weight] : *constraint_entries)
-              new_value += weight * e_i[j];
+              for (const auto i : dof_handler.locally_owned_dofs())
+                if (const auto constraint_entries =
+                      constraints_lod_fem.get_constraint_entries(i +
+                                                                 e_i.size()))
+                  {
+                    double new_value = 0.0;
+                    for (const auto &[j, weight] : *constraint_entries)
+                      new_value += weight * e_i[j];
 
-            basis_i[i] = new_value;
-          }
+                    basis_i[i] = new_value;
+                  }
 
-      if(dim == n_components)
-        {
-          std::vector<std::string> labels(dim, "x_basis_" + Utilities::int_to_string(i, 5));
+              if (dim == n_components)
+                {
+                  std::vector<std::string> labels(
+                    dim, "x_basis_" + Utilities::int_to_string(i, 5));
 
-          std::vector<DataComponentInterpretation::DataComponentInterpretation>
-            data_component_interpretation(
-              dim, DataComponentInterpretation::component_is_part_of_vector);
+                  std::vector<
+                    DataComponentInterpretation::DataComponentInterpretation>
+                    data_component_interpretation(
+                      dim,
+                      DataComponentInterpretation::component_is_part_of_vector);
 
-          data_out.add_data_vector(dof_handler,
-                                   basis_i,
-                                   labels,
-                                   data_component_interpretation);
-        }
-      else
-        {
-          data_out.add_data_vector(dof_handler, basis_i, "x_basis_" + Utilities::int_to_string(i, 5));
-        }
-
+                  data_out.add_data_vector(dof_handler,
+                                           basis_i,
+                                           labels,
+                                           data_component_interpretation);
+                }
+              else
+                {
+                  data_out.add_data_vector(dof_handler,
+                                           basis_i,
+                                           "x_basis_" +
+                                             Utilities::int_to_string(i, 5));
+                }
             }
         }
 
@@ -936,7 +948,7 @@ namespace Step96
     const unsigned int n_oversampling;
     const unsigned int n_subdivisions_coarse;
     const bool         LOD_stabilization;
-    const bool plot_basis;
+    const bool         plot_basis;
 
     MPI_Comm           comm;
     ConditionalOStream pcout;
@@ -1079,13 +1091,12 @@ main(int argc, char **argv)
                                            (c_1 + j_1) *
                                              (params.n_subdivisions_fine + 1)]);
 
-                                if(d_0 == d_1)
-                                cell_matrix(i, j) +=
-                                  alpha_value * (1 + d_0) *
-                                  (fe_values.shape_grad(i, q) *
-                                   fe_values.shape_grad(j, q) *
-                                   fe_values.JxW(q));
-
+                                    if (d_0 == d_1)
+                                      cell_matrix(i, j) +=
+                                        alpha_value * (1 + d_0) *
+                                        (fe_values.shape_grad(i, q) *
+                                         fe_values.shape_grad(j, q) *
+                                         fe_values.JxW(q));
                                   }
                           }
                   }
