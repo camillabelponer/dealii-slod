@@ -24,6 +24,7 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_q_iso_q1.h>
 #include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_tools.h>
@@ -799,6 +800,11 @@ namespace Step96
         FESystem<dim>(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components));
       compute_renumbering_lex(dof_handler);
 
+      DoFHandler<dim> dof_handler_coarse(tria);
+      dof_handler_coarse.distribute_dofs(
+        FESystem<dim>(FE_DGQ<dim>(0), n_components));
+      compute_renumbering_lex(dof_handler_coarse);
+
       // convert to FEM solution
       LinearAlgebra::distributed::Vector<double> solution_lod_fine(
         dof_handler.locally_owned_dofs(), comm);
@@ -825,7 +831,6 @@ namespace Step96
 
       DataOut<dim> data_out;
       data_out.set_flags(flags);
-      data_out.attach_dof_handler(dof_handler);
 
       if(dim == n_components)
         {
@@ -845,8 +850,23 @@ namespace Step96
           data_out.add_data_vector(dof_handler, solution_lod_fine, "solution_lod_fine");
         }
 
-      if (n_components == 1 /*TODO*/)
-        data_out.add_data_vector(solution_lod, "solution_lod_coarse");
+      if(dim == n_components)
+        {
+          std::vector<std::string> labels(dim, "solution_lod_coarse");
+
+          std::vector<DataComponentInterpretation::DataComponentInterpretation>
+            data_component_interpretation(
+              dim, DataComponentInterpretation::component_is_part_of_vector);
+
+          data_out.add_data_vector(dof_handler_coarse,
+                                   solution_lod,
+                                   labels,
+                                   data_component_interpretation);
+        }
+      else
+        {
+          data_out.add_data_vector(solution_lod, "solution_lod_coarse");
+        }
 
       pcout << solution_lod.l2_norm() << std::endl;
       pcout << solution_lod_fine.l2_norm() << std::endl;
