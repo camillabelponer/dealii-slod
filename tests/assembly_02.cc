@@ -334,8 +334,6 @@ namespace Step96
             FullMatrix<double> PT_boundary(N_boundary_dofs, N_dofs_coarse);
             FullMatrix<double> S_boundary(N_boundary_dofs, N_internal_dofs);
 
-            Vector<double> PT_counter(N_dofs_fine);
-
             FEValues<dim> fe_values(mapping,
                                     fe,
                                     quadrature,
@@ -363,24 +361,19 @@ namespace Step96
                   {
                     const auto i = indices[ii];
 
+                    const double scale = (ii < 4 * fe.n_dofs_per_vertex()) ? 0.25 : ((ii < 4 * fe.n_dofs_per_vertex() + 4 * fe.n_dofs_per_line()) ? 0.5 : 1.0);
+
                     PT[i][cell * n_components +
-                          fe.system_to_component_index(ii).first] = 1.0;
-                    PT_counter[i] += 1;
+                          fe.system_to_component_index(ii).first] = scale;
                   }
               }
 
 
             patch_stiffness_matrix.compress(VectorOperation::values::add);
 
-            for (auto &i : PT_counter)
-              {
-                Assert(i >= 1.0, ExcInternalError());
-                i = 1.0 / i;
-              }
-
             for (unsigned int cell = 0; cell < N_dofs_coarse; ++cell)
               for (unsigned int i = 0; i < n_dofs_patch; ++i)
-                PT[i][cell] *= PT_counter[i] * h * h;
+                PT[i][cell] *= h * h;
 
             if (LOD_stabilization && boundary_dofs_fine.size() > 0)
               {

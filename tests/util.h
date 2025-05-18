@@ -635,10 +635,10 @@ public:
     const unsigned int s = surface % 2; // left or right surface
 
     if (s == 0)
-      return patch_subdivions_start[d] == 0;
+      return patch_start[d] == 0;
     else // (s == 1)
       return this->repetitions[d] ==
-             patch_subdivions_start[d] + this->patch_size[d];
+             patch_start[d] + this->patch_size[d];
   }
 
   /**
@@ -796,7 +796,6 @@ public:
 
     std::set<unsigned int> internal_bd_set;
     std::set<unsigned int> domain_bd_set;
-
 
     for (unsigned int surface = 0; surface < 2 * dim; ++surface)
       {
