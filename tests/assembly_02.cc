@@ -40,6 +40,7 @@
 #include <deal.II/lac/trilinos_sparsity_pattern.h>
 
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/vector_tools.h>
 
 #include "util.h"
 
@@ -58,6 +59,7 @@ namespace Step96
     unsigned int n_subdivisions_coarse = 8;
     bool         LOD_stabilization     = true;
     bool         plot_basis            = false;
+    bool         compute_error         = true;
 
     void
     parse(const std::string file_name)
@@ -68,7 +70,7 @@ namespace Step96
       prm.add_parameter("n oversampling", n_oversampling);
       prm.add_parameter("n subdivisions coarse", n_subdivisions_coarse);
       prm.add_parameter("LOD stabilization", LOD_stabilization);
-      prm.add_parameter("plot basis", plot_basis);
+      prm.add_parameter("compute error", compute_error);
       prm.parse_input(file_name, "", true);
     }
   };
@@ -84,6 +86,7 @@ namespace Step96
       , n_subdivisions_coarse(params.n_subdivisions_coarse)
       , LOD_stabilization(params.LOD_stabilization)
       , plot_basis(params.plot_basis)
+      , compute_error(params.compute_error)
       , comm(MPI_COMM_WORLD)
       , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
       , repetitions(dim, n_subdivisions_coarse)
@@ -114,7 +117,8 @@ namespace Step96
     run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
           &assemble_element_stiffness_matrix,
         const std::function<void(const FEValues<dim> &, Vector<double> &)>
-          &assemble_element_rhs_vector)
+                                             &assemble_element_rhs_vector,
+        const std::shared_ptr<Function<dim>> &exact_solution)
     {
       this->make_grid();
       this->setup_system();
@@ -122,7 +126,7 @@ namespace Step96
       this->assemble_system(assemble_element_stiffness_matrix,
                             assemble_element_rhs_vector);
       this->solve();
-      this->output_results();
+      this->output_results(exact_solution);
     }
 
   private:
@@ -799,7 +803,7 @@ namespace Step96
     }
 
     void
-    output_results()
+    output_results(const std::shared_ptr<Function<dim>> &exact_solution)
     {
       TimerOutput::Scope timer(timer_output, "output_results");
 
@@ -929,6 +933,28 @@ namespace Step96
             }
         }
 
+      if (compute_error && exact_solution)
+        {
+          Vector<double> cell_wise_error;
+
+          solution_lod_fine.update_ghost_values();
+          VectorTools::integrate_difference(mapping,
+                                            dof_handler,
+                                            solution_lod_fine,
+                                            *exact_solution,
+                                            cell_wise_error,
+                                            quadrature,
+                                            VectorTools::NormType::L2_norm);
+          solution_lod_fine.zero_out_ghost_values();
+
+          const auto error =
+            VectorTools::compute_global_error(tria,
+                                              cell_wise_error,
+                                              VectorTools::NormType::L2_norm);
+
+          pcout << "error (solution): " << error << std::endl;
+        }
+
       pcout << solution_lod.l2_norm() << std::endl;
       pcout << solution_lod_fine.l2_norm() << std::endl;
 
@@ -949,6 +975,7 @@ namespace Step96
     const unsigned int n_subdivisions_coarse;
     const bool         LOD_stabilization;
     const bool         plot_basis;
+    const bool         compute_error;
 
     MPI_Comm           comm;
     ConditionalOStream pcout;
@@ -1003,6 +1030,8 @@ main(int argc, char **argv)
           (fe_values.shape_value(i, q_index) * 1. * fe_values.JxW(q_index));
   };
 
+  std::shared_ptr<Function<dim>> exact_solution;
+
   if (params.physics == "diffusion")
     {
       params.n_components = 1;
@@ -1052,7 +1081,6 @@ main(int argc, char **argv)
                   }
         };
 
-
       assemble_element_rhs_vector = [](const FEValues<dim> &fe_values,
                                        Vector<double>      &cell_rhs_fem) {
         for (const unsigned int q_index : fe_values.quadrature_point_indices())
@@ -1069,6 +1097,16 @@ main(int argc, char **argv)
                                   fe_values.JxW(q_index));
           }
       };
+
+      exact_solution = std::make_shared<ScalarFunctionFromFunctionObject<dim>>(
+        [&](const auto &p) {
+          double value = 1.0;
+
+          for (unsigned int d = 0; d < dim; ++d)
+            value *= std::sin(numbers::PI * p[d]);
+
+          return value;
+        });
     }
   else if (params.physics == "diffusion-vector")
     {
@@ -1205,5 +1243,7 @@ main(int argc, char **argv)
     }
 
   Step96::LODProblem<dim> problem(params);
-  problem.run(assemble_element_stiffness_matrix, assemble_element_rhs_vector);
+  problem.run(assemble_element_stiffness_matrix,
+              assemble_element_rhs_vector,
+              exact_solution);
 }
