@@ -79,14 +79,10 @@ namespace Step96
   class LODPatchProblem
   {
   public:
-    LODPatchProblem(const unsigned int   n_subdivisions_fine,
-                    const unsigned int   n_components,
-                    const unsigned int   n_subdivisions_coarse,
+    LODPatchProblem(const unsigned int   n_components,
                     const bool           LOD_stabilization,
                     const FESystem<dim> &fe)
-      : n_subdivisions_fine(n_subdivisions_fine)
-      , n_components(n_components)
-      , n_subdivisions_coarse(n_subdivisions_coarse)
+      : n_components(n_components)
       , LOD_stabilization(LOD_stabilization)
       , fe(fe)
     {}
@@ -103,9 +99,6 @@ namespace Step96
       for (unsigned int d = 0; d < 2 * dim; ++d)
         patch.make_zero_boundary_constraints(d, patch_constraints);
       patch_constraints.close();
-
-      double H = 1.0 / n_subdivisions_coarse;
-      double h = H / n_subdivisions_fine;
 
       const unsigned int N_dofs_coarse = patch.n_cells() * n_components;
       const unsigned int N_dofs_fine   = n_dofs_patch;
@@ -158,9 +151,9 @@ namespace Step96
             }
         }
 
-      for (unsigned int cell = 0; cell < N_dofs_coarse; ++cell)
-        for (unsigned int i = 0; i < n_dofs_patch; ++i)
-          PT[i][cell] *= h * h;
+      // for (unsigned int cell = 0; cell < N_dofs_coarse; ++cell)
+      //   for (unsigned int i = 0; i < n_dofs_patch; ++i)
+      //     PT[i][cell] *= h * h;
 
       if (LOD_stabilization && boundary_dofs_fine.size() > 0)
         {
@@ -207,7 +200,6 @@ namespace Step96
       solver.solve(patch_stiffness_matrix, Ainv_PT, PT);
 
       PT.Tmmult(P_Ainv_PT, Ainv_PT);
-      P_Ainv_PT /= pow(H, dim);
       P_Ainv_PT.gauss_jordan();
 
       Vector<double> e_i(N_dofs_coarse);
@@ -381,9 +373,7 @@ namespace Step96
     }
 
   private:
-    const unsigned int   n_subdivisions_fine;
     const unsigned int   n_components;
-    const unsigned int   n_subdivisions_coarse;
     const bool           LOD_stabilization;
     const FESystem<dim> &fe;
   };
@@ -603,9 +593,7 @@ namespace Step96
       TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
 
       // 4) set dummy constraints
-      LODPatchProblem<dim> lod_patch_problem(n_subdivisions_fine,
-                                             n_components,
-                                             n_subdivisions_coarse,
+      LODPatchProblem<dim> lod_patch_problem(n_components,
                                              LOD_stabilization,
                                              fe);
 
