@@ -727,7 +727,7 @@ public:
   template <typename Number>
   void
   make_zero_boundary_constraints(const unsigned int         surface,
-                                 AffineConstraints<Number> &constraints)
+                                 AffineConstraints<Number> &constraints) const
   {
     const unsigned int d = surface / 2; // direction
     const unsigned int s = surface % 2; // left or right surface

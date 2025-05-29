@@ -76,184 +76,24 @@ namespace Step96
   };
 
   template <int dim>
-  class LODProblem
+  class LODPatchProblem
   {
   public:
-    LODProblem(const Parameters &params)
-      : n_subdivisions_fine(params.n_subdivisions_fine)
-      , n_components(params.n_components)
-      , n_oversampling(params.n_oversampling)
-      , n_subdivisions_coarse(params.n_subdivisions_coarse)
-      , LOD_stabilization(params.LOD_stabilization)
-      , plot_basis(params.plot_basis)
-      , compute_error(params.compute_error)
-      , comm(MPI_COMM_WORLD)
-      , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
-      , repetitions(dim, n_subdivisions_coarse)
-      , mapping(1)
-      , fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components)
-      , quadrature(QGauss<1>(2), n_subdivisions_fine)
-      , patch(n_subdivisions_fine, repetitions, n_components)
-      , tria(comm,
-             Triangulation<dim>::none,
-             true,
-             parallel::shared::Triangulation<dim>::partition_custom_signal)
-      , timer_output(pcout,
-                     dealii::TimerOutput::never,
-                     dealii::TimerOutput::wall_times)
-    {
-      AssertThrow(Utilities::MPI::n_mpi_processes(comm) <=
-                    n_subdivisions_coarse,
-                  ExcNotImplemented());
-    }
-
-    ~LODProblem()
-    {
-      timer_output.print_wall_time_statistics(comm);
-    }
-
+    LODPatchProblem(const unsigned int   n_subdivisions_fine,
+                    const unsigned int   n_components,
+                    const unsigned int   n_subdivisions_coarse,
+                    const bool           LOD_stabilization,
+                    const FESystem<dim> &fe)
+      : n_subdivisions_fine(n_subdivisions_fine)
+      , n_components(n_components)
+      , n_subdivisions_coarse(n_subdivisions_coarse)
+      , LOD_stabilization(LOD_stabilization)
+      , fe(fe)
+    {}
 
     void
-    run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
-          &assemble_element_stiffness_matrix,
-        const std::function<void(const FEValues<dim> &, Vector<double> &)>
-                                             &assemble_element_rhs_vector,
-        const std::shared_ptr<Function<dim>> &exact_solution)
-    {
-      this->make_grid();
-      this->setup_system();
-      this->setup_basis(assemble_element_stiffness_matrix);
-      this->assemble_system(assemble_element_stiffness_matrix,
-                            assemble_element_rhs_vector);
-      this->solve();
-      this->output_results(exact_solution);
-    }
-
-  private:
-    void
-    make_grid()
-    {
-      TimerOutput::Scope timer(timer_output, "make_grid");
-
-      Point<dim> p1;
-      Point<dim> p2;
-
-      for (unsigned int d = 0; d < dim; ++d)
-        p2[d] = 1.0;
-
-      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
-      const unsigned int stride =
-        (repetitions[dim - 1] + n_procs - 1) / n_procs;
-
-      tria.signals.create.connect([&, stride]() {
-        for (const auto &cell : tria.active_cell_iterators())
-          {
-            unsigned int cell_index = cell->active_cell_index();
-
-            for (unsigned int i = 0; i < dim - 1; ++i)
-              cell_index /= repetitions[i];
-
-            cell->set_subdomain_id(cell_index / stride);
-          }
-      });
-
-      GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
-    }
-
-    void
-    setup_system()
-    {
-      TimerOutput::Scope timer(timer_output, "setup_system");
-
-      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
-      const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
-      const unsigned int stride =
-        (repetitions[dim - 1] + n_procs - 1) / n_procs;
-      unsigned int range_start =
-        (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
-      unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
-
-      unsigned int face_dofs = n_components;
-      for (unsigned int d = 0; d < dim - 1; ++d)
-        face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
-
-      types::global_dof_index n_dofs_coarse = n_components;
-      types::global_dof_index n_dofs_fine   = n_components;
-      for (unsigned int d = 0; d < dim; ++d)
-        {
-          n_dofs_coarse *= repetitions[d];
-          n_dofs_fine *= repetitions[d] * n_subdivisions_fine + 1;
-        }
-
-      AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
-
-      locally_owned_dofs_fem = IndexSet(n_dofs_fine);
-      locally_owned_dofs_fem.add_range(
-        face_dofs *
-          std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
-        face_dofs *
-          std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
-
-      locally_owned_dofs_lod = IndexSet(n_dofs_coarse);
-      IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
-
-      for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned())
-          {
-            // locally owned dofs
-            for (unsigned int c = 0; c < n_components; ++c)
-              locally_owned_dofs_lod.add_index(
-                cell->active_cell_index() * n_components + c);
-
-            // locally relevant dofs
-            patch.reinit(cell, n_oversampling * 2);
-            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
-              {
-                const auto cell_index =
-                  patch.create_cell_iterator(tria, cell)->active_cell_index();
-
-                for (unsigned int c = 0; c < n_components; ++c)
-                  locally_relevant_dofs_coarse.add_index(
-                    cell_index * n_components + c);
-              }
-          }
-
-      // 2) ininitialize sparsity pattern
-      TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
-        locally_owned_dofs_lod, comm);
-
-      for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned())
-          {
-            // A_lod sparsity pattern
-            patch.reinit(cell, n_oversampling * 2);
-            std::vector<types::global_dof_index> local_dof_indices_coarse;
-            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
-              {
-                const auto cell_index =
-                  patch.create_cell_iterator(tria, cell)->active_cell_index();
-
-                for (unsigned int c = 0; c < n_components; ++c)
-                  local_dof_indices_coarse.emplace_back(
-                    cell_index * n_components + c);
-              }
-
-            for (const auto &row_index : local_dof_indices_coarse)
-              sparsity_pattern_A_lod.add_row_entries(row_index,
-                                                     local_dof_indices_coarse);
-          }
-
-      sparsity_pattern_A_lod.compress();
-      A_lod.reinit(sparsity_pattern_A_lod);
-
-      rhs_lod.reinit(locally_owned_dofs_lod,
-                     locally_relevant_dofs_coarse,
-                     comm);
-      solution_lod.reinit(rhs_lod);
-    }
-
-    void
-    setup_basis(const unsigned int              central_cell_id,
+    setup_basis(const Patch<dim>               &patch,
+                const unsigned int              central_cell_id,
                 TrilinosWrappers::SparseMatrix &patch_stiffness_matrix,
                 std::vector<Vector<double>>    &selected_basis_function)
     {
@@ -540,6 +380,191 @@ namespace Step96
         }
     }
 
+  private:
+    const unsigned int   n_subdivisions_fine;
+    const unsigned int   n_components;
+    const unsigned int   n_subdivisions_coarse;
+    const bool           LOD_stabilization;
+    const FESystem<dim> &fe;
+  };
+
+  template <int dim>
+  class LODProblem
+  {
+  public:
+    LODProblem(const Parameters &params)
+      : n_subdivisions_fine(params.n_subdivisions_fine)
+      , n_components(params.n_components)
+      , n_oversampling(params.n_oversampling)
+      , n_subdivisions_coarse(params.n_subdivisions_coarse)
+      , LOD_stabilization(params.LOD_stabilization)
+      , plot_basis(params.plot_basis)
+      , compute_error(params.compute_error)
+      , comm(MPI_COMM_WORLD)
+      , pcout(std::cout, Utilities::MPI::this_mpi_process(comm) == 0)
+      , repetitions(dim, n_subdivisions_coarse)
+      , mapping(1)
+      , fe(FE_Q_iso_Q1<dim>(n_subdivisions_fine), n_components)
+      , quadrature(QGauss<1>(2), n_subdivisions_fine)
+      , patch(n_subdivisions_fine, repetitions, n_components)
+      , tria(comm,
+             Triangulation<dim>::none,
+             true,
+             parallel::shared::Triangulation<dim>::partition_custom_signal)
+      , timer_output(pcout,
+                     dealii::TimerOutput::never,
+                     dealii::TimerOutput::wall_times)
+    {
+      AssertThrow(Utilities::MPI::n_mpi_processes(comm) <=
+                    n_subdivisions_coarse,
+                  ExcNotImplemented());
+    }
+
+    ~LODProblem()
+    {
+      timer_output.print_wall_time_statistics(comm);
+    }
+
+
+    void
+    run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
+          &assemble_element_stiffness_matrix,
+        const std::function<void(const FEValues<dim> &, Vector<double> &)>
+                                             &assemble_element_rhs_vector,
+        const std::shared_ptr<Function<dim>> &exact_solution)
+    {
+      this->make_grid();
+      this->setup_system();
+      this->setup_basis(assemble_element_stiffness_matrix);
+      this->assemble_system(assemble_element_stiffness_matrix,
+                            assemble_element_rhs_vector);
+      this->solve();
+      this->output_results(exact_solution);
+    }
+
+  private:
+    void
+    make_grid()
+    {
+      TimerOutput::Scope timer(timer_output, "make_grid");
+
+      Point<dim> p1;
+      Point<dim> p2;
+
+      for (unsigned int d = 0; d < dim; ++d)
+        p2[d] = 1.0;
+
+      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
+      const unsigned int stride =
+        (repetitions[dim - 1] + n_procs - 1) / n_procs;
+
+      tria.signals.create.connect([&, stride]() {
+        for (const auto &cell : tria.active_cell_iterators())
+          {
+            unsigned int cell_index = cell->active_cell_index();
+
+            for (unsigned int i = 0; i < dim - 1; ++i)
+              cell_index /= repetitions[i];
+
+            cell->set_subdomain_id(cell_index / stride);
+          }
+      });
+
+      GridGenerator::subdivided_hyper_rectangle(tria, repetitions, p1, p2);
+    }
+
+    void
+    setup_system()
+    {
+      TimerOutput::Scope timer(timer_output, "setup_system");
+
+      const unsigned int n_procs = Utilities::MPI::n_mpi_processes(comm);
+      const unsigned int my_rank = Utilities::MPI::this_mpi_process(comm);
+      const unsigned int stride =
+        (repetitions[dim - 1] + n_procs - 1) / n_procs;
+      unsigned int range_start =
+        (my_rank == 0) ? 0 : ((stride * my_rank) * n_subdivisions_fine + 1);
+      unsigned int range_end = stride * (my_rank + 1) * n_subdivisions_fine + 1;
+
+      unsigned int face_dofs = n_components;
+      for (unsigned int d = 0; d < dim - 1; ++d)
+        face_dofs *= repetitions[d] * n_subdivisions_fine + 1;
+
+      types::global_dof_index n_dofs_coarse = n_components;
+      types::global_dof_index n_dofs_fine   = n_components;
+      for (unsigned int d = 0; d < dim; ++d)
+        {
+          n_dofs_coarse *= repetitions[d];
+          n_dofs_fine *= repetitions[d] * n_subdivisions_fine + 1;
+        }
+
+      AssertDimension(n_dofs_coarse, tria.n_active_cells() * n_components);
+
+      locally_owned_dofs_fem = IndexSet(n_dofs_fine);
+      locally_owned_dofs_fem.add_range(
+        face_dofs *
+          std::min(range_start, repetitions[dim - 1] * n_subdivisions_fine + 1),
+        face_dofs *
+          std::min(range_end, repetitions[dim - 1] * n_subdivisions_fine + 1));
+
+      locally_owned_dofs_lod = IndexSet(n_dofs_coarse);
+      IndexSet locally_relevant_dofs_coarse(n_dofs_coarse);
+
+      for (const auto &cell : tria.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            // locally owned dofs
+            for (unsigned int c = 0; c < n_components; ++c)
+              locally_owned_dofs_lod.add_index(
+                cell->active_cell_index() * n_components + c);
+
+            // locally relevant dofs
+            patch.reinit(cell, n_oversampling * 2);
+            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+              {
+                const auto cell_index =
+                  patch.create_cell_iterator(tria, cell)->active_cell_index();
+
+                for (unsigned int c = 0; c < n_components; ++c)
+                  locally_relevant_dofs_coarse.add_index(
+                    cell_index * n_components + c);
+              }
+          }
+
+      // 2) ininitialize sparsity pattern
+      TrilinosWrappers::SparsityPattern sparsity_pattern_A_lod(
+        locally_owned_dofs_lod, comm);
+
+      for (const auto &cell : tria.active_cell_iterators())
+        if (cell->is_locally_owned())
+          {
+            // A_lod sparsity pattern
+            patch.reinit(cell, n_oversampling * 2);
+            std::vector<types::global_dof_index> local_dof_indices_coarse;
+            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+              {
+                const auto cell_index =
+                  patch.create_cell_iterator(tria, cell)->active_cell_index();
+
+                for (unsigned int c = 0; c < n_components; ++c)
+                  local_dof_indices_coarse.emplace_back(
+                    cell_index * n_components + c);
+              }
+
+            for (const auto &row_index : local_dof_indices_coarse)
+              sparsity_pattern_A_lod.add_row_entries(row_index,
+                                                     local_dof_indices_coarse);
+          }
+
+      sparsity_pattern_A_lod.compress();
+      A_lod.reinit(sparsity_pattern_A_lod);
+
+      rhs_lod.reinit(locally_owned_dofs_lod,
+                     locally_relevant_dofs_coarse,
+                     comm);
+      solution_lod.reinit(rhs_lod);
+    }
+
     void
     setup_basis(
       const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
@@ -578,6 +603,12 @@ namespace Step96
       TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
 
       // 4) set dummy constraints
+      LODPatchProblem<dim> lod_patch_problem(n_subdivisions_fine,
+                                             n_components,
+                                             n_subdivisions_coarse,
+                                             LOD_stabilization,
+                                             fe);
+
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
@@ -626,9 +657,10 @@ namespace Step96
             std::vector<Vector<double>> selected_basis_function(
               n_components, Vector<double>(n_dofs_patch));
 
-            setup_basis(patch.cell_index(cell),
-                        patch_stiffness_matrix,
-                        selected_basis_function);
+            lod_patch_problem.setup_basis(patch,
+                                          patch.cell_index(cell),
+                                          patch_stiffness_matrix,
+                                          selected_basis_function);
 
             std::vector<types::global_dof_index> local_dof_indices_fine(
               n_dofs_patch);
