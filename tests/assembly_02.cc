@@ -695,7 +695,7 @@ namespace Step96
                               fe,
                               quadrature,
                               update_values | update_gradients |
-                                update_JxW_values);
+                                update_JxW_values | update_quadrature_points);
 
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
@@ -1051,6 +1051,24 @@ main(int argc, char **argv)
                         }
                   }
         };
+
+
+      assemble_element_rhs_vector = [](const FEValues<dim> &fe_values,
+                                       Vector<double>      &cell_rhs_fem) {
+        for (const unsigned int q_index : fe_values.quadrature_point_indices())
+          {
+            const auto point = fe_values.quadrature_point(q_index);
+
+            double value = 2.0 * std::pow(numbers::PI, 2.0);
+
+            for (unsigned int d = 0; d < dim; ++d)
+              value *= std::sin(point[d] * numbers::PI);
+
+            for (const unsigned int i : fe_values.dof_indices())
+              cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * value *
+                                  fe_values.JxW(q_index));
+          }
+      };
     }
   else if (params.physics == "diffusion-vector")
     {
