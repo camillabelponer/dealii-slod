@@ -112,12 +112,15 @@ namespace Step96
 
     void
     run(const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
-          &assemble_element_stiffness_matrix)
+          &assemble_element_stiffness_matrix,
+        const std::function<void(const FEValues<dim> &, Vector<double> &)>
+          &assemble_element_rhs_vector)
     {
       this->make_grid();
       this->setup_system();
       this->setup_basis(assemble_element_stiffness_matrix);
-      this->assemble_system(assemble_element_stiffness_matrix);
+      this->assemble_system(assemble_element_stiffness_matrix,
+                            assemble_element_rhs_vector);
       this->solve();
       this->output_results();
     }
@@ -682,7 +685,9 @@ namespace Step96
     void
     assemble_system(
       const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
-        &assemble_element_stiffness_matrix)
+        &assemble_element_stiffness_matrix,
+      const std::function<void(const FEValues<dim> &, Vector<double> &)>
+        &assemble_element_rhs_vector)
     {
       TimerOutput::Scope timer(timer_output, "assemble_system");
 
@@ -713,12 +718,7 @@ namespace Step96
 
             {
               TimerOutput::Scope timer(timer_output, "assemble_system::2");
-
-              for (const unsigned int q_index :
-                   fe_values.quadrature_point_indices())
-                for (const unsigned int i : fe_values.dof_indices())
-                  cell_rhs_fem(i) += (fe_values.shape_value(i, q_index) * 1. *
-                                      fe_values.JxW(q_index));
+              assemble_element_rhs_vector(fe_values, cell_rhs_fem);
             }
 
             // b) assemble into LOD matrix by using constraints
@@ -992,6 +992,17 @@ main(int argc, char **argv)
   std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
     assemble_element_stiffness_matrix;
 
+  std::function<void(const FEValues<dim> &, Vector<double> &)>
+    assemble_element_rhs_vector;
+
+  assemble_element_rhs_vector = [](const FEValues<dim> &fe_values,
+                                   Vector<double>      &cell_rhs_fem) {
+    for (const unsigned int q_index : fe_values.quadrature_point_indices())
+      for (const unsigned int i : fe_values.dof_indices())
+        cell_rhs_fem(i) +=
+          (fe_values.shape_value(i, q_index) * 1. * fe_values.JxW(q_index));
+  };
+
   if (params.physics == "diffusion")
     {
       params.n_components = 1;
@@ -1176,5 +1187,5 @@ main(int argc, char **argv)
     }
 
   Step96::LODProblem<dim> problem(params);
-  problem.run(assemble_element_stiffness_matrix);
+  problem.run(assemble_element_stiffness_matrix, assemble_element_rhs_vector);
 }
