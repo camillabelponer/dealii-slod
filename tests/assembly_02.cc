@@ -627,7 +627,10 @@ namespace Step96
                   selected_basis_function[c].l2_norm();
 
                 patch_constraints.set_zero(selected_basis_function[c]);
+              }
 
+            for (unsigned int c = 0; c < n_components; ++c)
+              {
                 for (unsigned int i = 0; i < n_dofs_patch; ++i)
                   if (selected_basis_function[c][i] != 0.0)
                     C.set(local_dof_indices_fine[i],
