@@ -882,6 +882,39 @@ namespace Step96
           data_out.add_data_vector(solution_lod, "solution_lod_coarse");
         }
 
+      if (exact_solution)
+        {
+          LinearAlgebra::distributed::Vector<double> solution_exact;
+          solution_exact.reinit(solution_lod_fine);
+
+          VectorTools::interpolate(mapping,
+                                   dof_handler,
+                                   *exact_solution,
+                                   solution_exact);
+
+          if (dim == n_components)
+            {
+              std::vector<std::string> labels(dim, "solution_exact");
+
+              std::vector<
+                DataComponentInterpretation::DataComponentInterpretation>
+                data_component_interpretation(
+                  dim,
+                  DataComponentInterpretation::component_is_part_of_vector);
+
+              data_out.add_data_vector(dof_handler,
+                                       solution_exact,
+                                       labels,
+                                       data_component_interpretation);
+            }
+          else
+            {
+              data_out.add_data_vector(dof_handler,
+                                       solution_exact,
+                                       "solution_exact");
+            }
+        }
+
       if (plot_basis)
         {
           for (unsigned int i = 0; i < solution_lod.size(); ++i)
