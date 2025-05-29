@@ -295,23 +295,12 @@ namespace Step96
           {
             patch.reinit(cell, n_oversampling);
 
-            double H = 1.0 / n_subdivisions_coarse;
-            double h = H / n_subdivisions_fine;
-
-            const auto         n_dofs_patch  = patch.n_dofs();
-            const unsigned int N_dofs_coarse = patch.n_cells() * n_components;
-            const unsigned int N_dofs_fine   = n_dofs_patch;
-            std::vector<types::global_dof_index> local_dof_indices_fine(
-              n_dofs_patch);
-            patch.get_dof_indices(local_dof_indices_fine);
+            const auto n_dofs_patch = patch.n_dofs();
 
             AffineConstraints<double> patch_constraints;
             for (unsigned int d = 0; d < 2 * dim; ++d)
               patch.make_zero_boundary_constraints(d, patch_constraints);
             patch_constraints.close();
-
-            std::vector<Vector<double>> selected_basis_function(
-              n_components, Vector<double>(n_dofs_patch));
 
             TrilinosWrappers::SparsityPattern sparsity_pattern(n_dofs_patch,
                                                                n_dofs_patch);
@@ -320,6 +309,44 @@ namespace Step96
 
             TrilinosWrappers::SparseMatrix patch_stiffness_matrix(
               sparsity_pattern);
+
+            FEValues<dim> fe_values(mapping,
+                                    fe,
+                                    quadrature,
+                                    update_values | update_gradients |
+                                      update_JxW_values);
+
+            for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
+              {
+                fe_values.reinit(patch.create_cell_iterator(tria, cell));
+
+                const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
+
+                FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
+
+                assemble_element_stiffness_matrix(fe_values, cell_matrix);
+
+                std::vector<types::global_dof_index> indices(dofs_per_cell);
+                patch.get_dof_indices_of_cell(cell, indices);
+
+                AffineConstraints<double>().distribute_local_to_global(
+                  cell_matrix, indices, patch_stiffness_matrix);
+              }
+
+
+
+            double H = 1.0 / n_subdivisions_coarse;
+            double h = H / n_subdivisions_fine;
+
+            const unsigned int N_dofs_coarse = patch.n_cells() * n_components;
+            const unsigned int N_dofs_fine   = n_dofs_patch;
+            std::vector<types::global_dof_index> local_dof_indices_fine(
+              n_dofs_patch);
+            patch.get_dof_indices(local_dof_indices_fine);
+
+            std::vector<Vector<double>> selected_basis_function(
+              n_components, Vector<double>(n_dofs_patch));
+
             FullMatrix<double> PT(N_dofs_fine, N_dofs_coarse);
             FullMatrix<double> P_Ainv_PT(N_dofs_coarse);
             FullMatrix<double> Ainv_PT(N_dofs_fine, N_dofs_coarse);
@@ -345,28 +372,12 @@ namespace Step96
             FullMatrix<double> PT_boundary(N_boundary_dofs, N_dofs_coarse);
             FullMatrix<double> S_boundary(N_boundary_dofs, N_internal_dofs);
 
-            FEValues<dim> fe_values(mapping,
-                                    fe,
-                                    quadrature,
-                                    update_values | update_gradients |
-                                      update_JxW_values);
-
             // ... by looping over cells in patch
             for (unsigned int cell = 0; cell < patch.n_cells(); ++cell)
               {
-                fe_values.reinit(patch.create_cell_iterator(tria, cell));
-
                 const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
-
-                FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
-
-                assemble_element_stiffness_matrix(fe_values, cell_matrix);
-
                 std::vector<types::global_dof_index> indices(dofs_per_cell);
                 patch.get_dof_indices_of_cell(cell, indices);
-
-                AffineConstraints<double>().distribute_local_to_global(
-                  cell_matrix, indices, patch_stiffness_matrix);
 
                 for (unsigned int ii = 0; ii < indices.size(); ++ii)
                   {
