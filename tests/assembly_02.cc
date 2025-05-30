@@ -87,11 +87,10 @@ namespace Step96
       , fe(fe)
     {}
 
-    void
+    std::vector<Vector<double>>
     setup_basis(const Patch<dim>               &patch,
                 const unsigned int              central_cell_id,
-                TrilinosWrappers::SparseMatrix &patch_stiffness_matrix,
-                std::vector<Vector<double>>    &selected_basis_function)
+                TrilinosWrappers::SparseMatrix &patch_stiffness_matrix)
     {
       const auto n_dofs_patch = patch.n_dofs();
 
@@ -99,6 +98,9 @@ namespace Step96
       for (unsigned int d = 0; d < 2 * dim; ++d)
         patch.make_zero_boundary_constraints(d, patch_constraints);
       patch_constraints.close();
+
+      std::vector<Vector<double>> selected_basis_function(
+        n_components, Vector<double>(n_dofs_patch));
 
       const unsigned int N_dofs_coarse = patch.n_cells() * n_components;
       const unsigned int N_dofs_fine   = n_dofs_patch;
@@ -370,6 +372,8 @@ namespace Step96
 
           patch_constraints.set_zero(selected_basis_function[c]);
         }
+
+      return selected_basis_function;
     }
 
   private:
@@ -642,13 +646,10 @@ namespace Step96
 
             patch_stiffness_matrix.compress(VectorOperation::values::add);
 
-            std::vector<Vector<double>> selected_basis_function(
-              n_components, Vector<double>(n_dofs_patch));
-
-            lod_patch_problem.setup_basis(patch,
-                                          patch.cell_index(cell),
-                                          patch_stiffness_matrix,
-                                          selected_basis_function);
+            const auto selected_basis_function =
+              lod_patch_problem.setup_basis(patch,
+                                            patch.cell_index(cell),
+                                            patch_stiffness_matrix);
 
             std::vector<types::global_dof_index> local_dof_indices_fine(
               n_dofs_patch);
