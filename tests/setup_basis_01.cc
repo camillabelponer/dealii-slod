@@ -81,18 +81,24 @@ test()
 
   LODPatchProblem<dim> lod_patch_problem(1, true, fe);
 
+  unsigned int central_cell_id = 0;
+
+  if (dim == 1)
+    central_cell_id = n_oversampling;
+  else if (dim == 2)
+    central_cell_id =
+      (1 + 2 * n_oversampling) * n_oversampling + n_oversampling;
+
+
   const auto selected_basis_function =
     lod_patch_problem.setup_basis(patch,
-                                  (1 + 2 * n_oversampling) * n_oversampling +
-                                    n_oversampling,
+                                  central_cell_id,
                                   patch_stiffness_matrix);
 
   selected_basis_function[0].print(std::cout);
 
   DataOutBase::VtkFlags flags;
-
-  if (dim > 1)
-    flags.write_higher_order_cells = true;
+  flags.write_higher_order_cells = true;
 
   DataOut<dim> data_out;
   data_out.set_flags(flags);
@@ -101,7 +107,9 @@ test()
 
   data_out.build_patches(mapping, n_subdivisions_fine);
 
-  data_out.write_vtu_in_parallel("selected_basis.vtu", tria.get_communicator());
+  data_out.write_vtu_in_parallel("selected_basis_" + std::to_string(dim) +
+                                   ".vtu",
+                                 tria.get_communicator());
 }
 
 int
@@ -109,5 +117,6 @@ main(int argc, char **argv)
 {
   Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
 
+  test<1>();
   test<2>();
 }

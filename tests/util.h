@@ -5,14 +5,15 @@
 #include <deal.II/dofs/dof_handler.h>
 #include <deal.II/dofs/dof_tools.h>
 
+#include <deal.II/fe/fe_system.h>
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
+
+#include <deal.II/lac/lapack_full_matrix.h>
 #include <deal.II/lac/trilinos_precondition.h>
 #include <deal.II/lac/trilinos_solver.h>
 #include <deal.II/lac/trilinos_sparse_matrix.h>
 #include <deal.II/lac/trilinos_sparsity_pattern.h>
-#include <deal.II/fe/fe_system.h>
-#include <deal.II/lac/lapack_full_matrix.h>
 
 using namespace dealii;
 
@@ -459,40 +460,75 @@ create_bool_dof_mask_Q_iso_Q1(const FiniteElement<dim> &fe,
       const auto lexicographic_to_hierarchic_numbering =
         FETools::lexicographic_to_hierarchic_numbering<dim>(n_subdivisions);
 
-      for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
-        for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
+      if (dim == 1)
+        {
+          for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
 
-          for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
             for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
               {
                 const unsigned int i =
-                  lexicographic_to_hierarchic_numbering[(c_0 + i_0) +
-                                                        (c_1 + i_1) *
-                                                          (n_subdivisions + 1)];
+                  lexicographic_to_hierarchic_numbering[c_0 + i_0];
 
-                for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
-                  for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
-                    {
-                      const unsigned int j =
-                        lexicographic_to_hierarchic_numbering
-                          [(c_0 + j_0) + (c_1 + j_1) * (n_subdivisions + 1)];
+                for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                  {
+                    const unsigned int j =
+                      lexicographic_to_hierarchic_numbering[c_0 + j_0];
 
-                      double sum = 0;
+                    double sum = 0;
 
-                      for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
-                        for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
-                          {
-                            const unsigned int q_index =
-                              (c_0 * 2 + q_0) +
-                              (c_1 * 2 + q_1) * (2 * n_subdivisions);
+                    for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                      for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                        {
+                          const unsigned int q_index = c_0 * 2 + q_0;
 
-                            sum += fe_values.shape_grad(i, q_index) *
-                                   fe_values.shape_grad(j, q_index);
-                          }
-                      if (sum != 0)
-                        bool_dof_mask(i, j) = true;
-                    }
+                          sum += fe_values.shape_grad(i, q_index) *
+                                 fe_values.shape_grad(j, q_index);
+                        }
+                    if (sum != 0)
+                      bool_dof_mask(i, j) = true;
+                  }
               }
+        }
+      else if (dim == 2)
+        {
+          for (unsigned int c_1 = 0; c_1 < n_subdivisions; ++c_1)
+            for (unsigned int c_0 = 0; c_0 < n_subdivisions; ++c_0)
+
+              for (unsigned int i_1 = 0; i_1 < 2; ++i_1)
+                for (unsigned int i_0 = 0; i_0 < 2; ++i_0)
+                  {
+                    const unsigned int i = lexicographic_to_hierarchic_numbering
+                      [(c_0 + i_0) + (c_1 + i_1) * (n_subdivisions + 1)];
+
+                    for (unsigned int j_1 = 0; j_1 < 2; ++j_1)
+                      for (unsigned int j_0 = 0; j_0 < 2; ++j_0)
+                        {
+                          const unsigned int j =
+                            lexicographic_to_hierarchic_numbering
+                              [(c_0 + j_0) +
+                               (c_1 + j_1) * (n_subdivisions + 1)];
+
+                          double sum = 0;
+
+                          for (unsigned int q_1 = 0; q_1 < 2; ++q_1)
+                            for (unsigned int q_0 = 0; q_0 < 2; ++q_0)
+                              {
+                                const unsigned int q_index =
+                                  (c_0 * 2 + q_0) +
+                                  (c_1 * 2 + q_1) * (2 * n_subdivisions);
+
+                                sum += fe_values.shape_grad(i, q_index) *
+                                       fe_values.shape_grad(j, q_index);
+                              }
+                          if (sum != 0)
+                            bool_dof_mask(i, j) = true;
+                        }
+                  }
+        }
+      else
+        {
+          AssertThrow(false, ExcNotImplemented());
+        }
     }
   else
     {
@@ -849,8 +885,6 @@ public:
     for (unsigned int id = 0; id < n_dofs(); ++id)
       all_dofs.push_back(id);
 
-    AssertDimension(dim, 2);
-
     std::set<unsigned int> internal_bd_set;
     std::set<unsigned int> domain_bd_set;
 
@@ -919,8 +953,8 @@ template <int dim>
 class LODPatchProblem
 {
 public:
-  LODPatchProblem(const unsigned int   n_components,
-                  const bool           LOD_stabilization,
+  LODPatchProblem(const unsigned int        n_components,
+                  const bool                LOD_stabilization,
                   const FiniteElement<dim> &fe)
     : n_components(n_components)
     , LOD_stabilization(LOD_stabilization)
@@ -981,12 +1015,19 @@ public:
           {
             const auto i = indices[ii];
 
-            const double scale =
-              (ii < 4 * fe.n_dofs_per_vertex()) ?
-                0.25 :
-                ((ii < 4 * fe.n_dofs_per_vertex() + 4 * fe.n_dofs_per_line()) ?
-                   0.5 :
-                   1.0);
+            double scale = 1.0;
+
+            if (dim == 1)
+              scale = (ii < 2 * fe.n_dofs_per_vertex()) ? 0.5 : 1.0;
+            else if (dim == 2)
+              scale = (ii < 4 * fe.n_dofs_per_vertex()) ?
+                        0.25 :
+                        ((ii < 4 * fe.n_dofs_per_vertex() +
+                                 4 * fe.n_dofs_per_line()) ?
+                           0.5 :
+                           1.0);
+            else
+              AssertThrow(false, ExcNotImplemented());
 
             PT[i][cell * n_components +
                   fe.system_to_component_index(ii).first] = scale;
@@ -1210,7 +1251,7 @@ public:
   }
 
 private:
-  const unsigned int   n_components;
-  const bool           LOD_stabilization;
+  const unsigned int        n_components;
+  const bool                LOD_stabilization;
   const FiniteElement<dim> &fe;
 };
