@@ -11,12 +11,10 @@
 
 using namespace dealii;
 
-int
-main(int argc, char **argv)
+template <unsigned int dim>
+void
+test()
 {
-  Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
-
-  const unsigned int dim                 = 2;
   const unsigned int n_oversampling      = 2;
   const unsigned int n_subdivisions_fine = 4;
 
@@ -104,4 +102,12 @@ main(int argc, char **argv)
   data_out.build_patches(mapping, n_subdivisions_fine);
 
   data_out.write_vtu_in_parallel("selected_basis.vtu", tria.get_communicator());
+}
+
+int
+main(int argc, char **argv)
+{
+  Utilities::MPI::MPI_InitFinalize mpi(argc, argv, 1);
+
+  test<2>();
 }
