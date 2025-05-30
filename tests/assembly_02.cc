@@ -153,10 +153,6 @@ namespace Step96
             }
         }
 
-      // for (unsigned int cell = 0; cell < N_dofs_coarse; ++cell)
-      //   for (unsigned int i = 0; i < n_dofs_patch; ++i)
-      //     PT[i][cell] *= h * h;
-
       if (LOD_stabilization && boundary_dofs_fine.size() > 0)
         {
           PT_boundary.extract_submatrix_from(PT,
