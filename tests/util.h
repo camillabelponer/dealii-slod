@@ -7,6 +7,12 @@
 
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/fe_values.h>
+#include <deal.II/lac/trilinos_precondition.h>
+#include <deal.II/lac/trilinos_solver.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparsity_pattern.h>
+#include <deal.II/fe/fe_system.h>
+#include <deal.II/lac/lapack_full_matrix.h>
 
 using namespace dealii;
 
@@ -915,7 +921,7 @@ class LODPatchProblem
 public:
   LODPatchProblem(const unsigned int   n_components,
                   const bool           LOD_stabilization,
-                  const FESystem<dim> &fe)
+                  const FiniteElement<dim> &fe)
     : n_components(n_components)
     , LOD_stabilization(LOD_stabilization)
     , fe(fe)
@@ -1206,5 +1212,5 @@ public:
 private:
   const unsigned int   n_components;
   const bool           LOD_stabilization;
-  const FESystem<dim> &fe;
+  const FiniteElement<dim> &fe;
 };
