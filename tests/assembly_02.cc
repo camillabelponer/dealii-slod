@@ -259,9 +259,15 @@ namespace Step96
     {
       TimerOutput::Scope timer(timer_output, "setup_basis");
 
-      TrilinosWrappers::SparsityPattern sparsity_pattern_C(
-        locally_owned_dofs_fem, comm);
+      IndexSet constraints_lod_fem_locally_owned_dofs(
+        locally_owned_dofs_fem.size() + locally_owned_dofs_lod.size());
+      constraints_lod_fem_locally_owned_dofs.add_indices(
+        locally_owned_dofs_lod);
+      constraints_lod_fem_locally_owned_dofs.add_indices(
+        locally_owned_dofs_fem, locally_owned_dofs_lod.size());
 
+      IndexSet constraints_lod_fem_locally_stored_constraints(
+        locally_owned_dofs_fem.size() + locally_owned_dofs_lod.size());
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
@@ -271,23 +277,18 @@ namespace Step96
               n_dofs_patch);
             patch.get_dof_indices(local_dof_indices_fine);
 
-            AffineConstraints<double> patch_constraints;
-            for (unsigned int d = 0; d < 2 * dim; ++d)
-              patch.make_zero_boundary_constraints(d, patch_constraints);
-            patch_constraints.close();
-
-            for (unsigned int i = 0; i < n_dofs_patch; ++i)
-              if (!patch_constraints.is_constrained(i))
-                for (unsigned int c = 0; c < n_components; ++c)
-                  sparsity_pattern_C.add_row_entries(
-                    local_dof_indices_fine[i],
-                    std::vector<types::global_dof_index>(
-                      1, cell->active_cell_index() * n_components + c));
+            for (const auto &i : local_dof_indices_fine)
+              constraints_lod_fem_locally_stored_constraints.add_index(
+                i + locally_owned_dofs_lod.size());
           }
 
-      sparsity_pattern_C.compress();
 
-      TrilinosWrappers::SparseMatrix C(sparsity_pattern_C);
+      IndexSet temp(locally_owned_dofs_fem.size() +
+                    locally_owned_dofs_lod.size());
+      temp.add_indices(locally_owned_dofs_lod);
+      temp.add_indices(constraints_lod_fem_locally_stored_constraints);
+
+      constraints_lod_fem.reinit(constraints_lod_fem_locally_owned_dofs, temp);
 
       // 4) set dummy constraints
       LODPatchProblem<dim> lod_patch_problem(n_components,
@@ -350,72 +351,169 @@ namespace Step96
 
             for (unsigned int c = 0; c < n_components; ++c)
               for (unsigned int i = 0; i < n_dofs_patch; ++i)
-                if (selected_basis_function[c][i] != 0.0)
-                  C.set(local_dof_indices_fine[i],
-                        cell->active_cell_index() * n_components + c,
-                        selected_basis_function[c][i]);
+                {
+                  const auto index =
+                    local_dof_indices_fine[i] + locally_owned_dofs_lod.size();
+
+                  if (constraints_lod_fem.is_constrained(index) == false)
+                    constraints_lod_fem.add_line(index);
+
+                  constraints_lod_fem.add_entry(index,
+                                                cell->active_cell_index() *
+                                                    n_components +
+                                                  c,
+                                                selected_basis_function[c][i]);
+                }
           }
 
-      C.compress(VectorOperation::values::insert);
+      communicate_constraints(constraints_lod_fem,
+                              constraints_lod_fem_locally_owned_dofs,
+                              constraints_lod_fem_locally_stored_constraints,
+                              comm);
 
-      // 5) convert sparse matrix C to shifted AffineConstraints
-      IndexSet constraints_lod_fem_locally_owned_dofs(
-        locally_owned_dofs_fem.size() + locally_owned_dofs_lod.size());
-      constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_lod);
-      constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_fem, locally_owned_dofs_lod.size());
-
-      IndexSet constraints_lod_fem_locally_stored_constraints =
-        constraints_lod_fem_locally_owned_dofs;
-
-      for (const auto row : locally_owned_dofs_fem) // parallel for-loop
-        {
-          for (auto entry = C.begin(row); entry != C.end(row); ++entry)
-            {
-              constraints_lod_fem_locally_stored_constraints.add_index(
-                entry->column()); // coarse
-            }
-        }
-
-      for (const auto &cell : tria.active_cell_iterators())
-        if (cell->is_locally_owned()) // parallel for-loop
-          {
-            patch.reinit(cell, n_oversampling);
-
-            const auto                           n_dofs_patch = patch.n_dofs();
-            std::vector<types::global_dof_index> local_dof_indices_fine(
-              n_dofs_patch);
-            patch.get_dof_indices(local_dof_indices_fine);
-
-            for (unsigned int i = 0; i < n_dofs_patch; ++i)
-              constraints_lod_fem_locally_stored_constraints.add_index(
-                local_dof_indices_fine[i] +
-                locally_owned_dofs_lod.size()); // fine
-          }
-
-      constraints_lod_fem.reinit(
-        constraints_lod_fem_locally_owned_dofs,
-        constraints_lod_fem_locally_stored_constraints);
-      for (const auto row : locally_owned_dofs_fem) // parallel for-loop
-        {
-          std::vector<std::pair<types::global_dof_index, double>> dependencies;
-
-          for (auto entry = C.begin(row); entry != C.end(row); ++entry)
-            dependencies.emplace_back(entry->column(), entry->value());
-
-          if (true || !dependencies.empty())
-            constraints_lod_fem.add_constraint(row +
-                                                 locally_owned_dofs_lod.size(),
-                                               dependencies);
-        }
-
-      constraints_lod_fem.make_consistent_in_parallel(
-        constraints_lod_fem_locally_owned_dofs,
-        constraints_lod_fem_locally_stored_constraints,
-        comm);
       constraints_lod_fem.close();
     }
+
+    // We have computed the constraint matrix column-by-column. However, we
+    // need the constraint matrix row-by-row during assembly. Communicate
+    // the relevant data.
+    static void
+    communicate_constraints(AffineConstraints<double> &constraints,
+                            const IndexSet            &locally_owned_dofs,
+                            const IndexSet &constraints_to_make_consistent,
+                            const MPI_Comm  mpi_communicator)
+    {
+      using Entries = std::vector<std::pair<types::global_dof_index, double>>;
+      using ConstraintLine = std::pair<types::global_dof_index, Entries>;
+
+      std::vector<Entries> constraints_local(locally_owned_dofs.n_elements());
+
+      {
+        const auto &local_lines = constraints.get_local_lines();
+
+        const auto [owners_of_my_constraints, _] =
+          Utilities::MPI::compute_index_owner_and_requesters(locally_owned_dofs,
+                                                             local_lines,
+                                                             mpi_communicator);
+
+        std::map<unsigned int, std::vector<ConstraintLine>> send_data;
+
+        for (const auto &line : constraints.get_lines())
+          {
+            const auto index = line.index;
+            const auto rank =
+              owners_of_my_constraints[local_lines.index_within_set(index)];
+            send_data[rank].emplace_back(index, line.entries);
+          }
+
+        const std::map<unsigned int, std::vector<ConstraintLine>> recv_data =
+          Utilities::MPI::some_to_some(mpi_communicator, send_data);
+
+        for (const auto &[_, index_and_entries] : recv_data)
+          for (const auto &[index, entries] : index_and_entries)
+            {
+              const auto local_index =
+                locally_owned_dofs.index_within_set(index);
+
+              constraints_local[local_index].insert(
+                constraints_local[local_index].end(),
+                entries.begin(),
+                entries.end());
+            }
+      }
+
+      {
+        const auto [_, constrained_indices_by_ranks] =
+          Utilities::MPI::compute_index_owner_and_requesters(
+            locally_owned_dofs,
+            constraints_to_make_consistent,
+            mpi_communicator);
+
+        std::map<unsigned int, std::vector<ConstraintLine>> send_data;
+
+        for (const auto &[r, indices] : constrained_indices_by_ranks)
+          for (const auto j : indices)
+            send_data[r].emplace_back(
+              j, constraints_local[locally_owned_dofs.index_within_set(j)]);
+
+        const std::map<unsigned int, std::vector<ConstraintLine>> recv_data =
+          Utilities::MPI::some_to_some(mpi_communicator, send_data);
+
+
+        constraints.clear();
+
+        IndexSet constraints_to_make_consistent_extended =
+          constraints_to_make_consistent;
+
+        for (const auto &[_, index_and_entries] : recv_data)
+          for (const auto &[_, entries] : index_and_entries)
+            for (const auto &[entry, _] : entries)
+              constraints_to_make_consistent_extended.add_index(entry);
+
+        constraints.reinit(locally_owned_dofs,
+                           constraints_to_make_consistent_extended);
+
+        for (const auto &[_, index_and_entries] : recv_data)
+          for (const auto &[index, entries] : index_and_entries)
+            constraints.add_constraint(index, entries);
+      }
+    }
+
+    static void
+    distribute_local_to_global(
+      const AffineConstraints<double>            &constraints_lod_fem,
+      const FullMatrix<double>                   &cell_matrix_fem,
+      const Vector<double>                       &cell_rhs_fem,
+      const std::vector<types::global_dof_index> &local_dof_indices,
+      TrilinosWrappers::SparseMatrix             &A_lod,
+      LinearAlgebra::distributed::Vector<double> &rhs_lod)
+    {
+      if (false)
+        {
+          constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
+                                                         local_dof_indices,
+                                                         local_dof_indices,
+                                                         A_lod);
+        }
+      else
+        {
+          std::set<unsigned int> dofs;
+          for (const auto i : local_dof_indices)
+            if (constraints_lod_fem.is_constrained(i))
+              for (const auto &[j, _] :
+                   *constraints_lod_fem.get_constraint_entries(i))
+                dofs.insert(j);
+
+          std::vector<unsigned int> v(dofs.begin(), dofs.end());
+
+          FullMatrix<double> C(local_dof_indices.size(), dofs.size());
+
+          for (unsigned int ii = 0; ii < local_dof_indices.size(); ++ii)
+            {
+              const unsigned int i = local_dof_indices[ii];
+
+              if (constraints_lod_fem.is_constrained(i))
+                for (const auto &[j, weight] :
+                     *constraints_lod_fem.get_constraint_entries(i))
+                  C[ii][std::distance(
+                    v.begin(), std::lower_bound(v.begin(), v.end(), j))] =
+                    weight;
+            }
+
+          FullMatrix<double> CAC(dofs.size(), dofs.size());
+          CAC.triple_product(cell_matrix_fem, C, C, true);
+
+          AffineConstraints<double>().distribute_local_to_global(CAC,
+                                                                 v,
+                                                                 v,
+                                                                 A_lod);
+        }
+
+      constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
+                                                     local_dof_indices,
+                                                     rhs_lod);
+    }
+
 
     void
     assemble_system(
@@ -446,15 +544,8 @@ namespace Step96
                                                n_dofs_per_cell);
             Vector<double>     cell_rhs_fem(n_dofs_per_cell);
 
-            {
-              TimerOutput::Scope timer(timer_output, "assemble_system::1");
-              assemble_element_stiffness_matrix(fe_values, cell_matrix_fem);
-            }
-
-            {
-              TimerOutput::Scope timer(timer_output, "assemble_system::2");
-              assemble_element_rhs_vector(fe_values, cell_rhs_fem);
-            }
+            assemble_element_stiffness_matrix(fe_values, cell_matrix_fem);
+            assemble_element_rhs_vector(fe_values, cell_rhs_fem);
 
             // b) assemble into LOD matrix by using constraints
             std::vector<types::global_dof_index> local_dof_indices(
@@ -464,64 +555,17 @@ namespace Step96
             for (auto &i : local_dof_indices)
               i += rhs_lod.size(); // shifted view
 
-
-            if (false)
-              {
-                TimerOutput::Scope timer(timer_output, "assemble_system::3");
-                constraints_lod_fem.distribute_local_to_global(
-                  cell_matrix_fem, local_dof_indices, local_dof_indices, A_lod);
-              }
-            else
-              {
-                TimerOutput::Scope timer(timer_output, "assemble_system::3");
-
-                std::set<unsigned int> dofs;
-                for (const auto i : local_dof_indices)
-                  if (constraints_lod_fem.is_constrained(i))
-                    for (const auto &[j, _] :
-                         *constraints_lod_fem.get_constraint_entries(i))
-                      dofs.insert(j);
-
-                std::vector<unsigned int> v(dofs.begin(), dofs.end());
-
-                FullMatrix<double> C(local_dof_indices.size(), dofs.size());
-
-                for (unsigned int ii = 0; ii < local_dof_indices.size(); ++ii)
-                  {
-                    const unsigned int i = local_dof_indices[ii];
-
-                    if (constraints_lod_fem.is_constrained(i))
-                      for (const auto &[j, weight] :
-                           *constraints_lod_fem.get_constraint_entries(i))
-                        C[ii][std::distance(
-                          v.begin(), std::lower_bound(v.begin(), v.end(), j))] =
-                          weight;
-                  }
-
-                FullMatrix<double> CAC(dofs.size(), dofs.size());
-                CAC.triple_product(cell_matrix_fem, C, C, true);
-
-                AffineConstraints<double>().distribute_local_to_global(CAC,
-                                                                       v,
-                                                                       v,
-                                                                       A_lod);
-              }
-
-
-            {
-              TimerOutput::Scope timer(timer_output, "assemble_system::4");
-              constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
-                                                             local_dof_indices,
-                                                             rhs_lod);
-            }
+            distribute_local_to_global(constraints_lod_fem,
+                                       cell_matrix_fem,
+                                       cell_rhs_fem,
+                                       local_dof_indices,
+                                       A_lod,
+                                       rhs_lod);
           }
 
 
-      {
-        TimerOutput::Scope timer(timer_output, "assemble_system::5");
-        A_lod.compress(VectorOperation::values::add);
-        rhs_lod.compress(VectorOperation::values::add);
-      }
+      A_lod.compress(VectorOperation::values::add);
+      rhs_lod.compress(VectorOperation::values::add);
     }
 
     void
@@ -550,7 +594,9 @@ namespace Step96
 
       // convert to FEM solution
       LinearAlgebra::distributed::Vector<double> solution_lod_fine(
-        dof_handler.locally_owned_dofs(), comm);
+        dof_handler.locally_owned_dofs(),
+        DoFTools::extract_locally_active_dofs(dof_handler),
+        comm);
 
       solution_lod.update_ghost_values();
       for (const auto i : dof_handler.locally_owned_dofs())
