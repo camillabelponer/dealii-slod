@@ -79,6 +79,19 @@ namespace Step96
   class LODConstraints
   {
   public:
+    void
+    reinit(const IndexSet &constraints_lod_fem_locally_owned_dofs,
+           const IndexSet &temp)
+    {
+      constraints.reinit(constraints_lod_fem_locally_owned_dofs, temp);
+    }
+
+    void
+    close()
+    {
+      constraints.close();
+    }
+
     // We have computed the constraint matrix column-by-column. However, we
     // need the constraint matrix row-by-row during assembly. Communicate
     // the relevant data.
@@ -458,8 +471,7 @@ namespace Step96
       temp.add_indices(locally_owned_dofs_lod);
       temp.add_indices(constraints_lod_fem_locally_stored_constraints);
 
-      constraints_lod_fem.constraints.reinit(
-        constraints_lod_fem_locally_owned_dofs, temp);
+      constraints_lod_fem.reinit(constraints_lod_fem_locally_owned_dofs, temp);
 
       // 4) set dummy constraints
       LODPatchProblem<dim> lod_patch_problem(n_components,
@@ -542,7 +554,7 @@ namespace Step96
         constraints_lod_fem_locally_stored_constraints,
         comm);
 
-      constraints_lod_fem.constraints.close();
+      constraints_lod_fem.close();
     }
 
 
