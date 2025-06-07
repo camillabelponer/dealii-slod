@@ -87,6 +87,27 @@ namespace Step96
     }
 
     void
+    add_entries(
+      const std::vector<types::global_dof_index> &local_active_lod_basis,
+      const std::vector<types::global_dof_index> &local_dof_indices_fine,
+      const std::vector<Vector<Number>>          &selected_basis_function,
+      const unsigned int                          shift)
+    {
+      for (unsigned int c = 0; c < local_active_lod_basis.size(); ++c)
+        for (unsigned int i = 0; i < local_dof_indices_fine.size(); ++i)
+          {
+            const auto index = local_dof_indices_fine[i] + shift;
+
+            if (constraints.is_constrained(index) == false)
+              constraints.add_line(index);
+
+            constraints.add_entry(index,
+                                  local_active_lod_basis[c],
+                                  selected_basis_function[c][i]);
+          }
+    }
+
+    void
     close()
     {
       constraints.close();
@@ -532,21 +553,16 @@ namespace Step96
               n_dofs_patch);
             patch.get_dof_indices(local_dof_indices_fine);
 
+            std::vector<types::global_dof_index> local_active_lod_basis(
+              n_components);
             for (unsigned int c = 0; c < n_components; ++c)
-              for (unsigned int i = 0; i < n_dofs_patch; ++i)
-                {
-                  const auto index =
-                    local_dof_indices_fine[i] + locally_owned_dofs_lod.size();
+              local_active_lod_basis[c] =
+                cell->active_cell_index() * n_components + c;
 
-                  if (constraints_lod_fem.constraints.is_constrained(index) ==
-                      false)
-                    constraints_lod_fem.constraints.add_line(index);
-
-                  constraints_lod_fem.constraints.add_entry(
-                    index,
-                    cell->active_cell_index() * n_components + c,
-                    selected_basis_function[c][i]);
-                }
+            constraints_lod_fem.add_entries(local_active_lod_basis,
+                                            local_dof_indices_fine,
+                                            selected_basis_function,
+                                            locally_owned_dofs_lod.size());
           }
 
       constraints_lod_fem.communicate_constraints(
