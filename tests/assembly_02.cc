@@ -75,6 +75,175 @@ namespace Step96
     }
   };
 
+  namespace LODConstraints
+  {
+    // We have computed the constraint matrix column-by-column. However, we
+    // need the constraint matrix row-by-row during assembly. Communicate
+    // the relevant data.
+    void
+    communicate_constraints(AffineConstraints<double> &constraints,
+                            const IndexSet            &locally_owned_dofs,
+                            const IndexSet &constraints_to_make_consistent,
+                            const MPI_Comm  mpi_communicator)
+    {
+      using Entries = std::vector<std::pair<types::global_dof_index, double>>;
+      using ConstraintLine = std::pair<types::global_dof_index, Entries>;
+
+      std::vector<Entries> constraints_local(locally_owned_dofs.n_elements());
+
+      {
+        const auto &local_lines = constraints.get_local_lines();
+
+        const auto [owners_of_my_constraints, _] =
+          Utilities::MPI::compute_index_owner_and_requesters(locally_owned_dofs,
+                                                             local_lines,
+                                                             mpi_communicator);
+
+        std::map<unsigned int, std::vector<ConstraintLine>> send_data;
+
+        for (const auto &line : constraints.get_lines())
+          {
+            const auto index = line.index;
+            const auto rank =
+              owners_of_my_constraints[local_lines.index_within_set(index)];
+            send_data[rank].emplace_back(index, line.entries);
+          }
+
+        const std::map<unsigned int, std::vector<ConstraintLine>> recv_data =
+          Utilities::MPI::some_to_some(mpi_communicator, send_data);
+
+        for (const auto &[_, index_and_entries] : recv_data)
+          for (const auto &[index, entries] : index_and_entries)
+            {
+              const auto local_index =
+                locally_owned_dofs.index_within_set(index);
+
+              constraints_local[local_index].insert(
+                constraints_local[local_index].end(),
+                entries.begin(),
+                entries.end());
+            }
+      }
+
+      {
+        const auto [_, constrained_indices_by_ranks] =
+          Utilities::MPI::compute_index_owner_and_requesters(
+            locally_owned_dofs,
+            constraints_to_make_consistent,
+            mpi_communicator);
+
+        std::map<unsigned int, std::vector<ConstraintLine>> send_data;
+
+        for (const auto &[r, indices] : constrained_indices_by_ranks)
+          for (const auto j : indices)
+            send_data[r].emplace_back(
+              j, constraints_local[locally_owned_dofs.index_within_set(j)]);
+
+        const std::map<unsigned int, std::vector<ConstraintLine>> recv_data =
+          Utilities::MPI::some_to_some(mpi_communicator, send_data);
+
+
+        constraints.clear();
+
+        IndexSet constraints_to_make_consistent_extended =
+          constraints_to_make_consistent;
+
+        for (const auto &[_, index_and_entries] : recv_data)
+          for (const auto &[_, entries] : index_and_entries)
+            for (const auto &[entry, _] : entries)
+              constraints_to_make_consistent_extended.add_index(entry);
+
+        constraints.reinit(locally_owned_dofs,
+                           constraints_to_make_consistent_extended);
+
+        for (const auto &[_, index_and_entries] : recv_data)
+          for (const auto &[index, entries] : index_and_entries)
+            constraints.add_constraint(index, entries);
+      }
+    }
+
+    void
+    distribute_local_to_global(
+      const AffineConstraints<double>            &constraints_lod_fem,
+      const FullMatrix<double>                   &cell_matrix_fem,
+      const Vector<double>                       &cell_rhs_fem,
+      const std::vector<types::global_dof_index> &local_dof_indices,
+      TrilinosWrappers::SparseMatrix             &A_lod,
+      LinearAlgebra::distributed::Vector<double> &rhs_lod)
+    {
+      if (false)
+        {
+          constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
+                                                         local_dof_indices,
+                                                         local_dof_indices,
+                                                         A_lod);
+        }
+      else
+        {
+          std::set<unsigned int> dofs;
+          for (const auto i : local_dof_indices)
+            if (constraints_lod_fem.is_constrained(i))
+              for (const auto &[j, _] :
+                   *constraints_lod_fem.get_constraint_entries(i))
+                dofs.insert(j);
+
+          std::vector<unsigned int> v(dofs.begin(), dofs.end());
+
+          FullMatrix<double> C(local_dof_indices.size(), dofs.size());
+
+          for (unsigned int ii = 0; ii < local_dof_indices.size(); ++ii)
+            {
+              const unsigned int i = local_dof_indices[ii];
+
+              if (constraints_lod_fem.is_constrained(i))
+                for (const auto &[j, weight] :
+                     *constraints_lod_fem.get_constraint_entries(i))
+                  C[ii][std::distance(
+                    v.begin(), std::lower_bound(v.begin(), v.end(), j))] =
+                    weight;
+            }
+
+          FullMatrix<double> CAC(dofs.size(), dofs.size());
+          CAC.triple_product(cell_matrix_fem, C, C, true);
+
+          AffineConstraints<double>().distribute_local_to_global(CAC,
+                                                                 v,
+                                                                 v,
+                                                                 A_lod);
+        }
+
+      constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
+                                                     local_dof_indices,
+                                                     rhs_lod);
+    }
+
+
+    void
+    distribute(const AffineConstraints<double>            &constraints_lod_fem,
+               LinearAlgebra::distributed::Vector<double> &vec_fem,
+               const LinearAlgebra::distributed::Vector<double> &vec_lod)
+    {
+      const bool has_ghost_elements = vec_lod.has_ghost_elements();
+
+      if (has_ghost_elements == false)
+        vec_lod.update_ghost_values();
+
+      for (const auto i : constraints_lod_fem.get_locally_owned_indices())
+        if (const auto constraint_entries =
+              constraints_lod_fem.get_constraint_entries(i))
+          {
+            double new_value = 0.0;
+            for (const auto &[j, weight] : *constraint_entries)
+              new_value += weight * vec_lod[j];
+
+            vec_fem[i - vec_lod.size()] = new_value;
+          }
+
+      if (has_ghost_elements == false)
+        vec_lod.zero_out_ghost_values();
+    }
+  } // namespace LODConstraints
+
   template <int dim>
   class LODProblem
   {
@@ -366,178 +535,13 @@ namespace Step96
                 }
           }
 
-      communicate_constraints(constraints_lod_fem,
-                              constraints_lod_fem_locally_owned_dofs,
-                              constraints_lod_fem_locally_stored_constraints,
-                              comm);
+      LODConstraints::communicate_constraints(
+        constraints_lod_fem,
+        constraints_lod_fem_locally_owned_dofs,
+        constraints_lod_fem_locally_stored_constraints,
+        comm);
 
       constraints_lod_fem.close();
-    }
-
-    // We have computed the constraint matrix column-by-column. However, we
-    // need the constraint matrix row-by-row during assembly. Communicate
-    // the relevant data.
-    static void
-    communicate_constraints(AffineConstraints<double> &constraints,
-                            const IndexSet            &locally_owned_dofs,
-                            const IndexSet &constraints_to_make_consistent,
-                            const MPI_Comm  mpi_communicator)
-    {
-      using Entries = std::vector<std::pair<types::global_dof_index, double>>;
-      using ConstraintLine = std::pair<types::global_dof_index, Entries>;
-
-      std::vector<Entries> constraints_local(locally_owned_dofs.n_elements());
-
-      {
-        const auto &local_lines = constraints.get_local_lines();
-
-        const auto [owners_of_my_constraints, _] =
-          Utilities::MPI::compute_index_owner_and_requesters(locally_owned_dofs,
-                                                             local_lines,
-                                                             mpi_communicator);
-
-        std::map<unsigned int, std::vector<ConstraintLine>> send_data;
-
-        for (const auto &line : constraints.get_lines())
-          {
-            const auto index = line.index;
-            const auto rank =
-              owners_of_my_constraints[local_lines.index_within_set(index)];
-            send_data[rank].emplace_back(index, line.entries);
-          }
-
-        const std::map<unsigned int, std::vector<ConstraintLine>> recv_data =
-          Utilities::MPI::some_to_some(mpi_communicator, send_data);
-
-        for (const auto &[_, index_and_entries] : recv_data)
-          for (const auto &[index, entries] : index_and_entries)
-            {
-              const auto local_index =
-                locally_owned_dofs.index_within_set(index);
-
-              constraints_local[local_index].insert(
-                constraints_local[local_index].end(),
-                entries.begin(),
-                entries.end());
-            }
-      }
-
-      {
-        const auto [_, constrained_indices_by_ranks] =
-          Utilities::MPI::compute_index_owner_and_requesters(
-            locally_owned_dofs,
-            constraints_to_make_consistent,
-            mpi_communicator);
-
-        std::map<unsigned int, std::vector<ConstraintLine>> send_data;
-
-        for (const auto &[r, indices] : constrained_indices_by_ranks)
-          for (const auto j : indices)
-            send_data[r].emplace_back(
-              j, constraints_local[locally_owned_dofs.index_within_set(j)]);
-
-        const std::map<unsigned int, std::vector<ConstraintLine>> recv_data =
-          Utilities::MPI::some_to_some(mpi_communicator, send_data);
-
-
-        constraints.clear();
-
-        IndexSet constraints_to_make_consistent_extended =
-          constraints_to_make_consistent;
-
-        for (const auto &[_, index_and_entries] : recv_data)
-          for (const auto &[_, entries] : index_and_entries)
-            for (const auto &[entry, _] : entries)
-              constraints_to_make_consistent_extended.add_index(entry);
-
-        constraints.reinit(locally_owned_dofs,
-                           constraints_to_make_consistent_extended);
-
-        for (const auto &[_, index_and_entries] : recv_data)
-          for (const auto &[index, entries] : index_and_entries)
-            constraints.add_constraint(index, entries);
-      }
-    }
-
-    static void
-    distribute_local_to_global(
-      const AffineConstraints<double>            &constraints_lod_fem,
-      const FullMatrix<double>                   &cell_matrix_fem,
-      const Vector<double>                       &cell_rhs_fem,
-      const std::vector<types::global_dof_index> &local_dof_indices,
-      TrilinosWrappers::SparseMatrix             &A_lod,
-      LinearAlgebra::distributed::Vector<double> &rhs_lod)
-    {
-      if (false)
-        {
-          constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
-                                                         local_dof_indices,
-                                                         local_dof_indices,
-                                                         A_lod);
-        }
-      else
-        {
-          std::set<unsigned int> dofs;
-          for (const auto i : local_dof_indices)
-            if (constraints_lod_fem.is_constrained(i))
-              for (const auto &[j, _] :
-                   *constraints_lod_fem.get_constraint_entries(i))
-                dofs.insert(j);
-
-          std::vector<unsigned int> v(dofs.begin(), dofs.end());
-
-          FullMatrix<double> C(local_dof_indices.size(), dofs.size());
-
-          for (unsigned int ii = 0; ii < local_dof_indices.size(); ++ii)
-            {
-              const unsigned int i = local_dof_indices[ii];
-
-              if (constraints_lod_fem.is_constrained(i))
-                for (const auto &[j, weight] :
-                     *constraints_lod_fem.get_constraint_entries(i))
-                  C[ii][std::distance(
-                    v.begin(), std::lower_bound(v.begin(), v.end(), j))] =
-                    weight;
-            }
-
-          FullMatrix<double> CAC(dofs.size(), dofs.size());
-          CAC.triple_product(cell_matrix_fem, C, C, true);
-
-          AffineConstraints<double>().distribute_local_to_global(CAC,
-                                                                 v,
-                                                                 v,
-                                                                 A_lod);
-        }
-
-      constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
-                                                     local_dof_indices,
-                                                     rhs_lod);
-    }
-
-
-    static void
-    distribute(const AffineConstraints<double>            &constraints_lod_fem,
-               LinearAlgebra::distributed::Vector<double> &vec_fem,
-               const LinearAlgebra::distributed::Vector<double> &vec_lod)
-    {
-      const bool has_ghost_elements = vec_lod.has_ghost_elements();
-
-      if (has_ghost_elements == false)
-        vec_lod.update_ghost_values();
-
-      for (const auto i : constraints_lod_fem.get_locally_owned_indices())
-        if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(i))
-          {
-            double new_value = 0.0;
-            for (const auto &[j, weight] : *constraint_entries)
-              new_value += weight * vec_lod[j];
-
-            vec_fem[i - vec_lod.size()] = new_value;
-          }
-
-      if (has_ghost_elements == false)
-        vec_lod.zero_out_ghost_values();
     }
 
 
@@ -580,12 +584,12 @@ namespace Step96
             for (auto &i : local_dof_indices)
               i += rhs_lod.size(); // shifted view
 
-            distribute_local_to_global(constraints_lod_fem,
-                                       cell_matrix_fem,
-                                       cell_rhs_fem,
-                                       local_dof_indices,
-                                       A_lod,
-                                       rhs_lod);
+            LODConstraints::distribute_local_to_global(constraints_lod_fem,
+                                                       cell_matrix_fem,
+                                                       cell_rhs_fem,
+                                                       local_dof_indices,
+                                                       A_lod,
+                                                       rhs_lod);
           }
 
 
@@ -623,7 +627,9 @@ namespace Step96
         DoFTools::extract_locally_active_dofs(dof_handler),
         comm);
 
-      distribute(constraints_lod_fem, solution_lod_fine, solution_lod);
+      LODConstraints::distribute(constraints_lod_fem,
+                                 solution_lod_fine,
+                                 solution_lod);
 
       // output LOD and FEM results
 
@@ -718,7 +724,7 @@ namespace Step96
               LinearAlgebra::distributed::Vector<double> basis_i;
               basis_i.reinit(solution_lod_fine);
 
-              distribute(constraints_lod_fem, basis_i, e_i);
+              LODConstraints::distribute(constraints_lod_fem, basis_i, e_i);
 
               if (dim == n_components)
                 {
