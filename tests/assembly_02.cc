@@ -478,9 +478,8 @@ namespace Step96
                     cell_index * n_components + c);
               }
 
-            for (const auto &row_index : local_dof_indices_coarse)
-              sparsity_pattern_A_lod.add_row_entries(row_index,
-                                                     local_dof_indices_coarse);
+            AffineConstraints<double>().add_entries_local_to_global(
+              local_dof_indices_coarse, sparsity_pattern_A_lod);
           }
 
       sparsity_pattern_A_lod.compress();
