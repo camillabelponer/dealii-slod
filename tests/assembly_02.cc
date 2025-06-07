@@ -517,10 +517,13 @@ namespace Step96
 
     static void
     distribute(const AffineConstraints<double>            &constraints_lod_fem,
-               LinearAlgebra::distributed::Vector<double> &basis_i,
-               const LinearAlgebra::distributed::Vector<double> &e_i)
+               LinearAlgebra::distributed::Vector<double> &vec_fem,
+               const LinearAlgebra::distributed::Vector<double> &vec_lod)
     {
-      e_i.update_ghost_values();
+      const bool has_ghost_elements = vec_lod.has_ghost_elements();
+
+      if (has_ghost_elements == false)
+        vec_lod.update_ghost_values();
 
       for (const auto i : constraints_lod_fem.get_locally_owned_indices())
         if (const auto constraint_entries =
@@ -528,10 +531,13 @@ namespace Step96
           {
             double new_value = 0.0;
             for (const auto &[j, weight] : *constraint_entries)
-              new_value += weight * e_i[j];
+              new_value += weight * vec_lod[j];
 
-            basis_i[i - e_i.size()] = new_value;
+            vec_fem[i - vec_lod.size()] = new_value;
           }
+
+      if (has_ghost_elements == false)
+        vec_lod.zero_out_ghost_values();
     }
 
 
