@@ -87,7 +87,7 @@ namespace Step96
                             const IndexSet &constraints_to_make_consistent,
                             const MPI_Comm  mpi_communicator)
     {
-      using Entries = std::vector<std::pair<types::global_dof_index, double>>;
+      using Entries = std::vector<std::pair<types::global_dof_index, Number>>;
       using ConstraintLine = std::pair<types::global_dof_index, Entries>;
 
       std::vector<Entries> constraints_local(locally_owned_dofs.n_elements());
@@ -165,11 +165,11 @@ namespace Step96
 
     void
     distribute_local_to_global(
-      const FullMatrix<double>                   &cell_matrix_fem,
-      const Vector<double>                       &cell_rhs_fem,
+      const FullMatrix<Number>                   &cell_matrix_fem,
+      const Vector<Number>                       &cell_rhs_fem,
       const std::vector<types::global_dof_index> &local_dof_indices,
       TrilinosWrappers::SparseMatrix             &A_lod,
-      LinearAlgebra::distributed::Vector<double> &rhs_lod) const
+      LinearAlgebra::distributed::Vector<Number> &rhs_lod) const
     {
       if (false)
         {
@@ -188,7 +188,7 @@ namespace Step96
 
           std::vector<unsigned int> v(dofs.begin(), dofs.end());
 
-          FullMatrix<double> C(local_dof_indices.size(), dofs.size());
+          FullMatrix<Number> C(local_dof_indices.size(), dofs.size());
 
           for (unsigned int ii = 0; ii < local_dof_indices.size(); ++ii)
             {
@@ -202,10 +202,10 @@ namespace Step96
                     weight;
             }
 
-          FullMatrix<double> CAC(dofs.size(), dofs.size());
+          FullMatrix<Number> CAC(dofs.size(), dofs.size());
           CAC.triple_product(cell_matrix_fem, C, C, true);
 
-          AffineConstraints<double>().distribute_local_to_global(CAC,
+          AffineConstraints<Number>().distribute_local_to_global(CAC,
                                                                  v,
                                                                  v,
                                                                  A_lod);
@@ -218,8 +218,8 @@ namespace Step96
 
 
     void
-    distribute(LinearAlgebra::distributed::Vector<double>       &vec_fem,
-               const LinearAlgebra::distributed::Vector<double> &vec_lod) const
+    distribute(LinearAlgebra::distributed::Vector<Number>       &vec_fem,
+               const LinearAlgebra::distributed::Vector<Number> &vec_lod) const
     {
       const bool has_ghost_elements = vec_lod.has_ghost_elements();
 
@@ -230,7 +230,7 @@ namespace Step96
         if (const auto constraint_entries =
               constraints.get_constraint_entries(i))
           {
-            double new_value = 0.0;
+            Number new_value = 0.0;
             for (const auto &[j, weight] : *constraint_entries)
               new_value += weight * vec_lod[j];
 
@@ -242,7 +242,7 @@ namespace Step96
     }
 
   public:
-    AffineConstraints<double> constraints;
+    AffineConstraints<Number> constraints;
   };
 
   template <int dim>
