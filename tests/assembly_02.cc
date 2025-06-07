@@ -75,14 +75,15 @@ namespace Step96
     }
   };
 
-  namespace LODConstraints
+  template <typename Number>
+  class LODConstraints
   {
+  public:
     // We have computed the constraint matrix column-by-column. However, we
     // need the constraint matrix row-by-row during assembly. Communicate
     // the relevant data.
     void
-    communicate_constraints(AffineConstraints<double> &constraints,
-                            const IndexSet            &locally_owned_dofs,
+    communicate_constraints(const IndexSet &locally_owned_dofs,
                             const IndexSet &constraints_to_make_consistent,
                             const MPI_Comm  mpi_communicator)
     {
@@ -164,12 +165,11 @@ namespace Step96
 
     void
     distribute_local_to_global(
-      const AffineConstraints<double>            &constraints,
       const FullMatrix<double>                   &cell_matrix_fem,
       const Vector<double>                       &cell_rhs_fem,
       const std::vector<types::global_dof_index> &local_dof_indices,
       TrilinosWrappers::SparseMatrix             &A_lod,
-      LinearAlgebra::distributed::Vector<double> &rhs_lod)
+      LinearAlgebra::distributed::Vector<double> &rhs_lod) const
     {
       if (false)
         {
@@ -218,9 +218,8 @@ namespace Step96
 
 
     void
-    distribute(const AffineConstraints<double>                  &constraints,
-               LinearAlgebra::distributed::Vector<double>       &vec_fem,
-               const LinearAlgebra::distributed::Vector<double> &vec_lod)
+    distribute(LinearAlgebra::distributed::Vector<double>       &vec_fem,
+               const LinearAlgebra::distributed::Vector<double> &vec_lod) const
     {
       const bool has_ghost_elements = vec_lod.has_ghost_elements();
 
@@ -241,7 +240,10 @@ namespace Step96
       if (has_ghost_elements == false)
         vec_lod.zero_out_ghost_values();
     }
-  } // namespace LODConstraints
+
+  public:
+    AffineConstraints<double> constraints;
+  };
 
   template <int dim>
   class LODProblem
@@ -456,7 +458,8 @@ namespace Step96
       temp.add_indices(locally_owned_dofs_lod);
       temp.add_indices(constraints_lod_fem_locally_stored_constraints);
 
-      constraints_lod_fem.reinit(constraints_lod_fem_locally_owned_dofs, temp);
+      constraints_lod_fem.constraints.reinit(
+        constraints_lod_fem_locally_owned_dofs, temp);
 
       // 4) set dummy constraints
       LODPatchProblem<dim> lod_patch_problem(n_components,
@@ -523,24 +526,23 @@ namespace Step96
                   const auto index =
                     local_dof_indices_fine[i] + locally_owned_dofs_lod.size();
 
-                  if (constraints_lod_fem.is_constrained(index) == false)
-                    constraints_lod_fem.add_line(index);
+                  if (constraints_lod_fem.constraints.is_constrained(index) ==
+                      false)
+                    constraints_lod_fem.constraints.add_line(index);
 
-                  constraints_lod_fem.add_entry(index,
-                                                cell->active_cell_index() *
-                                                    n_components +
-                                                  c,
-                                                selected_basis_function[c][i]);
+                  constraints_lod_fem.constraints.add_entry(
+                    index,
+                    cell->active_cell_index() * n_components + c,
+                    selected_basis_function[c][i]);
                 }
           }
 
-      LODConstraints::communicate_constraints(
-        constraints_lod_fem,
+      constraints_lod_fem.communicate_constraints(
         constraints_lod_fem_locally_owned_dofs,
         constraints_lod_fem_locally_stored_constraints,
         comm);
 
-      constraints_lod_fem.close();
+      constraints_lod_fem.constraints.close();
     }
 
 
@@ -583,12 +585,8 @@ namespace Step96
             for (auto &i : local_dof_indices)
               i += rhs_lod.size(); // shifted view
 
-            LODConstraints::distribute_local_to_global(constraints_lod_fem,
-                                                       cell_matrix_fem,
-                                                       cell_rhs_fem,
-                                                       local_dof_indices,
-                                                       A_lod,
-                                                       rhs_lod);
+            constraints_lod_fem.distribute_local_to_global(
+              cell_matrix_fem, cell_rhs_fem, local_dof_indices, A_lod, rhs_lod);
           }
 
 
@@ -626,9 +624,7 @@ namespace Step96
         DoFTools::extract_locally_active_dofs(dof_handler),
         comm);
 
-      LODConstraints::distribute(constraints_lod_fem,
-                                 solution_lod_fine,
-                                 solution_lod);
+      constraints_lod_fem.distribute(solution_lod_fine, solution_lod);
 
       // output LOD and FEM results
 
@@ -723,7 +719,7 @@ namespace Step96
               LinearAlgebra::distributed::Vector<double> basis_i;
               basis_i.reinit(solution_lod_fine);
 
-              LODConstraints::distribute(constraints_lod_fem, basis_i, e_i);
+              constraints_lod_fem.distribute(basis_i, e_i);
 
               if (dim == n_components)
                 {
@@ -811,7 +807,7 @@ namespace Step96
     IndexSet locally_owned_dofs_fem;
     IndexSet locally_owned_dofs_lod;
 
-    AffineConstraints<double> constraints_lod_fem;
+    LODConstraints<double> constraints_lod_fem;
 
     TrilinosWrappers::SparseMatrix A_lod;
 
