@@ -80,10 +80,29 @@ namespace Step96
   {
   public:
     void
-    reinit(const IndexSet &constraints_lod_fem_locally_owned_dofs,
-           const IndexSet &temp)
+    reinit(const IndexSet &locally_owned_dofs_lod,
+           const IndexSet &locally_owned_dofs_fem,
+           const IndexSet &locally_relevant_dofs_lod,
+           const IndexSet &locally_relevant_dofs_fem)
     {
-      constraints.reinit(constraints_lod_fem_locally_owned_dofs, temp);
+      AssertDimension(locally_owned_dofs_lod.size(),
+                      locally_relevant_dofs_lod.size());
+      AssertDimension(locally_owned_dofs_fem.size(),
+                      locally_owned_dofs_fem.size());
+
+      IndexSet locally_owned_dofs(locally_owned_dofs_lod.size() +
+                                  locally_owned_dofs_fem.size());
+      locally_owned_dofs.add_indices(locally_owned_dofs_lod);
+      locally_owned_dofs.add_indices(locally_owned_dofs_fem,
+                                     locally_owned_dofs_lod.size());
+
+      IndexSet locally_relevant_dofs(locally_relevant_dofs_lod.size() +
+                                     locally_relevant_dofs_fem.size());
+      locally_relevant_dofs.add_indices(locally_relevant_dofs_lod);
+      locally_relevant_dofs.add_indices(locally_relevant_dofs_fem,
+                                        locally_relevant_dofs_lod.size());
+
+      constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
     }
 
     void
@@ -117,10 +136,18 @@ namespace Step96
     // need the constraint matrix row-by-row during assembly. Communicate
     // the relevant data.
     void
-    communicate_constraints(const IndexSet &locally_owned_dofs,
-                            const IndexSet &constraints_to_make_consistent,
+    communicate_constraints(const IndexSet &locally_relevant_dofs_lod,
+                            const IndexSet &locally_relevant_dofs_fem,
                             const MPI_Comm  mpi_communicator)
     {
+      const auto locally_owned_dofs = constraints.get_locally_owned_indices();
+
+      IndexSet constraints_to_make_consistent(locally_relevant_dofs_lod.size() +
+                                              locally_relevant_dofs_fem.size());
+      constraints_to_make_consistent.add_indices(locally_relevant_dofs_lod);
+      constraints_to_make_consistent.add_indices(
+        locally_relevant_dofs_fem, locally_relevant_dofs_lod.size());
+
       using Entries = std::vector<std::pair<types::global_dof_index, Number>>;
       using ConstraintLine = std::pair<types::global_dof_index, Entries>;
 
@@ -463,15 +490,7 @@ namespace Step96
     {
       TimerOutput::Scope timer(timer_output, "setup_basis");
 
-      IndexSet constraints_lod_fem_locally_owned_dofs(
-        locally_owned_dofs_fem.size() + locally_owned_dofs_lod.size());
-      constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_lod);
-      constraints_lod_fem_locally_owned_dofs.add_indices(
-        locally_owned_dofs_fem, locally_owned_dofs_lod.size());
-
-      IndexSet constraints_lod_fem_locally_stored_constraints(
-        locally_owned_dofs_fem.size() + locally_owned_dofs_lod.size());
+      IndexSet locally_relevant_dofs_fem(locally_owned_dofs_fem.size());
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
@@ -482,17 +501,13 @@ namespace Step96
             patch.get_dof_indices(local_dof_indices_fine);
 
             for (const auto &i : local_dof_indices_fine)
-              constraints_lod_fem_locally_stored_constraints.add_index(
-                i + locally_owned_dofs_lod.size());
+              locally_relevant_dofs_fem.add_index(i);
           }
 
-
-      IndexSet temp(locally_owned_dofs_fem.size() +
-                    locally_owned_dofs_lod.size());
-      temp.add_indices(locally_owned_dofs_lod);
-      temp.add_indices(constraints_lod_fem_locally_stored_constraints);
-
-      constraints_lod_fem.reinit(constraints_lod_fem_locally_owned_dofs, temp);
+      constraints_lod_fem.reinit(locally_owned_dofs_lod,
+                                 locally_owned_dofs_fem,
+                                 locally_owned_dofs_lod,
+                                 locally_relevant_dofs_fem);
 
       // 4) set dummy constraints
       LODPatchProblem<dim> lod_patch_problem(n_components,
@@ -566,8 +581,8 @@ namespace Step96
           }
 
       constraints_lod_fem.communicate_constraints(
-        constraints_lod_fem_locally_owned_dofs,
-        constraints_lod_fem_locally_stored_constraints,
+        IndexSet(locally_owned_dofs_lod.size()),
+        locally_relevant_dofs_fem,
         comm);
 
       constraints_lod_fem.close();
