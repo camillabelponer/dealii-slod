@@ -275,7 +275,7 @@ namespace Step96
         vec_lod.zero_out_ghost_values();
     }
 
-  public:
+  private:
     AffineConstraints<Number> constraints;
   };
 
