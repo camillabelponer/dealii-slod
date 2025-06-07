@@ -79,6 +79,10 @@ namespace Step96
   class LODConstraints
   {
   public:
+    LODConstraints()
+      : fem_shift(numbers::invalid_unsigned_int)
+    {}
+
     void
     reinit(const IndexSet &locally_owned_dofs_lod,
            const IndexSet &locally_owned_dofs_fem,
@@ -90,17 +94,18 @@ namespace Step96
       AssertDimension(locally_owned_dofs_fem.size(),
                       locally_owned_dofs_fem.size());
 
+      this->fem_shift = locally_owned_dofs_lod.size();
+
       IndexSet locally_owned_dofs(locally_owned_dofs_lod.size() +
                                   locally_owned_dofs_fem.size());
       locally_owned_dofs.add_indices(locally_owned_dofs_lod);
-      locally_owned_dofs.add_indices(locally_owned_dofs_fem,
-                                     locally_owned_dofs_lod.size());
+      locally_owned_dofs.add_indices(locally_owned_dofs_fem, this->fem_shift);
 
       IndexSet locally_relevant_dofs(locally_relevant_dofs_lod.size() +
                                      locally_relevant_dofs_fem.size());
       locally_relevant_dofs.add_indices(locally_relevant_dofs_lod);
       locally_relevant_dofs.add_indices(locally_relevant_dofs_fem,
-                                        locally_relevant_dofs_lod.size());
+                                        this->fem_shift);
 
       constraints.reinit(locally_owned_dofs, locally_relevant_dofs);
     }
@@ -109,13 +114,12 @@ namespace Step96
     add_entries(
       const std::vector<types::global_dof_index> &local_active_lod_basis,
       const std::vector<types::global_dof_index> &local_dof_indices_fine,
-      const std::vector<Vector<Number>>          &selected_basis_function,
-      const unsigned int                          shift)
+      const std::vector<Vector<Number>>          &selected_basis_function)
     {
       for (unsigned int c = 0; c < local_active_lod_basis.size(); ++c)
         for (unsigned int i = 0; i < local_dof_indices_fine.size(); ++i)
           {
-            const auto index = local_dof_indices_fine[i] + shift;
+            const auto index = local_dof_indices_fine[i] + fem_shift;
 
             if (constraints.is_constrained(index) == false)
               constraints.add_line(index);
@@ -145,8 +149,8 @@ namespace Step96
       IndexSet constraints_to_make_consistent(locally_relevant_dofs_lod.size() +
                                               locally_relevant_dofs_fem.size());
       constraints_to_make_consistent.add_indices(locally_relevant_dofs_lod);
-      constraints_to_make_consistent.add_indices(
-        locally_relevant_dofs_fem, locally_relevant_dofs_lod.size());
+      constraints_to_make_consistent.add_indices(locally_relevant_dofs_fem,
+                                                 this->fem_shift);
 
       using Entries = std::vector<std::pair<types::global_dof_index, Number>>;
       using ConstraintLine = std::pair<types::global_dof_index, Entries>;
@@ -228,10 +232,14 @@ namespace Step96
     distribute_local_to_global(
       const FullMatrix<Number>                   &cell_matrix_fem,
       const Vector<Number>                       &cell_rhs_fem,
-      const std::vector<types::global_dof_index> &local_dof_indices,
+      const std::vector<types::global_dof_index> &local_dof_indices_fem,
       TrilinosWrappers::SparseMatrix             &A_lod,
       LinearAlgebra::distributed::Vector<Number> &rhs_lod) const
     {
+      auto local_dof_indices = local_dof_indices_fem;
+      for (auto &i : local_dof_indices)
+        i += fem_shift;
+
       if (false)
         {
           constraints.distribute_local_to_global(cell_matrix_fem,
@@ -304,6 +312,7 @@ namespace Step96
 
   private:
     AffineConstraints<Number> constraints;
+    unsigned int              fem_shift;
   };
 
   template <int dim>
@@ -576,8 +585,7 @@ namespace Step96
 
             constraints_lod_fem.add_entries(local_active_lod_basis,
                                             local_dof_indices_fine,
-                                            selected_basis_function,
-                                            locally_owned_dofs_lod.size());
+                                            selected_basis_function);
           }
 
       constraints_lod_fem.communicate_constraints(
@@ -625,8 +633,6 @@ namespace Step96
 
             patch.reinit(cell, 0);
             patch.get_dof_indices(local_dof_indices, true /*hiearchical*/);
-            for (auto &i : local_dof_indices)
-              i += rhs_lod.size(); // shifted view
 
             constraints_lod_fem.distribute_local_to_global(
               cell_matrix_fem, cell_rhs_fem, local_dof_indices, A_lod, rhs_lod);
