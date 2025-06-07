@@ -164,7 +164,7 @@ namespace Step96
 
     void
     distribute_local_to_global(
-      const AffineConstraints<double>            &constraints_lod_fem,
+      const AffineConstraints<double>            &constraints,
       const FullMatrix<double>                   &cell_matrix_fem,
       const Vector<double>                       &cell_rhs_fem,
       const std::vector<types::global_dof_index> &local_dof_indices,
@@ -173,18 +173,17 @@ namespace Step96
     {
       if (false)
         {
-          constraints_lod_fem.distribute_local_to_global(cell_matrix_fem,
-                                                         local_dof_indices,
-                                                         local_dof_indices,
-                                                         A_lod);
+          constraints.distribute_local_to_global(cell_matrix_fem,
+                                                 local_dof_indices,
+                                                 local_dof_indices,
+                                                 A_lod);
         }
       else
         {
           std::set<unsigned int> dofs;
           for (const auto i : local_dof_indices)
-            if (constraints_lod_fem.is_constrained(i))
-              for (const auto &[j, _] :
-                   *constraints_lod_fem.get_constraint_entries(i))
+            if (constraints.is_constrained(i))
+              for (const auto &[j, _] : *constraints.get_constraint_entries(i))
                 dofs.insert(j);
 
           std::vector<unsigned int> v(dofs.begin(), dofs.end());
@@ -195,9 +194,9 @@ namespace Step96
             {
               const unsigned int i = local_dof_indices[ii];
 
-              if (constraints_lod_fem.is_constrained(i))
+              if (constraints.is_constrained(i))
                 for (const auto &[j, weight] :
-                     *constraints_lod_fem.get_constraint_entries(i))
+                     *constraints.get_constraint_entries(i))
                   C[ii][std::distance(
                     v.begin(), std::lower_bound(v.begin(), v.end(), j))] =
                     weight;
@@ -212,15 +211,15 @@ namespace Step96
                                                                  A_lod);
         }
 
-      constraints_lod_fem.distribute_local_to_global(cell_rhs_fem,
-                                                     local_dof_indices,
-                                                     rhs_lod);
+      constraints.distribute_local_to_global(cell_rhs_fem,
+                                             local_dof_indices,
+                                             rhs_lod);
     }
 
 
     void
-    distribute(const AffineConstraints<double>            &constraints_lod_fem,
-               LinearAlgebra::distributed::Vector<double> &vec_fem,
+    distribute(const AffineConstraints<double>                  &constraints,
+               LinearAlgebra::distributed::Vector<double>       &vec_fem,
                const LinearAlgebra::distributed::Vector<double> &vec_lod)
     {
       const bool has_ghost_elements = vec_lod.has_ghost_elements();
@@ -228,9 +227,9 @@ namespace Step96
       if (has_ghost_elements == false)
         vec_lod.update_ghost_values();
 
-      for (const auto i : constraints_lod_fem.get_locally_owned_indices())
+      for (const auto i : constraints.get_locally_owned_indices())
         if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(i))
+              constraints.get_constraint_entries(i))
           {
             double new_value = 0.0;
             for (const auto &[j, weight] : *constraint_entries)
