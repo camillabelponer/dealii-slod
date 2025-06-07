@@ -515,6 +515,26 @@ namespace Step96
     }
 
 
+    static void
+    distribute(const AffineConstraints<double>            &constraints_lod_fem,
+               LinearAlgebra::distributed::Vector<double> &basis_i,
+               const LinearAlgebra::distributed::Vector<double> &e_i)
+    {
+      e_i.update_ghost_values();
+
+      for (const auto i : constraints_lod_fem.get_locally_owned_indices())
+        if (const auto constraint_entries =
+              constraints_lod_fem.get_constraint_entries(i))
+          {
+            double new_value = 0.0;
+            for (const auto &[j, weight] : *constraint_entries)
+              new_value += weight * e_i[j];
+
+            basis_i[i - e_i.size()] = new_value;
+          }
+    }
+
+
     void
     assemble_system(
       const std::function<void(const FEValues<dim> &, FullMatrix<double> &)>
@@ -533,11 +553,9 @@ namespace Step96
       for (const auto &cell : tria.active_cell_iterators())
         if (cell->is_locally_owned())
           {
-            patch.reinit(cell, 0);
-
             fe_values.reinit(cell);
 
-            const unsigned int n_dofs_per_cell = patch.n_dofs();
+            const unsigned int n_dofs_per_cell = fe_values.dofs_per_cell;
 
             // a) compute FEM element stiffness matrix
             FullMatrix<double> cell_matrix_fem(n_dofs_per_cell,
@@ -550,8 +568,9 @@ namespace Step96
             // b) assemble into LOD matrix by using constraints
             std::vector<types::global_dof_index> local_dof_indices(
               n_dofs_per_cell);
-            patch.get_dof_indices(local_dof_indices, true /*hiearchical*/);
 
+            patch.reinit(cell, 0);
+            patch.get_dof_indices(local_dof_indices, true /*hiearchical*/);
             for (auto &i : local_dof_indices)
               i += rhs_lod.size(); // shifted view
 
@@ -598,18 +617,7 @@ namespace Step96
         DoFTools::extract_locally_active_dofs(dof_handler),
         comm);
 
-      solution_lod.update_ghost_values();
-      for (const auto i : dof_handler.locally_owned_dofs())
-        if (const auto constraint_entries =
-              constraints_lod_fem.get_constraint_entries(i +
-                                                         solution_lod.size()))
-          {
-            double new_value = 0.0;
-            for (const auto &[j, weight] : *constraint_entries)
-              new_value += weight * solution_lod[j];
-
-            solution_lod_fine[i] = new_value;
-          }
+      distribute(constraints_lod_fem, solution_lod_fine, solution_lod);
 
       // output LOD and FEM results
 
@@ -704,18 +712,7 @@ namespace Step96
               LinearAlgebra::distributed::Vector<double> basis_i;
               basis_i.reinit(solution_lod_fine);
 
-              e_i.update_ghost_values();
-              for (const auto i : dof_handler.locally_owned_dofs())
-                if (const auto constraint_entries =
-                      constraints_lod_fem.get_constraint_entries(i +
-                                                                 e_i.size()))
-                  {
-                    double new_value = 0.0;
-                    for (const auto &[j, weight] : *constraint_entries)
-                      new_value += weight * e_i[j];
-
-                    basis_i[i] = new_value;
-                  }
+              distribute(constraints_lod_fem, basis_i, e_i);
 
               if (dim == n_components)
                 {
