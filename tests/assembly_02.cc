@@ -677,9 +677,7 @@ namespace Step96
       // output LOD and FEM results
 
       DataOutBase::VtkFlags flags;
-
-      if (dim > 1)
-        flags.write_higher_order_cells = true;
+      flags.write_higher_order_cells = true;
 
       DataOut<dim> data_out;
       data_out.set_flags(flags);
