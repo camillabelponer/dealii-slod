@@ -8,6 +8,87 @@ const unsigned int SPECIAL_NUMBER = 99;
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
+template <int dim>
+void
+compute_renumbering_lex(dealii::DoFHandler<dim> &dof_handler)
+{
+  std::vector<dealii::types::global_dof_index> dof_indices(
+    dof_handler.get_fe().n_dofs_per_cell());
+
+  dealii::IndexSet active_dofs;
+  dealii::DoFTools::extract_locally_active_dofs(dof_handler, active_dofs);
+  const auto partitioner =
+    std::make_shared<dealii::Utilities::MPI::Partitioner>(
+      dof_handler.locally_owned_dofs(), active_dofs, MPI_COMM_WORLD);
+
+  std::vector<std::pair<dealii::types::global_dof_index, dealii::Point<dim>>>
+    points_all;
+
+  dealii::FEValues<dim> fe_values(
+    dof_handler.get_fe(),
+    dealii::Quadrature<dim>(dof_handler.get_fe().get_unit_support_points()),
+    dealii::update_quadrature_points);
+
+  for (const auto &cell : dof_handler.active_cell_iterators())
+    {
+      if (cell->is_locally_owned() == false)
+        continue;
+
+      fe_values.reinit(cell);
+
+      cell->get_dof_indices(dof_indices);
+
+      for (unsigned int i = 0; i < dof_indices.size(); ++i)
+        {
+          if (dof_handler.locally_owned_dofs().is_element(dof_indices[i]))
+            points_all.emplace_back(dof_indices[i],
+                                    fe_values.quadrature_point(i));
+        }
+    }
+
+  std::sort(points_all.begin(),
+            points_all.end(),
+            [](const auto &a, const auto &b) { return a.first < b.first; });
+  points_all.erase(std::unique(points_all.begin(),
+                               points_all.end(),
+                               [](const auto &a, const auto &b) {
+                                 return a.first == b.first;
+                               }),
+                   points_all.end());
+
+  std::sort(points_all.begin(),
+            points_all.end(),
+            [](const auto &a, const auto &b) {
+              std::vector<double> a_(dim);
+              std::vector<double> b_(dim);
+
+              a.second.unroll(a_.begin(), a_.end());
+              std::reverse(a_.begin(), a_.end());
+
+              b.second.unroll(b_.begin(), b_.end());
+              std::reverse(b_.begin(), b_.end());
+
+              for (unsigned int d = 0; d < dim; ++d)
+                {
+                  if (std::abs(a_[d] - b_[d]) > 1e-8 /*epsilon*/)
+                    return a_[d] < b_[d];
+                }
+
+              return a.first < b.first;
+            });
+
+  std::vector<dealii::types::global_dof_index> result(
+    dof_handler.n_locally_owned_dofs());
+
+  for (unsigned int i = 0; i < result.size(); ++i)
+    {
+      result[partitioner->global_to_local(points_all[i].first)] =
+        partitioner->local_to_global(i);
+    }
+
+  dof_handler.renumber_dofs(result);
+}
+
 template <int dim, int spacedim>
 LOD<dim, spacedim>::LOD(const LODParameters<dim, spacedim> &par)
   : par(par)
@@ -110,8 +191,9 @@ void
 LOD<dim, spacedim>::make_grid()
 {
   // TimerOutput::Scope t(computing_timer, "0: Make grid");
-  GridGenerator::hyper_cube(tria);
-  tria.refine_global(par.n_global_refinements);
+  //GridGenerator::hyper_cube(tria);
+  //tria.refine_global(par.n_global_refinements);
+  GridGenerator::subdivided_hyper_cube(tria, Utilities::pow(2, par.n_global_refinements));
 
   locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(
@@ -153,13 +235,6 @@ LOD<dim, spacedim>::create_patches()
         vector_cell_index); // we need the central cell to be the first one,
                             // after that order is not relevant
 
-      for (int l_row = -par.oversampling;
-           l_row <= static_cast<int>(par.oversampling);
-           ++l_row)
-        {
-          double x_j = x + l_row * H;
-          if (x_j > 0 && x_j < 1) // domain borders
-            {
               for (int l_col = -par.oversampling;
                    l_col <= static_cast<int>(par.oversampling);
                    ++l_col)
@@ -167,6 +242,13 @@ LOD<dim, spacedim>::create_patches()
                   const double y_j = y + l_col * H;
                   if (y_j > 0 && y_j < 1)
                     {
+      for (int l_row = -par.oversampling;
+           l_row <= static_cast<int>(par.oversampling);
+           ++l_row)
+        {
+          double x_j = x + l_row * H;
+          if (x_j > 0 && x_j < 1) // domain borders
+            {
                       const unsigned int vector_cell_index_j =
                         (int)floor(x_j / H) +
                         N_cells_per_line * (int)floor(y_j / H);
@@ -190,7 +272,6 @@ LOD<dim, spacedim>::create_patches()
       // auto cell_index = cell->active_cell_index();
       {
         auto patch = &patches.emplace_back();
-
 
         for (auto neighbour_ordered_index : cells_in_patch[vector_cell_index])
           {
@@ -364,6 +445,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
       // create_mesh_for_patch(*current_patch);
       dh_fine_patch.reinit(current_patch->sub_tria);
       dh_fine_patch.distribute_dofs(*fe_fine);
+      compute_renumbering_lex(dh_fine_patch);
 
       dh_coarse_patch.reinit(current_patch->sub_tria);
       dh_coarse_patch.distribute_dofs(*fe_coarse);
@@ -494,6 +576,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
               coarse_dofs_on_this_cell[d] += spacedim;
           }
       }
+
 
       if (par.LOD_stabilization && boundary_dofs_fine.size() > 0)
         {
@@ -918,6 +1001,7 @@ LOD<dim, spacedim>::assemble_global_matrix()
       const auto current_patch = &patches[current_patch_id];
       dh_fine_current_patch.reinit(current_patch->sub_tria);
       dh_fine_current_patch.distribute_dofs(*fe_fine);
+      compute_renumbering_lex(dh_fine_current_patch);
 
       for (auto iterator_to_cell_in_current_patch :
            dh_fine_current_patch.active_cell_iterators())
@@ -1276,6 +1360,13 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   // auto exact_vec_locally_relevant(locally_relevant_solution);
   // exact_vec_locally_relevant = exact_vec;
 
+      DataOutBase::VtkFlags flags;
+
+      if (dim > 1)
+        flags.write_higher_order_cells = true;
+
+      data_out.set_flags(flags);
+
   data_out.attach_dof_handler(dh);
 
   data_out.add_data_vector(fem_solution,
@@ -1294,6 +1385,7 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                            lod_names,
                            DataOut<dim>::type_dof_data,
                            data_component_interpretation);
+  if constexpr (spacedim == 2)
   data_out.add_data_vector(fem_coarse_solution_interpolated,
                            fem_coarse_names,
                            DataOut<dim>::type_dof_data,
@@ -1366,7 +1458,7 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   //                                  data_component_interpretation);
   //       }
   //   }
-  data_out.build_patches();
+  data_out.build_patches(par.n_subdivisions);
   const std::string filename = par.output_name + "_fine.vtu";
   data_out.write_vtu_in_parallel(par.output_directory + "/" + filename,
                                  mpi_communicator);

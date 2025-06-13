@@ -550,9 +550,9 @@ class LOD
 public:
   LOD();
 
-  unsigned int oversampling         = 1;
+  unsigned int oversampling         = 3;
   unsigned int n_subdivisions       = 2;
-  unsigned int n_global_refinements = 2;
+  unsigned int n_global_refinements = 3;
   bool constant_coefficients = true;
 
   // rhs used to read from input file can also be defined with the class above
@@ -709,8 +709,15 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::make_grid()
 {
+  if(false)
+  {
   GridGenerator::hyper_cube(tria);
   tria.refine_global(n_global_refinements);
+  }
+  else
+  {
+    GridGenerator::subdivided_hyper_cube(tria, Utilities::pow(2, n_global_refinements));
+  }
 
   locally_owned_patches =
     Utilities::MPI::create_evenly_distributed_partitioning(
@@ -1087,6 +1094,7 @@ LOD<dim, spacedim>::compute_basis_function_candidates()
                 }
 
               selected_basis_function /= selected_basis_function.l2_norm();
+
               current_patch->basis_function.push_back(selected_basis_function);
             }
         }
@@ -1310,7 +1318,6 @@ template <int dim, int spacedim>
 void
 LOD<dim, spacedim>::solve()
 {
-
   basis_matrix_transposed.Tvmult(system_rhs, fem_rhs);
   pcout << "     rhs l2 norm = " << system_rhs.l2_norm() << std::endl;
 
@@ -1405,10 +1412,14 @@ LOD<dim, spacedim>::compare_lod_with_fem()
   basis_matrix_transposed.vmult(lod_solution, solution);
 
   // output fem solution
+  std::vector<std::string> names(spacedim, "solution");
   std::vector<std::string> fem_names(spacedim, "fem_reference");
   std::vector<std::string> lod_names(spacedim, "lod_solution");
 
   data_out.attach_dof_handler(dh);
+
+  data_out.add_data_vector(solution,
+                           "solution");
 
   data_out.add_data_vector(fem_solution,
                            fem_names,
@@ -1419,7 +1430,7 @@ LOD<dim, spacedim>::compare_lod_with_fem()
                            DataOut<dim>::type_dof_data,
                            data_component_interpretation);
 
-  data_out.build_patches();
+  data_out.build_patches(n_subdivisions);
   const std::string filename = "solution_fine.vtu";
   data_out.write_vtu_in_parallel(filename,
                                  mpi_communicator);
@@ -1462,6 +1473,7 @@ LOD<dim, spacedim>::run()
   assemble_global_matrix();
   assemble_and_solve_fem_problem();
   solve();
+  compare_lod_with_fem();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1524,7 +1536,7 @@ class DiffusionProblem : public LOD<dim, spacedim>
 public:
   DiffusionProblem()
     : LOD<dim, spacedim>()
-    , Alpha(1, 100, 8){};
+    , Alpha(1.0, 1.0, 8){};
 
   typedef LOD<dim, spacedim> lod;
 
